@@ -2,9 +2,9 @@
 
 ## Stack
 @~/.claude/stacks/wordpress-roots.md
-@~/.claude/libraries/foundation.md
-@~/.claude/libraries/scss.md
-@~/.claude/libraries/html5.md
+@./.claude/libraries/foundation.md
+@./.claude/libraries/scss.md
+@./.claude/libraries/html5.md
 
 ## Local Development
 - Environment: Local by Flywheel / Valet

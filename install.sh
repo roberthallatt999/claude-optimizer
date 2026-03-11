@@ -124,7 +124,7 @@ echo -e "  ${GREEN}✓${NC} Aliases added"
 echo ""
 
 # Install global Claude config if directories exist
-if [[ -d "$SCRIPT_DIR/stacks" ]] || [[ -d "$SCRIPT_DIR/libraries" ]] || [[ -f "$SCRIPT_DIR/global/CLAUDE.md" ]]; then
+if [[ -d "$SCRIPT_DIR/stacks" ]] || [[ -f "$SCRIPT_DIR/global/CLAUDE.md" ]]; then
   echo -e "${CYAN}Installing global Claude configuration...${NC}"
   CLAUDE_DIR="$HOME/.claude"
   mkdir -p "$CLAUDE_DIR"
@@ -140,19 +140,6 @@ if [[ -d "$SCRIPT_DIR/stacks" ]] || [[ -d "$SCRIPT_DIR/libraries" ]] || [[ -f "$
       fi
     done
     [[ $STACK_COUNT -gt 0 ]] && echo -e "  ${GREEN}✓${NC} Installed $STACK_COUNT stack knowledge files"
-  fi
-
-  # Install libraries
-  if [[ -d "$SCRIPT_DIR/libraries" ]]; then
-    mkdir -p "$CLAUDE_DIR/libraries"
-    LIBRARY_COUNT=0
-    for file in "$SCRIPT_DIR/libraries"/*.md; do
-      if [[ -f "$file" ]]; then
-        cp "$file" "$CLAUDE_DIR/libraries/"
-        ((LIBRARY_COUNT++))
-      fi
-    done
-    [[ $LIBRARY_COUNT -gt 0 ]] && echo -e "  ${GREEN}✓${NC} Installed $LIBRARY_COUNT library reference files"
   fi
 
   # Install global CLAUDE.md (only if it doesn't exist)

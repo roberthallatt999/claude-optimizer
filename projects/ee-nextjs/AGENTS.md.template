@@ -1,0 +1,165 @@
+# AGENTS.md -- {{PROJECT_NAME}}
+
+This file provides project context for AI coding tools (OpenAI Codex, GitHub Copilot Workspace,
+and similar API-based assistants). Read this file at the start of each session.
+
+## Project Identity
+
+- **Name**: {{PROJECT_NAME}}
+- **Stack**: Headless ExpressionEngine (Coilpack/Laravel) + Next.js
+- **Backend**: Coilpack (Laravel + EE CMS) serving REST API routes
+- **Frontend**: Next.js 14+ (App Router, React Server Components)
+- **Database**: {{DDEV_DB_TYPE}} {{DDEV_DB_VERSION}}
+- **PHP**: {{DDEV_PHP}}+
+- **Environment**: DDEV (backend Docker) + Node.js (frontend)
+- **Backend URL**: {{DDEV_PRIMARY_URL}}
+- **Frontend URL**: http://localhost:3000
+
+## Directory Structure
+
+```
+{{PROJECT_SLUG}}/
+├── backend/                       # Coilpack (Laravel + EE)
+│   ├── app/                       # Laravel application code
+│   │   ├── Http/Controllers/
+│   │   │   └── Api/               # API controllers (headless)
+│   │   ├── Models/
+│   │   ├── Providers/
+│   │   └── Services/
+│   ├── config/
+│   │   ├── coilpack.php           # Coilpack configuration
+│   │   ├── cors.php               # CORS for Next.js frontend
+│   │   └── sanctum.php            # API authentication
+│   ├── routes/
+│   │   ├── web.php                # Laravel web routes
+│   │   └── api.php                # REST API routes (headless)
+│   ├── system/
+│   │   ├── ee/                    # EE core -- do not modify
+│   │   └── user/
+│   │       ├── config/config.php  # EE config (contains DB creds -- never read)
+│   │       ├── templates/         # EE template groups
+│   │       └── addons/
+│   ├── {{DDEV_DOCROOT}}/          # Document root
+│   ├── storage/                   # Laravel storage (logs, cache, sessions)
+│   ├── bootstrap/cache/           # Laravel bootstrap cache
+│   └── .ddev/
+│
+├── frontend/                      # Next.js application
+│   ├── app/                       # App Router
+│   │   ├── layout.tsx
+│   │   ├── page.tsx
+│   │   └── [routes]/
+│   ├── components/                # React components
+│   ├── lib/                       # Utility functions
+│   │   ├── api.ts                 # API client for Coilpack
+│   │   └── queries.ts             # Query definitions
+│   ├── hooks/                     # Custom React hooks
+│   ├── types/                     # TypeScript types
+│   ├── public/                    # Static assets
+│   ├── next.config.js
+│   └── tailwind.config.ts
+│
+└── .github/workflows/
+```
+
+## Development Commands
+
+```bash
+# Backend (DDEV)
+ddev start                          # Start local environment
+ddev stop                           # Stop local environment
+ddev describe                       # Show URLs and connection info
+ddev ssh                            # SSH into web container
+
+# Laravel (via Artisan)
+ddev artisan route:list             # List all routes (including API)
+ddev artisan make:controller Name   # Generate controller
+ddev artisan make:model Name        # Generate model
+ddev artisan cache:clear            # Clear application cache
+ddev artisan config:clear           # Clear config cache
+ddev artisan migrate                # Run database migrations
+
+# ExpressionEngine CLI
+ddev ee cache:clear                 # Clear EE caches
+ddev ee list                        # List EE commands
+
+# Composer
+ddev composer install               # Install PHP dependencies
+ddev composer require package/name  # Add a package
+
+# Frontend (Next.js)
+cd frontend
+npm install                         # Install dependencies
+npm run dev                         # Dev server (http://localhost:3000)
+npm run build                       # Build for production
+npm run start                       # Start production server
+npm run lint                        # ESLint
+
+# Database
+ddev export-db > backup.sql.gz      # Export (compressed)
+ddev import-db < backup.sql.gz      # Import
+```
+
+## Git Workflow
+
+- **Main branch**: `{{GIT_MAIN_BRANCH}}` -- production, never commit directly
+- **Integration branch**: `{{GIT_INTEGRATION_BRANCH}}` -- feature branches merge here
+- **Feature branches**: `feature/<description>` from `{{GIT_INTEGRATION_BRANCH}}`
+- **Hotfix branches**: `hotfix/<description>` from `{{GIT_MAIN_BRANCH}}`
+
+## Coding Conventions
+
+### PHP (Coilpack/Laravel Backend)
+- PSR-12, 4-space indentation, type declarations for parameters and returns
+- Laravel conventions (service providers, facades, Eloquent)
+- Use Laravel API Resource classes for response formatting
+- Use null coalescing (`??`) and nullsafe operator (`?->`)
+- Early returns to reduce nesting
+
+### TypeScript (Next.js Frontend)
+- Strict mode; no `any` type
+- Define interfaces for all API responses
+- Prefer Server Components; use `'use client'` only for interactivity
+- 2-space indentation, `const` over `let`
+- ES6+ features
+
+### CSS
+- Tailwind utility classes, mobile-first responsive design
+- Brand colors from `tailwind.config.ts`
+
+## API Integration Layer
+
+- REST API routes defined in `routes/api.php`, prefixed with `/api/v1/`
+- CORS configured in Laravel `config/cors.php` for Next.js origin
+- Authentication via Laravel Sanctum for API token management
+- API controllers in `app/Http/Controllers/Api/`
+- Next.js API client in `frontend/lib/api.ts`
+- Environment variable `COILPACK_API_URL` in frontend `.env.local`
+
+## Security Requirements
+
+**Never read, display, or include the contents of these files:**
+
+| Category | Files / Patterns |
+|----------|-----------------|
+| Environment | `.env`, `.env.*`, `.env.php`, `ee.env` -- `.env.example` is safe |
+| EE config | `system/user/config/config.php` (contains DB credentials & encryption keys) |
+| Keys & certs | `*.key`, `*.pem`, `*.p12`, `*.pfx`, `*.crt`, `*.cer` |
+| Credentials | `auth.json`, `credentials.json`, `*service-account*.json` |
+| Cloud auth | `.aws/credentials`, `.aws/config`, `.azure/` |
+| SSH / Git | `.ssh/`, `.git-credentials`, `.netrc` |
+| Secrets | `secrets.yml`, `vault.yml`, any file with `secret` or `token` in name |
+| DB snapshots | `.ddev/db_snapshots/`, `.ddev/import-db/`, `*.sql.gz` |
+
+**Hard rules:**
+- Never edit `system/ee/` (EE core) or `vendor/` or `node_modules/`
+- `storage/`, `bootstrap/cache/`, `.next/`, `out/` are generated -- never commit
+- Never include secrets in code examples or responses
+- Frontend env vars requiring client access must use `NEXT_PUBLIC_` prefix
+
+## Important Notes
+
+- Laravel configuration lives in `.env`; EE configuration in `system/user/config/config.php`
+- Both use the same database but serve different application layers
+- Cache invalidation: `ddev ee cache:clear && ddev artisan optimize:clear`
+- See `CLAUDE.md` for Claude Code-specific workflow skills and the memory system

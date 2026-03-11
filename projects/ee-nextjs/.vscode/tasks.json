@@ -1,0 +1,69 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "DDEV: Start",
+      "type": "shell",
+      "command": "ddev start",
+      "problemMatcher": [],
+      "group": "build"
+    },
+    {
+      "label": "DDEV: Stop",
+      "type": "shell",
+      "command": "ddev stop",
+      "problemMatcher": []
+    },
+    {
+      "label": "DDEV: Xdebug On",
+      "type": "shell",
+      "command": "ddev xdebug on",
+      "problemMatcher": []
+    },
+    {
+      "label": "DDEV: Xdebug Off",
+      "type": "shell",
+      "command": "ddev xdebug off",
+      "problemMatcher": []
+    },
+    {
+      "label": "EE: Clear Caches",
+      "type": "shell",
+      "command": "ddev ee cache:clear",
+      "problemMatcher": []
+    },
+    {
+      "label": "Laravel: Clear All Caches",
+      "type": "shell",
+      "command": "ddev artisan optimize:clear",
+      "problemMatcher": []
+    },
+    {
+      "label": "Laravel: Route List",
+      "type": "shell",
+      "command": "ddev artisan route:list --path=api",
+      "problemMatcher": []
+    },
+    {
+      "label": "Next.js: Dev Server",
+      "type": "shell",
+      "command": "cd frontend && npm run dev",
+      "problemMatcher": [],
+      "group": "build",
+      "isBackground": true
+    },
+    {
+      "label": "Next.js: Build",
+      "type": "shell",
+      "command": "cd frontend && npm run build",
+      "problemMatcher": [],
+      "group": "build"
+    },
+    {
+      "label": "Next.js: Lint",
+      "type": "shell",
+      "command": "cd frontend && npm run lint",
+      "problemMatcher": []
+    }
+  ]
+}

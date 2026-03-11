@@ -1,0 +1,40 @@
+# =============================================================================
+# Environment Files (contain API keys, tokens, and secrets)
+# These hold Strapi admin secrets, API tokens, and database credentials
+# =============================================================================
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+
+# =============================================================================
+# Astro Build Output (may embed env vars in bundled code)
+# =============================================================================
+.astro/
+dist/
+
+# =============================================================================
+# Strapi Build & Runtime (contains compiled admin, cache, database)
+# =============================================================================
+backend/build/
+backend/.cache/
+backend/.tmp/
+backend/database/
+backend/public/uploads/
+
+# =============================================================================
+# Node Dependencies (never commit — use npm install)
+# =============================================================================
+node_modules/
+
+# =============================================================================
+# Debug Logs
+# =============================================================================
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*

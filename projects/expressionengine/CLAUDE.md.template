@@ -5,9 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Stack Configuration
 
 @~/.claude/stacks/expressionengine.md
-@~/.claude/libraries/tailwind.md
-@~/.claude/libraries/html5.md
-@~/.claude/libraries/vanilla-js.md
+@./.claude/libraries/tailwind.md
+@./.claude/libraries/html5.md
+@./.claude/libraries/vanilla-js.md
 
 ## Project Overview
 

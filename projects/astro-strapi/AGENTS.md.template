@@ -1,0 +1,134 @@
+# AGENTS.md — {{PROJECT_NAME}}
+
+This file provides project context for AI coding tools (OpenAI Codex, GitHub Copilot Workspace,
+and similar API-based assistants). Read this file at the start of each session.
+
+## Project Identity
+
+- **Name**: {{PROJECT_NAME}}
+- **Stack**: Astro (frontend) + Strapi (headless CMS backend)
+- **Language**: TypeScript
+- **Strapi Admin**: http://localhost:1337/admin
+- **Strapi API**: http://localhost:1337/api
+- **Frontend URL**: http://localhost:4321
+
+## Directory Structure
+
+```
+{{PROJECT_SLUG}}/
+├── backend/                    # Strapi application
+│   ├── config/                 # Strapi configuration
+│   │   ├── database.ts         # Database config
+│   │   ├── server.ts           # Server config
+│   │   ├── admin.ts            # Admin panel config
+│   │   └── plugins.ts          # Plugin configuration
+│   ├── src/
+│   │   ├── api/                # Content type APIs
+│   │   │   └── [content-type]/ # Each content type
+│   │   │       ├── content-types/
+│   │   │       ├── controllers/
+│   │   │       ├── routes/
+│   │   │       └── services/
+│   │   ├── components/         # Reusable component schemas
+│   │   └── extensions/         # Custom extensions
+│   ├── database/               # SQLite database files
+│   ├── public/uploads/         # Media uploads
+│   └── package.json
+│
+├── frontend/                   # Astro application
+│   ├── astro.config.mjs        # Astro configuration
+│   ├── src/
+│   │   ├── layouts/            # Astro layouts
+│   │   ├── pages/              # File-based routing
+│   │   ├── components/         # Astro + island components
+│   │   ├── lib/                # Utilities and API client
+│   │   │   └── strapi.ts       # Strapi REST client
+│   │   ├── styles/             # Global styles
+│   │   └── types/              # TypeScript types
+│   ├── public/                 # Static assets
+│   ├── tailwind.config.mjs
+│   └── package.json
+│
+├── .env                        # Shared environment variables
+└── package.json                # Root workspaces config
+```
+
+## Development Commands
+
+### Backend (Strapi)
+```bash
+cd backend
+npm install              # Install dependencies
+npm run develop          # Start Strapi dev server (:1337)
+npm run build            # Build Strapi admin panel
+npm run start            # Start production server
+npm run strapi generate  # Generate content types, APIs
+```
+
+### Frontend (Astro)
+```bash
+cd frontend
+npm install              # Install dependencies
+npm run dev              # Dev server (http://localhost:4321)
+npm run build            # Build for production
+npm run preview          # Preview production build
+```
+
+## Git Workflow
+
+- **Main branch**: `{{GIT_MAIN_BRANCH}}` — production, never commit directly
+- **Integration branch**: `{{GIT_INTEGRATION_BRANCH}}` — feature branches merge here
+- **Feature branches**: `feature/<description>` from `{{GIT_INTEGRATION_BRANCH}}`
+- **Hotfix branches**: `hotfix/<description>` from `{{GIT_MAIN_BRANCH}}`
+
+## Coding Conventions
+
+### TypeScript
+- Use strict mode; no `any` type; define interfaces for all API responses
+- Use discriminated unions for complex state
+- Prefer `type` for unions/intersections, `interface` for object shapes
+
+### Astro
+- Use `.astro` files for static components (default)
+- Use React/Vue/Svelte only for interactive islands (`client:load`, `client:visible`, `client:idle`)
+- Keep frontmatter (`---`) minimal; extract complex logic to `lib/`
+- Use `getStaticPaths()` for dynamic routes in SSG mode
+
+### Strapi
+- Define content types via the Content-Type Builder or JSON schema
+- Use controllers for custom business logic, services for reusable operations
+- Use lifecycle hooks for side effects (email on publish, cache invalidation)
+- REST API is the primary integration method
+
+### General
+- 2-space indentation; single quotes for strings
+- Early returns to reduce nesting
+- Mobile-first responsive design with Tailwind CSS
+
+## Security Requirements
+
+**Never read, display, or include the contents of these files:**
+
+| Category | Files / Patterns |
+|----------|-----------------|
+| Environment | `.env`, `.env.*`, `.env.local`, `.env.*.local` — `.env.example` is safe |
+| Keys & certs | `*.key`, `*.pem`, `*.p12`, `*.pfx`, `*.crt`, `*.cer` |
+| Credentials | `auth.json`, `credentials.json`, `*service-account*.json` |
+| Cloud auth | `.aws/credentials`, `.aws/config`, `.azure/` |
+| SSH / Git | `.ssh/`, `.git-credentials`, `.netrc` |
+| Secrets | `secrets.yml`, `vault.yml`, any file with `secret` or `token` in name |
+| Database | `backend/database/*.db`, `backend/database/*.sqlite` |
+
+**Hard rules:**
+- Astro `PUBLIC_` prefixed env vars are bundled into the client — never use this prefix for secrets
+- Strapi API tokens and admin credentials must never appear in code or responses
+- Never include API keys or tokens in code examples or responses
+- Verify `.gitignore` covers `.env` variants and `database/` before staging
+
+## Important Notes
+
+- `node_modules/`, `.astro/`, `dist/`, and `backend/build/` are generated — never edit or commit them
+- Strapi admin requires first-time user creation at `/admin`
+- API permissions must be configured in Strapi admin > Settings > Users & Permissions > Roles
+- Strapi returns relative media URLs; prepend `STRAPI_URL` in frontend
+- See `CLAUDE.md` for Claude Code-specific workflow skills and the memory system

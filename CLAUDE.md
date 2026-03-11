@@ -4,7 +4,7 @@ Automated Claude Code configuration for modern web development stacks with VS Co
 
 ## Project Overview
 
-This repository provides automated Claude Code configuration deployment across **8 technology stacks** with:
+This repository provides automated Claude Code configuration deployment across **13 technology stacks** with:
 - Automatic stack detection
 - Memory bank for persistent context
 - Token optimization and sensitive file protection rules
@@ -16,6 +16,8 @@ This repository provides automated Claude Code configuration deployment across *
 
 ## Supported Stacks
 
+### Monolithic Stacks
+
 | Stack ID | Framework | Template Engine |
 |----------|-----------|-----------------|
 | `expressionengine` | ExpressionEngine 7.x | EE Templates |
@@ -26,6 +28,16 @@ This repository provides automated Claude Code configuration deployment across *
 | `nextjs` | Next.js 14+ | React/TSX |
 | `docusaurus` | Docusaurus 3+ | MDX |
 | `custom` | Discovery mode | Any |
+
+### Headless CMS Stacks
+
+| Stack ID | Backend | Frontend |
+|----------|---------|----------|
+| `craftcms-nuxt` | Craft CMS (GraphQL) | Nuxt 3 (Vue SSR/SSG) |
+| `craftcms-nextjs` | Craft CMS (GraphQL) | Next.js 14+ (React SSR/SSG) |
+| `ee-nextjs` | EE Coilpack (Laravel REST API) | Next.js 14+ (React SSR/SSG) |
+| `astro-strapi` | Strapi (REST/GraphQL) | Astro (Islands) |
+| `astro-sanity` | Sanity.io (GROQ) | Astro (Islands) |
 
 ## Key Files
 
@@ -46,6 +58,11 @@ projects/
 ├── wordpress/                # Full Claude config
 ├── nextjs/                   # Full Claude config
 ├── docusaurus/               # Full Claude config
+├── craftcms-nuxt/            # Headless Craft CMS + Nuxt
+├── craftcms-nextjs/          # Headless Craft CMS + Next.js
+├── ee-nextjs/                # Headless EE Coilpack + Next.js
+├── astro-strapi/             # Astro + Strapi
+├── astro-sanity/             # Astro + Sanity Studio
 └── custom/                   # Discovery mode base
 
 superpowers/
@@ -172,7 +189,8 @@ Templates use `{{VARIABLE}}` syntax, replaced during deployment:
 
 - Genericized all templates (replaced hardcoded project references with `{{PLACEHOLDER}}` variables)
 - Added `sensitive-files.md` rule to prevent reading credentials, secrets, and API keys
-- Added `settings.local.json` with stack-appropriate permissions to all 8 stacks
+- Added 5 headless CMS stacks: `craftcms-nuxt`, `craftcms-nextjs`, `ee-nextjs`, `astro-strapi`, `astro-sanity`
+- Added `settings.local.json` with stack-appropriate permissions to all stacks
 - Added `{{BRAND_*}}` color placeholders for project brand colors
 - Fixed cross-platform `sed -i` compatibility (macOS/Linux)
 - Implemented `--skip-vscode` and `--install-extensions` CLI flags

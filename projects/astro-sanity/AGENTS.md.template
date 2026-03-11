@@ -1,0 +1,131 @@
+# AGENTS.md — {{PROJECT_NAME}}
+
+This file provides project context for AI coding tools (OpenAI Codex, GitHub Copilot Workspace,
+and similar API-based assistants). Read this file at the start of each session.
+
+## Project Identity
+
+- **Name**: {{PROJECT_NAME}}
+- **Framework**: Astro 4.x + Sanity Studio v3
+- **Language**: TypeScript
+- **Query Language**: GROQ (Graph-Relational Object Queries)
+- **Frontend URL**: http://localhost:4321
+- **Sanity Studio**: http://localhost:4321/studio (embedded) or http://localhost:3333 (standalone)
+
+## Directory Structure
+
+```
+{{PROJECT_SLUG}}/
+├── astro.config.mjs               # Astro configuration
+├── sanity.config.ts                # Sanity Studio configuration
+├── sanity.cli.ts                   # Sanity CLI configuration
+├── src/
+│   ├── layouts/                    # Astro layouts
+│   │   └── BaseLayout.astro
+│   ├── pages/                      # File-based routing
+│   │   ├── index.astro             # Homepage
+│   │   ├── blog/
+│   │   │   ├── index.astro         # Blog listing
+│   │   │   └── [slug].astro        # Blog detail
+│   │   └── studio/
+│   │       └── [...catchall].astro # Embedded Sanity Studio
+│   ├── components/                 # Astro + framework components
+│   │   ├── Header.astro
+│   │   ├── Footer.astro
+│   │   ├── PortableText.astro      # Sanity Portable Text renderer
+│   │   └── interactive/            # Client-side islands
+│   ├── lib/                        # Utility functions
+│   │   └── sanity.ts               # Sanity client & GROQ queries
+│   ├── sanity/                     # Sanity schema & config
+│   │   ├── schemas/                # Content type schemas
+│   │   │   ├── index.ts            # Schema registry
+│   │   │   ├── post.ts             # Blog post schema
+│   │   │   ├── page.ts             # Page schema
+│   │   │   └── blockContent.ts     # Rich text (Portable Text) schema
+│   │   └── lib/                    # Sanity utilities
+│   ├── styles/                     # Global styles
+│   │   └── global.css
+│   └── types/                      # TypeScript types
+├── public/                         # Static assets
+├── tailwind.config.mjs
+└── package.json
+```
+
+## Development Commands
+
+```bash
+npm install                         # Install dependencies
+npm run dev                         # Start Astro + embedded Sanity Studio (:4321)
+npm run build                       # Build for production
+npm run preview                     # Preview production build
+
+# Sanity CLI
+npx sanity dev                      # Start Sanity Studio standalone (:3333)
+npx sanity deploy                   # Deploy Studio to sanity.studio
+npx sanity dataset export           # Export dataset
+npx sanity dataset import           # Import dataset
+npx sanity schema extract           # Extract schema for typegen
+npx sanity typegen generate         # Generate TypeScript types from schema
+```
+
+## Git Workflow
+
+- **Main branch**: `{{GIT_MAIN_BRANCH}}` — production, never commit directly
+- **Integration branch**: `{{GIT_INTEGRATION_BRANCH}}` — feature branches merge here
+- **Feature branches**: `feature/<description>` from `{{GIT_INTEGRATION_BRANCH}}`
+- **Hotfix branches**: `hotfix/<description>` from `{{GIT_MAIN_BRANCH}}`
+
+## Coding Conventions
+
+### TypeScript
+- Use strict mode; no `any` type; define types for all Sanity documents
+- Use `sanity typegen generate` to auto-generate types from schemas
+- Prefer `type` for unions/intersections, `interface` for object shapes
+
+### Astro
+- Use `.astro` for static components (default)
+- Use React/Vue/Svelte only for interactive islands (`client:load`, `client:visible`, `client:idle`)
+- Keep frontmatter (`---`) minimal; extract logic to `lib/`
+
+### Sanity Schemas
+- One schema per file in `src/sanity/schemas/`
+- Use `defineType` and `defineField` for type safety
+- Add validation rules to required fields
+- Include `preview` configuration for all document types
+
+### GROQ Queries
+- Centralize queries in `src/lib/sanity.ts`
+- Use parameterized queries (never interpolate variables into GROQ strings)
+- Project only the fields you need (avoid `...` spread in production queries)
+
+### General
+- 2-space indentation; single quotes for strings
+- Early returns to reduce nesting
+- Mobile-first responsive design with Tailwind CSS
+
+## Security Requirements
+
+**Never read, display, or include the contents of these files:**
+
+| Category | Files / Patterns |
+|----------|-----------------|
+| Environment | `.env`, `.env.*`, `.env.local`, `.env.*.local` — `.env.example` is safe |
+| Keys & certs | `*.key`, `*.pem`, `*.p12`, `*.pfx`, `*.crt`, `*.cer` |
+| Credentials | `auth.json`, `credentials.json`, `*service-account*.json` |
+| Cloud auth | `.aws/credentials`, `.aws/config`, `.azure/` |
+| SSH / Git | `.ssh/`, `.git-credentials`, `.netrc` |
+| Secrets | `secrets.yml`, `vault.yml`, any file with `secret` or `token` in name |
+
+**Hard rules:**
+- `PUBLIC_` prefixed env vars are exposed to the client — never use this prefix for secrets
+- Sanity project ID and dataset name are safe to expose; API tokens are NOT
+- Never include API keys or tokens in code examples or responses
+- Verify `.gitignore` covers `.env` variants before staging
+
+## Important Notes
+
+- `.astro/` and `node_modules/` are generated — never edit or commit them
+- Images should always use `urlFor()` helper with width/height transforms via Sanity CDN
+- Use Portable Text renderer for all Sanity rich text content
+- Configure Sanity webhooks to trigger Astro rebuilds on content publish
+- See `CLAUDE.md` for Claude Code-specific workflow skills and the memory system

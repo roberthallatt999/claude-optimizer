@@ -78,6 +78,7 @@ Every deployment creates:
 - `CLAUDE.md` - Generated from stack template
 - `MEMORY.md` - Persistent memory bank
 - `.claude/` directory with rules, agents, commands, skills, hooks
+- `.claude/libraries/` - Project-local library references
 - `.claude/settings.local.json` - Stack-appropriate permissions
 - `.vscode/` - Editor settings (unless `--skip-vscode`)
 

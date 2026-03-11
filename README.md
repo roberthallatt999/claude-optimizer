@@ -100,6 +100,7 @@ This detects 50+ technologies (React, Vue, Laravel, Django, etc.), deploys base 
 | **Agents** | `.claude/agents/` - Custom agent personas |
 | **Commands** | `.claude/commands/` - Slash commands |
 | **Skills** | `.claude/skills/` - Workflow automation |
+| **Library References** | `.claude/libraries/` - Framework/CSS/JS reference docs |
 | **Hooks** | `.claude/hooks/` - Session hooks |
 
 ### Additional Features
@@ -119,10 +120,15 @@ This detects 50+ technologies (React, Vue, Laravel, Django, etc.), deploys base 
 |-----------|-----------|
 | ExpressionEngine 7.x | `system/ee/` directory |
 | Craft CMS | `craft` executable |
+| Craft CMS + Nuxt | Craft CMS + `frontend/nuxt.config.ts` |
+| Craft CMS + Next.js | Craft CMS + `frontend/next.config.js` |
+| EE Coilpack + Next.js | Coilpack + `frontend/next.config.js` |
 | WordPress (Roots/Bedrock) | `web/app/themes/` structure |
 | WordPress | `wp-config.php` |
 | Next.js 14+ | `next.config.js` or `.mjs` |
 | Docusaurus 3+ | `docusaurus.config.js` |
+| Astro + Sanity | `astro.config.mjs` + `sanity.config.ts` |
+| Astro + Strapi | `astro.config.mjs` + Strapi in `backend/` |
 | Coilpack (Laravel + EE) | Laravel + ExpressionEngine structure |
 
 ### Technologies
@@ -185,7 +191,7 @@ ai-config --project=<path> [options]
 
 ### Available Stacks
 
-`expressionengine`, `coilpack`, `craftcms`, `wordpress-roots`, `wordpress`, `nextjs`, `docusaurus`, `custom`
+`expressionengine`, `coilpack`, `craftcms`, `craftcms-nuxt`, `craftcms-nextjs`, `ee-nextjs`, `wordpress-roots`, `wordpress`, `nextjs`, `docusaurus`, `astro-strapi`, `astro-sanity`, `custom`
 
 ---
 
@@ -230,8 +236,13 @@ ai-config --project=. --install-extensions
 |-------|------------|
 | ExpressionEngine | EE syntax, Tailwind, Intelephense, Xdebug |
 | Craft CMS | Twig, Tailwind, Intelephense |
+| Craft CMS + Nuxt | Volar, Tailwind, Intelephense, Xdebug |
+| Craft CMS + Next.js | Tailwind, ESLint, Intelephense, Xdebug |
+| EE Coilpack + Next.js | Tailwind, ESLint, Intelephense, Xdebug |
 | WordPress | Blade, Tailwind, WordPress Toolbox |
 | Next.js | Tailwind, ESLint, Prettier |
+| Astro + Strapi | Astro, Tailwind, ESLint, Prettier |
+| Astro + Sanity | Astro, Tailwind, ESLint, Prettier |
 
 ---
 
@@ -250,9 +261,11 @@ your-project/
 ├── CLAUDE.md                     # Claude Code context
 ├── MEMORY.md                     # Persistent memory bank
 ├── .claude/
+│   ├── libraries/                # Project-local framework/library references
 │   ├── rules/                    # Coding standards
 │   ├── agents/                   # AI personas
 │   ├── commands/                 # Slash commands
+│   ├── skills/                   # Workflow skills
 │   ├── skills/superpowers/       # Workflow skills
 │   └── hooks/                    # Session hooks
 └── .vscode/
@@ -319,6 +332,8 @@ Contributions welcome! See [Contributing Guide](docs/development/contributing.md
 ## Credits
 
 The [Superpowers](https://github.com/obra/superpowers) workflow skills framework by Jesse Vincent is included via a [forked copy](https://github.com/roberthallatt999/superpowers). Superpowers provides structured Claude Code skills for planning, debugging, code review, TDD, and more.
+
+To update Superpowers to the latest upstream version, run `./update-superpowers.sh`.
 
 ## License
 

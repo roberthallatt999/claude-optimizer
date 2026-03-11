@@ -1,0 +1,344 @@
+# Project: {{PROJECT_NAME}}
+
+## Overview
+
+This is an **Astro + Strapi** project. Strapi serves as the headless CMS backend (REST/GraphQL API), and Astro provides the frontend (static-first with islands architecture).
+
+- **Strapi Admin**: http://localhost:1337/admin
+- **Strapi API**: http://localhost:1337/api
+- **Frontend URL**: http://localhost:4321
+- **Environment**: Node.js (both)
+
+## Tech Stack
+
+### Backend (Strapi)
+- **CMS**: Strapi 4.x/5.x
+- **API**: REST (default) + optional GraphQL plugin
+- **Database**: SQLite (dev) / PostgreSQL (production)
+- **Language**: JavaScript/TypeScript
+- **Media**: Local uploads or cloud providers (Cloudinary, S3)
+
+### Frontend (Astro)
+- **Framework**: Astro 4.x
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS
+- **Rendering**: Static (SSG) with optional SSR islands
+- **UI Islands**: React, Vue, or Svelte components (as needed)
+- **Content**: Astro Content Collections + Strapi API
+
+## Git Workflow
+
+- **Main Branch:** `{{GIT_MAIN_BRANCH}}` (production)
+- **Integration Branch:** `{{GIT_INTEGRATION_BRANCH}}` (feature branches merge here)
+- **Feature Branch Pattern:** `feature/<description>` from `{{GIT_INTEGRATION_BRANCH}}`
+- **Hotfix Branch Pattern:** `hotfix/<description>` from `{{GIT_MAIN_BRANCH}}`
+
+## Directory Structure
+
+```
+{{PROJECT_SLUG}}/
+├── backend/                       # Strapi application
+│   ├── config/                    # Strapi configuration
+│   │   ├── database.ts            # Database config
+│   │   ├── server.ts              # Server config
+│   │   ├── admin.ts               # Admin panel config
+│   │   └── plugins.ts             # Plugin configuration
+│   ├── src/
+│   │   ├── api/                   # Content type APIs
+│   │   │   ├── article/           # Article content type
+│   │   │   │   ├── content-types/
+│   │   │   │   ├── controllers/
+│   │   │   │   ├── routes/
+│   │   │   │   └── services/
+│   │   │   └── page/              # Page content type
+│   │   ├── components/            # Reusable components (shared fields)
+│   │   └── extensions/            # Custom extensions
+│   ├── database/                  # Database files (SQLite)
+│   ├── public/                    # Strapi public assets
+│   │   └── uploads/               # Media uploads
+│   ├── types/                     # Generated TypeScript types
+│   └── package.json
+│
+├── frontend/                      # Astro application
+│   ├── astro.config.mjs           # Astro configuration
+│   ├── src/
+│   │   ├── layouts/               # Astro layouts
+│   │   │   └── BaseLayout.astro
+│   │   ├── pages/                 # File-based routing
+│   │   │   ├── index.astro        # Homepage
+│   │   │   └── blog/
+│   │   │       ├── index.astro    # Blog listing
+│   │   │       └── [slug].astro   # Blog detail
+│   │   ├── components/            # Astro + framework components
+│   │   │   ├── Header.astro
+│   │   │   ├── Footer.astro
+│   │   │   └── interactive/       # Client-side islands
+│   │   ├── lib/                   # Utility functions
+│   │   │   └── strapi.ts          # Strapi API client
+│   │   ├── styles/                # Global styles
+│   │   │   └── global.css
+│   │   └── types/                 # TypeScript types
+│   ├── public/                    # Static assets
+│   ├── tailwind.config.mjs
+│   └── package.json
+│
+├── .env                           # Shared environment variables
+└── package.json                   # Root package.json (workspaces)
+```
+
+## Development Commands
+
+### Backend (Strapi)
+```bash
+cd backend
+npm install                        # Install dependencies
+npm run develop                    # Start Strapi in dev mode (:1337)
+npm run build                      # Build Strapi admin
+npm run start                      # Start Strapi in production mode
+npm run strapi generate            # Generate content types, APIs, etc.
+```
+
+### Frontend (Astro)
+```bash
+cd frontend
+npm install                        # Install dependencies
+npm run dev                        # Dev server (http://localhost:4321)
+npm run build                      # Build for production
+npm run preview                    # Preview production build
+```
+
+## Strapi Content Types
+
+### Creating Content Types
+```bash
+cd backend
+npm run strapi generate content-type article
+```
+
+### Content Type Schema Example
+```json
+// backend/src/api/article/content-types/article/schema.json
+{
+  "kind": "collectionType",
+  "collectionName": "articles",
+  "info": {
+    "singularName": "article",
+    "pluralName": "articles",
+    "displayName": "Article"
+  },
+  "attributes": {
+    "title": { "type": "string", "required": true },
+    "slug": { "type": "uid", "targetField": "title" },
+    "content": { "type": "richtext" },
+    "excerpt": { "type": "text" },
+    "featuredImage": { "type": "media", "allowedTypes": ["images"] },
+    "publishedAt": { "type": "datetime" },
+    "category": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "api::category.category"
+    }
+  }
+}
+```
+
+## API Integration
+
+### Strapi REST API Client
+
+```typescript
+// frontend/src/lib/strapi.ts
+const STRAPI_URL = import.meta.env.STRAPI_URL || 'http://localhost:1337';
+const STRAPI_TOKEN = import.meta.env.STRAPI_TOKEN;
+
+interface StrapiResponse<T> {
+  data: T;
+  meta: { pagination?: { page: number; pageSize: number; total: number } };
+}
+
+export async function fetchStrapi<T>(
+  endpoint: string,
+  params?: Record<string, string>
+): Promise<StrapiResponse<T>> {
+  const url = new URL(`/api${endpoint}`, STRAPI_URL);
+  if (params) {
+    Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
+  }
+
+  const res = await fetch(url.toString(), {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(STRAPI_TOKEN && { 'Authorization': `Bearer ${STRAPI_TOKEN}` }),
+    },
+  });
+
+  if (!res.ok) throw new Error(`Strapi error: ${res.status}`);
+  return res.json();
+}
+
+// Convenience helpers
+export async function getArticles(limit = 10) {
+  return fetchStrapi('/articles', {
+    'populate': '*',
+    'sort': 'publishedAt:desc',
+    'pagination[pageSize]': String(limit),
+  });
+}
+
+export async function getArticle(slug: string) {
+  return fetchStrapi('/articles', {
+    'filters[slug][$eq]': slug,
+    'populate': '*',
+  });
+}
+```
+
+### Using in Astro Pages
+
+```astro
+---
+// src/pages/blog/index.astro
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import { getArticles } from '@/lib/strapi';
+
+const { data: articles } = await getArticles(10);
+---
+
+<BaseLayout title="Blog">
+  <h1>Blog</h1>
+  {articles.map((article) => (
+    <article>
+      <a href={`/blog/${article.attributes.slug}`}>
+        <h2>{article.attributes.title}</h2>
+      </a>
+      <p>{article.attributes.excerpt}</p>
+    </article>
+  ))}
+</BaseLayout>
+```
+
+### Dynamic Routes (SSG)
+
+```astro
+---
+// src/pages/blog/[slug].astro
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import { getArticles, getArticle } from '@/lib/strapi';
+
+export async function getStaticPaths() {
+  const { data: articles } = await getArticles(100);
+  return articles.map((article) => ({
+    params: { slug: article.attributes.slug },
+  }));
+}
+
+const { slug } = Astro.params;
+const { data: articles } = await getArticle(slug);
+const article = articles[0];
+---
+
+<BaseLayout title={article.attributes.title}>
+  <article>
+    <h1>{article.attributes.title}</h1>
+    <div set:html={article.attributes.content} />
+  </article>
+</BaseLayout>
+```
+
+## Astro Patterns
+
+### Layouts
+```astro
+---
+// src/layouts/BaseLayout.astro
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const { title, description } = Astro.props;
+---
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{title}</title>
+  {description && <meta name="description" content={description} />}
+</head>
+<body>
+  <slot />
+</body>
+</html>
+```
+
+### Islands Architecture (Interactive Components)
+```astro
+---
+import Counter from '@/components/interactive/Counter.tsx';
+---
+
+<!-- Static by default -->
+<h1>Static heading</h1>
+
+<!-- Hydrate on client -->
+<Counter client:load />           <!-- Immediate hydration -->
+<Counter client:visible />        <!-- Hydrate when visible -->
+<Counter client:idle />           <!-- Hydrate on idle -->
+<Counter client:media="(min-width: 768px)" />  <!-- Hydrate on media query -->
+```
+
+## Coding Standards
+
+### TypeScript
+- Use strict mode; define types for all Strapi responses
+- Avoid `any` type
+
+### Astro
+- Use `.astro` for static components (default)
+- Use React/Vue/Svelte only for interactive islands
+- Keep frontmatter (`---`) minimal; extract logic to `lib/`
+
+### CSS
+- Use Tailwind utility classes
+- Mobile-first responsive design
+- Scoped styles in `.astro` files when needed
+
+## Important Notes
+
+1. **Strapi admin**: First-time setup requires creating an admin user at `/admin`
+2. **API permissions**: Configure in Strapi admin > Settings > Users & Permissions > Roles
+3. **Environment variables**: Strapi uses `.env`, Astro uses `import.meta.env` (prefix with `PUBLIC_` for client)
+4. **Media URLs**: Strapi returns relative URLs; prepend `STRAPI_URL` in frontend
+5. **Webhooks**: Configure Strapi webhooks to trigger Astro rebuilds on content changes
+6. **Draft/Preview**: Use Strapi's draft system with Astro's SSR mode for previews
+
+{{#SUPERPOWERS}}
+## Workflow Skills (Superpowers)
+
+This project uses structured workflow skills for disciplined AI-assisted development.
+
+### Key Commands
+| Command | When to Use |
+|---------|-------------|
+| `/brainstorm` | Before building new features - design exploration |
+| `/write-plan` | After design approval - create implementation plan |
+| `/execute-plan` | With approved plan - batch execution with checkpoints |
+
+### Core Skills
+| Skill | When to Use |
+|-------|-------------|
+| `brainstorming` | Before any new feature or significant change |
+| `test-driven-development` | All code implementation (RED-GREEN-REFACTOR) |
+| `systematic-debugging` | Bug investigation and root cause analysis |
+| `subagent-driven-development` | Complex tasks requiring parallel work |
+| `verification-before-completion` | Ensure changes actually work |
+
+### How Skills Work
+Skills activate automatically based on task type, or can be invoked explicitly via the Skill tool. The `using-superpowers` bootstrap skill loads on every session start.
+
+**Key Principle**: If a skill might apply (even 1% chance), invoke it. Skills tell you HOW to approach tasks.
+
+See `.claude/skills/superpowers/using-superpowers/SKILL.md` for the full skill usage guide.
+{{/SUPERPOWERS}}

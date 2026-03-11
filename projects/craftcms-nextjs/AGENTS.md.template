@@ -1,0 +1,101 @@
+# AGENTS.md — {{PROJECT_NAME}}
+
+This file provides project context for AI coding tools (OpenAI Codex, GitHub Copilot Workspace,
+and similar API-based assistants). Read this file at the start of each session.
+
+## Project Identity
+
+- **Name**: {{PROJECT_NAME}}
+- **Architecture**: Headless CMS (Craft CMS backend + Next.js frontend)
+- **Backend**: Craft CMS 4.x/5.x with GraphQL API
+- **Frontend**: Next.js 14+ (App Router, React, TypeScript)
+- **Database**: {{DDEV_DB_TYPE}} {{DDEV_DB_VERSION}}
+- **PHP**: {{DDEV_PHP}}+
+- **Backend URL**: {{DDEV_PRIMARY_URL}}
+- **Frontend URL**: http://localhost:3000
+
+## Directory Structure
+
+```
+{{PROJECT_SLUG}}/
+├── backend/                    # Craft CMS
+│   ├── config/                 # Craft configuration (YAML + PHP)
+│   ├── modules/                # Custom Craft modules
+│   ├── templates/              # Minimal Twig (API-focused)
+│   ├── web/                    # Document root
+│   └── .ddev/                  # DDEV config
+│
+├── frontend/                   # Next.js application
+│   ├── app/                    # App Router (file-based routing)
+│   │   ├── layout.tsx          # Root layout
+│   │   ├── page.tsx            # Homepage
+│   │   └── [routes]/           # Route segments
+│   ├── components/             # React components
+│   ├── lib/                    # Utilities (craft.ts, queries.ts)
+│   ├── hooks/                  # Custom React hooks
+│   ├── types/                  # TypeScript type definitions
+│   ├── public/                 # Static assets
+│   └── next.config.js          # Next.js configuration
+```
+
+## Development Commands
+
+```bash
+# Backend (Craft CMS)
+ddev start / ddev stop              # Manage DDEV
+ddev craft migrate/all              # Run migrations
+ddev craft project-config/apply     # Apply project config
+ddev craft clear-caches/all         # Clear caches
+
+# Frontend (Next.js)
+cd frontend && npm run dev          # Dev server (:3000)
+cd frontend && npm run build        # Production build
+cd frontend && npm run start        # Start production server
+cd frontend && npm run lint         # Run ESLint
+```
+
+## Git Workflow
+
+- **Main branch**: `{{GIT_MAIN_BRANCH}}` — production, never commit directly
+- **Integration branch**: `{{GIT_INTEGRATION_BRANCH}}` — feature branches merge here
+- **Feature branches**: `feature/<description>` from `{{GIT_INTEGRATION_BRANCH}}`
+
+## Coding Conventions
+
+### PHP (Craft CMS)
+- PSR-12; type declarations for parameters and returns
+- Custom logic in `modules/`, not in templates
+
+### TypeScript / React (Next.js)
+- Strict TypeScript; no `any` type
+- Server Components by default; `'use client'` only for interactivity
+- Define interfaces for all props and API responses
+- Use `async` Server Components for data fetching (no `useEffect` for initial data)
+
+### General
+- 2-space indentation for TSX/TS/CSS; 4-space for PHP
+- Tailwind utility classes; mobile-first responsive design
+
+## Security Requirements
+
+**Never read, display, or include the contents of these files:**
+
+| Category | Files / Patterns |
+|----------|-----------------|
+| Environment | `.env`, `.env.*` — `.env.example` is safe |
+| Craft config | `config/db.php`, `config/general.php` |
+| Keys & certs | `*.key`, `*.pem`, `*.p12`, `*.crt` |
+| Credentials | `auth.json`, `credentials.json`, `*service-account*.json` |
+| Backups | `storage/backups/`, `.ddev/db_snapshots/` |
+
+**Hard rules:**
+- Never expose GraphQL API tokens in frontend code (never use `NEXT_PUBLIC_` prefix for tokens)
+- Never modify `vendor/` or Craft core
+- CORS must be configured on Craft CMS side
+
+## Important Notes
+
+- GraphQL schema is managed in Craft CMS admin (Settings > GraphQL)
+- Use environment variables for API URLs and tokens (server-side only)
+- Use `next/image` for all images; never use raw `<img>` tags
+- See `CLAUDE.md` for Claude Code-specific workflow skills and the memory system

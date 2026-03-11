@@ -31,6 +31,8 @@ ai-config --project=/path/to/project
    - `ai-config` → Main deployment command
    - `ai-config-docs` → Documentation server
 4. **Installs global Claude config** (if present)
+   - Includes stack metadata and global base guidance.
+   - Project-specific library references are deployed during each `ai-config` run.
 
 ---
 
@@ -135,7 +137,6 @@ rm -rf ~/.ai-config  # or your install location
 
 ```bash
 rm -rf ~/.claude/stacks
-rm -rf ~/.claude/libraries
 ```
 
 ---

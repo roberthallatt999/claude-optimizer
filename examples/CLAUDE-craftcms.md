@@ -2,9 +2,9 @@
 
 ## Stack
 @~/.claude/stacks/craftcms.md
-@~/.claude/libraries/tailwind.md
-@~/.claude/libraries/alpinejs.md
-@~/.claude/libraries/html5.md
+@./.claude/libraries/tailwind.md
+@./.claude/libraries/alpinejs.md
+@./.claude/libraries/html5.md
 
 ## Local Development
 - Environment: DDEV

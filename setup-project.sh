@@ -239,16 +239,27 @@ if [[ -z "$STACK" ]]; then
   # Second try: Detect from project files
   if [[ -z "$STACK" ]]; then
     # We need the detect_stack function - source it inline for now
-    # ExpressionEngine
+    # ExpressionEngine (check for headless Coilpack + Next.js first)
     if [[ -d "$PROJECT_DIR/system/ee" ]] || [[ -f "$PROJECT_DIR/system/user/config/config.php" ]]; then
       if [[ -f "$PROJECT_DIR/composer.json" ]] && grep -q "laravel/framework" "$PROJECT_DIR/composer.json" 2>/dev/null; then
-        STACK="coilpack"
+        if [[ -f "$PROJECT_DIR/frontend/next.config.js" ]] || [[ -f "$PROJECT_DIR/frontend/next.config.mjs" ]] || [[ -f "$PROJECT_DIR/frontend/next.config.ts" ]]; then
+          STACK="ee-nextjs"
+        else
+          STACK="coilpack"
+        fi
       else
         STACK="expressionengine"
       fi
-    # Craft CMS
+    # Craft CMS (check for headless variants first)
     elif [[ -f "$PROJECT_DIR/craft" ]] && [[ -f "$PROJECT_DIR/composer.json" ]] && grep -q "craftcms/cms" "$PROJECT_DIR/composer.json" 2>/dev/null; then
-      STACK="craftcms"
+      # Check if it's a headless Craft CMS with a JS frontend
+      if [[ -f "$PROJECT_DIR/frontend/nuxt.config.ts" ]] || [[ -f "$PROJECT_DIR/frontend/nuxt.config.js" ]]; then
+        STACK="craftcms-nuxt"
+      elif [[ -f "$PROJECT_DIR/frontend/next.config.js" ]] || [[ -f "$PROJECT_DIR/frontend/next.config.mjs" ]] || [[ -f "$PROJECT_DIR/frontend/next.config.ts" ]]; then
+        STACK="craftcms-nextjs"
+      else
+        STACK="craftcms"
+      fi
     # WordPress Bedrock/Roots (has web/app structure or roots/bedrock in composer)
     elif [[ -d "$PROJECT_DIR/web/app/mu-plugins" ]] || [[ -d "$PROJECT_DIR/web/app/plugins" ]]; then
       STACK="wordpress-roots"
@@ -261,18 +272,34 @@ if [[ -z "$STACK" ]]; then
       STACK="wordpress"
     elif [[ -f "$PROJECT_DIR/web/wp-config.php" ]] || [[ -d "$PROJECT_DIR/web/wp-content" ]]; then
       STACK="wordpress"
-    # Next.js
+    # Astro-based stacks (check for CMS integrations)
+    elif [[ -f "$PROJECT_DIR/astro.config.mjs" ]] || [[ -f "$PROJECT_DIR/astro.config.ts" ]]; then
+      if [[ -f "$PROJECT_DIR/sanity.config.ts" ]] || [[ -f "$PROJECT_DIR/sanity.config.js" ]]; then
+        STACK="astro-sanity"
+      elif [[ -d "$PROJECT_DIR/backend" ]] && [[ -f "$PROJECT_DIR/backend/package.json" ]] && grep -q '"@strapi' "$PROJECT_DIR/backend/package.json" 2>/dev/null; then
+        STACK="astro-strapi"
+      fi
+    # Astro + Strapi (frontend/ subdirectory layout)
+    elif [[ -f "$PROJECT_DIR/frontend/astro.config.mjs" ]] || [[ -f "$PROJECT_DIR/frontend/astro.config.ts" ]]; then
+      if [[ -d "$PROJECT_DIR/backend" ]] && [[ -f "$PROJECT_DIR/backend/package.json" ]] && grep -q '"@strapi' "$PROJECT_DIR/backend/package.json" 2>/dev/null; then
+        STACK="astro-strapi"
+      fi
+    # Next.js (standalone)
     elif [[ -f "$PROJECT_DIR/next.config.js" ]] || [[ -f "$PROJECT_DIR/next.config.mjs" ]] || [[ -f "$PROJECT_DIR/next.config.ts" ]]; then
       STACK="nextjs"
     # Docusaurus
     elif [[ -f "$PROJECT_DIR/docusaurus.config.js" ]] || [[ -f "$PROJECT_DIR/docusaurus.config.ts" ]]; then
       STACK="docusaurus"
-    # Check package.json for Next.js or Docusaurus
+    # Check package.json for Next.js, Docusaurus, Astro, or Nuxt
     elif [[ -f "$PROJECT_DIR/package.json" ]]; then
       if grep -q '"next"' "$PROJECT_DIR/package.json" 2>/dev/null; then
         STACK="nextjs"
       elif grep -q '"@docusaurus' "$PROJECT_DIR/package.json" 2>/dev/null; then
         STACK="docusaurus"
+      elif grep -q '"astro"' "$PROJECT_DIR/package.json" 2>/dev/null; then
+        if grep -q '"@sanity' "$PROJECT_DIR/package.json" 2>/dev/null; then
+          STACK="astro-sanity"
+        fi
       fi
     fi
 
@@ -493,7 +520,12 @@ detect_stack() {
   if [[ -d "$PROJECT_DIR/system/ee" ]] || [[ -f "$PROJECT_DIR/system/user/config/config.php" ]]; then
     # Check if it's Coilpack (EE + Laravel)
     if [[ -f "$PROJECT_DIR/composer.json" ]] && grep -q "laravel/framework" "$PROJECT_DIR/composer.json" 2>/dev/null; then
-      detected="coilpack"
+      # Check for headless Coilpack + Next.js
+      if [[ -f "$PROJECT_DIR/frontend/next.config.js" ]] || [[ -f "$PROJECT_DIR/frontend/next.config.mjs" ]] || [[ -f "$PROJECT_DIR/frontend/next.config.ts" ]]; then
+        detected="ee-nextjs"
+      else
+        detected="coilpack"
+      fi
     else
       detected="expressionengine"
     fi
@@ -501,7 +533,14 @@ detect_stack() {
   # Craft CMS: craft executable or config/app.php with Craft
   elif [[ -f "$PROJECT_DIR/craft" ]] || [[ -f "$PROJECT_DIR/bootstrap.php" && -d "$PROJECT_DIR/config" ]]; then
     if [[ -f "$PROJECT_DIR/composer.json" ]] && grep -q "craftcms/cms" "$PROJECT_DIR/composer.json" 2>/dev/null; then
-      detected="craftcms"
+      # Check for headless Craft CMS variants
+      if [[ -f "$PROJECT_DIR/frontend/nuxt.config.ts" ]] || [[ -f "$PROJECT_DIR/frontend/nuxt.config.js" ]]; then
+        detected="craftcms-nuxt"
+      elif [[ -f "$PROJECT_DIR/frontend/next.config.js" ]] || [[ -f "$PROJECT_DIR/frontend/next.config.mjs" ]] || [[ -f "$PROJECT_DIR/frontend/next.config.ts" ]]; then
+        detected="craftcms-nextjs"
+      else
+        detected="craftcms"
+      fi
     fi
 
   # WordPress Bedrock (Roots): web/app structure or wp-content
@@ -509,6 +548,20 @@ detect_stack() {
     detected="wordpress-roots"
   elif [[ -f "$PROJECT_DIR/wp-config.php" ]] || [[ -d "$PROJECT_DIR/wp-content" ]]; then
     detected="wordpress-roots"
+
+  # Astro-based stacks (check for CMS integrations first)
+  elif [[ -f "$PROJECT_DIR/astro.config.mjs" ]] || [[ -f "$PROJECT_DIR/astro.config.ts" ]]; then
+    if [[ -f "$PROJECT_DIR/sanity.config.ts" ]] || [[ -f "$PROJECT_DIR/sanity.config.js" ]]; then
+      detected="astro-sanity"
+    elif [[ -d "$PROJECT_DIR/backend" ]] && [[ -f "$PROJECT_DIR/backend/package.json" ]] && grep -q '"@strapi' "$PROJECT_DIR/backend/package.json" 2>/dev/null; then
+      detected="astro-strapi"
+    fi
+
+  # Astro + Strapi (frontend/ subdirectory layout)
+  elif [[ -f "$PROJECT_DIR/frontend/astro.config.mjs" ]] || [[ -f "$PROJECT_DIR/frontend/astro.config.ts" ]]; then
+    if [[ -d "$PROJECT_DIR/backend" ]] && [[ -f "$PROJECT_DIR/backend/package.json" ]] && grep -q '"@strapi' "$PROJECT_DIR/backend/package.json" 2>/dev/null; then
+      detected="astro-strapi"
+    fi
 
   # Next.js: next.config.js or next.config.mjs
   elif [[ -f "$PROJECT_DIR/next.config.js" ]] || [[ -f "$PROJECT_DIR/next.config.mjs" ]] || [[ -f "$PROJECT_DIR/next.config.ts" ]]; then
@@ -525,13 +578,17 @@ detect_stack() {
       detected="laravel"  # Future stack
     fi
 
-  # React (Create React App or Vite)
+  # Package.json-based detection (React, Astro, Nuxt, etc.)
   elif [[ -f "$PROJECT_DIR/package.json" ]]; then
     if grep -q '"react"' "$PROJECT_DIR/package.json" 2>/dev/null; then
       if grep -q '"next"' "$PROJECT_DIR/package.json" 2>/dev/null; then
         detected="nextjs"
       elif grep -q '"@docusaurus' "$PROJECT_DIR/package.json" 2>/dev/null; then
         detected="docusaurus"
+      fi
+    elif grep -q '"astro"' "$PROJECT_DIR/package.json" 2>/dev/null; then
+      if grep -q '"@sanity' "$PROJECT_DIR/package.json" 2>/dev/null; then
+        detected="astro-sanity"
       fi
     fi
   fi
@@ -582,6 +639,8 @@ detect_all_technologies() {
     grep -q '"eslint"' "$PROJECT_DIR/package.json" 2>/dev/null && DETECTED_TECHNOLOGIES+=("ESLint")
     grep -q '"prettier"' "$PROJECT_DIR/package.json" 2>/dev/null && DETECTED_TECHNOLOGIES+=("Prettier")
     grep -q '"storybook"' "$PROJECT_DIR/package.json" 2>/dev/null && DETECTED_TECHNOLOGIES+=("Storybook")
+    grep -q '"@sanity' "$PROJECT_DIR/package.json" 2>/dev/null && DETECTED_TECHNOLOGIES+=("Sanity")
+    grep -q '"@strapi' "$PROJECT_DIR/package.json" 2>/dev/null && DETECTED_TECHNOLOGIES+=("Strapi")
   fi
 
   # PHP frameworks (from composer.json)
@@ -599,6 +658,7 @@ detect_all_technologies() {
   [[ -f "$PROJECT_DIR/tsconfig.json" ]] && DETECTED_TECHNOLOGIES+=("TypeScript")
   [[ -f "$PROJECT_DIR/.eslintrc.js" ]] || [[ -f "$PROJECT_DIR/.eslintrc.json" ]] || [[ -f "$PROJECT_DIR/eslint.config.js" ]] && DETECTED_TECHNOLOGIES+=("ESLint")
   [[ -f "$PROJECT_DIR/.prettierrc" ]] || [[ -f "$PROJECT_DIR/prettier.config.js" ]] && DETECTED_TECHNOLOGIES+=("Prettier")
+  [[ -f "$PROJECT_DIR/sanity.config.ts" ]] || [[ -f "$PROJECT_DIR/sanity.config.js" ]] && DETECTED_TECHNOLOGIES+=("Sanity Studio")
   [[ -f "$PROJECT_DIR/docker-compose.yml" ]] || [[ -f "$PROJECT_DIR/docker-compose.yaml" ]] && DETECTED_TECHNOLOGIES+=("Docker Compose")
   [[ -f "$PROJECT_DIR/Dockerfile" ]] && DETECTED_TECHNOLOGIES+=("Docker")
   [[ -d "$PROJECT_DIR/.ddev" ]] && DETECTED_TECHNOLOGIES+=("DDEV")
@@ -946,6 +1006,11 @@ update_gitignore() {
     expressionengine) stack_label="ExpressionEngine" ;;
     coilpack)         stack_label="Coilpack (Laravel + EE)" ;;
     craftcms)         stack_label="Craft CMS" ;;
+    craftcms-nuxt)    stack_label="Craft CMS + Nuxt" ;;
+    craftcms-nextjs)  stack_label="Craft CMS + Next.js" ;;
+    ee-nextjs)        stack_label="EE Coilpack + Next.js" ;;
+    astro-strapi)     stack_label="Astro + Strapi" ;;
+    astro-sanity)     stack_label="Astro + Sanity" ;;
     wordpress)        stack_label="WordPress" ;;
     wordpress-roots)  stack_label="WordPress Roots/Bedrock" ;;
     nextjs)           stack_label="Next.js" ;;
@@ -1190,6 +1255,16 @@ if [[ "$REFRESH" == true ]]; then
     do_copy "$STACK_DIR/CLAUDE.md" "$PROJECT_DIR/"
   fi
 
+  # Copy library reference docs to project-local CLAUDE context
+  if [[ -d "$SCRIPT_DIR/libraries" ]]; then
+    do_mkdir "$PROJECT_DIR/.claude/libraries"
+    for library in "$SCRIPT_DIR/libraries"/*.md; do
+      if [[ -f "$library" ]]; then
+        do_copy "$library" "$PROJECT_DIR/.claude/libraries/"
+      fi
+    done
+  fi
+
   # Regenerate AGENTS.md from template (OpenAI Codex / API tools)
   if [[ "$WITH_OPENAI" == true ]]; then
     deploy_agents_md "Refreshing"
@@ -1256,6 +1331,18 @@ echo ""
 # 1. Create .claude directory structure
 do_mkdir "$PROJECT_DIR/.claude"
 
+# 2a. Copy library references (project-local)
+if [[ -d "$SCRIPT_DIR/libraries" ]]; then
+  echo ""
+  echo -e "${CYAN}Copying library references (per project)...${NC}"
+  do_mkdir "$PROJECT_DIR/.claude/libraries"
+  for library in "$SCRIPT_DIR/libraries"/*.md; do
+    if [[ -f "$library" ]]; then
+      do_copy "$library" "$PROJECT_DIR/.claude/libraries/"
+    fi
+  done
+fi
+
 # 2. Copy agents with smart filtering
 if [[ -d "$STACK_DIR/agents" ]]; then
   echo ""
@@ -1281,54 +1368,13 @@ if [[ -d "$STACK_DIR/agents" ]]; then
   done
 
   # Stack-specific agents - conditional copy
-  # Coilpack specialist
-  if [[ "$STACK" == "coilpack" ]] && [[ -f "$STACK_DIR/agents/coilpack-specialist.md" ]]; then
-    do_copy "$STACK_DIR/agents/coilpack-specialist.md" "$PROJECT_DIR/.claude/agents/"
-  elif [[ "$STACK" != "coilpack" ]] && [[ -f "$STACK_DIR/agents/coilpack-specialist.md" ]]; then
-    echo -e "  ${YELLOW}○${NC} Skipped coilpack-specialist.md (not coilpack stack)"
-  fi
-
-  # Craft CMS specialist
-  if [[ "$STACK" == "craftcms" ]] && [[ -f "$STACK_DIR/agents/craftcms-specialist.md" ]]; then
-    do_copy "$STACK_DIR/agents/craftcms-specialist.md" "$PROJECT_DIR/.claude/agents/"
-  elif [[ "$STACK" != "craftcms" ]] && [[ -f "$STACK_DIR/agents/craftcms-specialist.md" ]]; then
-    echo -e "  ${YELLOW}○${NC} Skipped craftcms-specialist.md (not craftcms stack)"
-  fi
-
-  # ExpressionEngine specialist (for expressionengine and coilpack)
-  if [[ "$STACK" == "expressionengine" || "$STACK" == "coilpack" ]] && [[ -f "$STACK_DIR/agents/expressionengine-specialist.md" ]]; then
-    do_copy "$STACK_DIR/agents/expressionengine-specialist.md" "$PROJECT_DIR/.claude/agents/"
-  elif [[ "$STACK" != "expressionengine" && "$STACK" != "coilpack" ]] && [[ -f "$STACK_DIR/agents/expressionengine-specialist.md" ]]; then
-    echo -e "  ${YELLOW}○${NC} Skipped expressionengine-specialist.md (not EE/coilpack stack)"
-  fi
-
-  # EE template expert (expressionengine only)
-  if [[ "$STACK" == "expressionengine" ]] && [[ -f "$STACK_DIR/agents/ee-template-expert.md" ]]; then
-    do_copy "$STACK_DIR/agents/ee-template-expert.md" "$PROJECT_DIR/.claude/agents/"
-  elif [[ "$STACK" != "expressionengine" ]] && [[ -f "$STACK_DIR/agents/ee-template-expert.md" ]]; then
-    echo -e "  ${YELLOW}○${NC} Skipped ee-template-expert.md (not expressionengine stack)"
-  fi
-
-  # Next.js specialist
-  if [[ "$STACK" == "nextjs" ]] && [[ -f "$STACK_DIR/agents/nextjs-specialist.md" ]]; then
-    do_copy "$STACK_DIR/agents/nextjs-specialist.md" "$PROJECT_DIR/.claude/agents/"
-  elif [[ "$STACK" != "nextjs" ]] && [[ -f "$STACK_DIR/agents/nextjs-specialist.md" ]]; then
-    echo -e "  ${YELLOW}○${NC} Skipped nextjs-specialist.md (not nextjs stack)"
-  fi
-
-  # React specialist (nextjs and docusaurus)
-  if [[ "$STACK" == "nextjs" || "$STACK" == "docusaurus" ]] && [[ -f "$STACK_DIR/agents/react-specialist.md" ]]; then
-    do_copy "$STACK_DIR/agents/react-specialist.md" "$PROJECT_DIR/.claude/agents/"
-  elif [[ "$STACK" != "nextjs" && "$STACK" != "docusaurus" ]] && [[ -f "$STACK_DIR/agents/react-specialist.md" ]]; then
-    echo -e "  ${YELLOW}○${NC} Skipped react-specialist.md (not React-based stack)"
-  fi
-
-  # WordPress specialist
-  if [[ "$STACK" == "wordpress-roots" ]] && [[ -f "$STACK_DIR/agents/wordpress-specialist.md" ]]; then
-    do_copy "$STACK_DIR/agents/wordpress-specialist.md" "$PROJECT_DIR/.claude/agents/"
-  elif [[ "$STACK" != "wordpress-roots" ]] && [[ -f "$STACK_DIR/agents/wordpress-specialist.md" ]]; then
-    echo -e "  ${YELLOW}○${NC} Skipped wordpress-specialist.md (not wordpress stack)"
-  fi
+  # All agents in the stack directory are now copied unconditionally
+  # (each stack only includes agents relevant to it)
+  for agent_file in "$STACK_DIR/agents/"*.md; do
+    if [[ -f "$agent_file" ]]; then
+      do_copy "$agent_file" "$PROJECT_DIR/.claude/agents/"
+    fi
+  done
 fi
 
 # 2b. Copy commands conditionally

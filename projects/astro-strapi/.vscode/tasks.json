@@ -1,0 +1,47 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Strapi: Develop",
+      "type": "shell",
+      "command": "cd backend && npm run develop",
+      "problemMatcher": [],
+      "group": "build",
+      "isBackground": true
+    },
+    {
+      "label": "Strapi: Build",
+      "type": "shell",
+      "command": "cd backend && npm run build",
+      "problemMatcher": [],
+      "group": "build"
+    },
+    {
+      "label": "Strapi: Start (Production)",
+      "type": "shell",
+      "command": "cd backend && npm run start",
+      "problemMatcher": []
+    },
+    {
+      "label": "Astro: Dev Server",
+      "type": "shell",
+      "command": "cd frontend && npm run dev",
+      "problemMatcher": [],
+      "group": "build",
+      "isBackground": true
+    },
+    {
+      "label": "Astro: Build",
+      "type": "shell",
+      "command": "cd frontend && npm run build",
+      "problemMatcher": [],
+      "group": "build"
+    },
+    {
+      "label": "Astro: Preview",
+      "type": "shell",
+      "command": "cd frontend && npm run preview",
+      "problemMatcher": []
+    }
+  ]
+}
