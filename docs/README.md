@@ -1,10 +1,10 @@
 # Documentation
 
-Complete documentation for the Claude Code Configuration Repository.
+Complete documentation for Claude Optimizer.
 
 ## Overview
 
-This repository provides automated Claude Code configuration deployment across **8 technology stacks** with:
+This repository provides automated Claude Code configuration deployment across **13 technology stacks** with:
 
 - Automatic stack detection
 - Memory bank for persistent context

@@ -5,7 +5,7 @@ Configure Claude Code for your project in under a minute.
 ## 1. Install (One Time)
 
 ```bash
-git clone https://github.com/roberthallatt/claude-config.git ~/.ai-config && \
+git clone https://github.com/roberthallatt/claude-optimizer.git ~/.ai-config && \
 ~/.ai-config/install.sh && \
 source ~/.zshrc
 ```

@@ -1,6 +1,6 @@
 # Conditional Deployment & Technology Detection
 
-**Updated:** January 2, 2026
+**Updated:** March 11, 2026
 
 ## Overview
 
@@ -14,7 +14,7 @@ ai-config --project=/path/to/project
 ```
 
 The script will:
-1. **Auto-detect the stack** (ExpressionEngine, Craft CMS, WordPress, Next.js, Docusaurus, Coilpack)
+1. **Auto-detect the stack** (ExpressionEngine, Craft CMS, WordPress, Next.js, Docusaurus, Coilpack, and 5 headless CMS stacks)
 2. **Scan for technologies** (Tailwind, Alpine.js, bilingual content, etc.)
 3. **Deploy stack-specific configurations** for all AI assistants
 4. **Report** what was detected
@@ -25,12 +25,20 @@ The script identifies stacks by looking for specific files and directories:
 
 | Stack | Detection Pattern |
 |-------|------------------|
+| **Craft CMS + Nuxt** | Craft CMS + `frontend/nuxt.config.ts` |
+| **Craft CMS + Next.js** | Craft CMS + `frontend/next.config.js` |
+| **EE Coilpack + Next.js** | Coilpack + `frontend/next.config.js` |
+| **Astro + Sanity** | `astro.config.mjs` + `sanity.config.ts` |
+| **Astro + Strapi** | `astro.config.mjs` + Strapi in `backend/` |
 | **ExpressionEngine** | `system/ee/` directory exists |
 | **Craft CMS** | `craft` executable exists |
+| **Coilpack** | Laravel structure + ExpressionEngine |
 | **WordPress/Bedrock** | `wp-config.php` or `web/wp/` directory |
+| **WordPress** | `wp-config.php` |
 | **Next.js** | `next.config.js` or `next.config.mjs` exists |
 | **Docusaurus** | `docusaurus.config.js` exists |
-| **Coilpack** | Laravel structure + ExpressionEngine |
+
+**Note:** Headless stacks are checked first since they are more specific variants of their base stacks (e.g., `craftcms-nuxt` is detected before `craftcms`).
 
 ### Discovery Mode
 
@@ -153,6 +161,10 @@ Only deployed when the stack matches:
 - `nextjs-specialist.md` → only for `nextjs` stack
 - `react-specialist.md` → for `nextjs` and `docusaurus` stacks
 - `wordpress-specialist.md` → only for `wordpress-roots` stack
+- `nuxt-specialist.md` → for `craftcms-nuxt` stack
+- `astro-specialist.md` → for `astro-strapi` and `astro-sanity` stacks
+- `sanity-specialist.md` → only for `astro-sanity` stack
+- `strapi-specialist.md` → only for `astro-strapi` stack
 
 ## Example Output
 
@@ -220,7 +232,7 @@ Next: Open in Claude Code and run /project-discover
 ### Zero Configuration Required
 - No need to remember stack names or specify `--stack`
 - Just point to your project and go
-- Works for 6+ known stacks automatically
+- Works for 13 known stacks automatically
 
 ### Cleaner Configuration
 - No unnecessary rules cluttering the `.claude/rules/` directory
@@ -248,7 +260,7 @@ If you want to force inclusion of a rule, you can:
 
 1. **Copy manually** after setup:
    ```bash
-   cp ~/.claude-config/projects/craftcms/rules/alpinejs.md /path/to/project/.claude/rules/
+   cp ~/.claude-optimizer/projects/craftcms/rules/alpinejs.md /path/to/project/.claude/rules/
    ```
 
 2. **Modify detection** in `setup-project.sh` to always return true for specific technologies

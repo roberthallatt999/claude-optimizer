@@ -30,7 +30,7 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-# Script directory (where claude-config-repo lives)
+# Script directory (where claude-optimizer repo lives)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Cross-platform sed in-place editing (macOS uses -i '', Linux uses -i)

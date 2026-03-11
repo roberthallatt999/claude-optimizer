@@ -1,6 +1,6 @@
 # Contributing
 
-Contributions to improve the Claude Code Configuration Repository are welcome!
+Contributions to improve Claude Optimizer are welcome!
 
 ## Ways to Contribute
 
@@ -47,8 +47,8 @@ Enhance technology detection:
 ### Clone Repository
 
 ```bash
-git clone https://github.com/roberthallatt/claude-config.git
-cd claude-config
+git clone https://github.com/roberthallatt/claude-optimizer.git
+cd claude-optimizer
 ```
 
 ### Create Test Projects

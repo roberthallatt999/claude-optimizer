@@ -1,4 +1,4 @@
-# Claude Code Configuration Repository
+# Claude Optimizer
 
 Automated Claude Code configuration for modern web development stacks with VS Code integration.
 
@@ -12,7 +12,7 @@ This repository provides automated Claude Code configuration deployment across *
 - 15 Superpowers workflow skills
 - `settings.local.json` with stack-appropriate permissions
 
-**Repository Path:** `/Users/robert/data/business/_tools/claude-config`
+**Repository Path:** `/Users/robert/data/business/_tools/claude-optimizer`
 
 ## Supported Stacks
 

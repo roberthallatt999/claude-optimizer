@@ -5,7 +5,7 @@ Complete reference for the configuration repository structure.
 ## Repository Structure
 
 ```
-claude-config/
+claude-optimizer/
 ├── setup-project.sh              # Main deployment script
 ├── serve-docs.sh                 # Documentation server
 ├── install.sh                    # Installer script
@@ -30,6 +30,14 @@ claude-config/
 │   ├── commands/                 # Slash commands
 │   └── hooks/                    # Session hooks
 │
+├── libraries/                    # Project-local library references
+│   ├── README.md
+│   ├── react.md
+│   ├── vue.md
+│   ├── nextjs.md
+│   ├── nuxt.md
+│   └── ...                       # 10+ framework/CSS/JS references
+│
 └── projects/                     # Stack templates
     ├── common/                   # Global fallback templates
     │   ├── rules/                # Common rules
@@ -40,6 +48,11 @@ claude-config/
     ├── expressionengine/
     ├── coilpack/
     ├── craftcms/
+    ├── craftcms-nuxt/            # Headless Craft CMS + Nuxt
+    ├── craftcms-nextjs/          # Headless Craft CMS + Next.js
+    ├── ee-nextjs/                # Headless EE Coilpack + Next.js
+    ├── astro-strapi/             # Astro + Strapi
+    ├── astro-sanity/             # Astro + Sanity Studio
     ├── wordpress-roots/
     ├── wordpress/
     ├── nextjs/
@@ -136,6 +149,7 @@ your-project/
 │
 ├── .claude/
 │   ├── settings.local.json       # Permissions + MCP config
+│   ├── libraries/                # Project-local framework/library references
 │   ├── rules/
 │   │   ├── memory-management.md  # Memory protocols
 │   │   ├── token-optimization.md # Token efficiency

@@ -164,9 +164,9 @@ done
 
 The configuration doesn't include version numbers. Track updates via:
 
-1. **Git in claude-config-repo**
+1. **Git in claude-optimizer repo**
    ```bash
-   cd claude-config-repo
+   cd claude-optimizer
    git log --oneline
    ```
 

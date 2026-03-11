@@ -23,6 +23,7 @@ Detailed configuration and rules:
 ```
 .claude/
 ├── settings.local.json # Permissions and MCP config
+├── libraries/          # Project-local framework/library references
 ├── rules/              # Stack-specific rules
 │   ├── accessibility.md
 │   ├── sensitive-files.md

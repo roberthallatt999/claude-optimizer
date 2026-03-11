@@ -1,10 +1,10 @@
-# Claude Code Configuration Repository - Status Report
+# Claude Optimizer - Status Report
 
 ## Executive Summary
 
 **Status: PRODUCTION READY**
 
-All 8 technology stacks have complete Claude Code configurations:
+All 13 technology stacks have complete Claude Code configurations:
 - Full template systems with generic `{{PLACEHOLDER}}` variables
 - Stack-appropriate `settings.local.json` for all stacks
 - Memory bank system for persistent context
@@ -25,6 +25,11 @@ All 8 technology stacks have complete Claude Code configurations:
 | **nextjs** | Yes | 7 rules | 15+ | Yes | Yes | Complete |
 | **wordpress-roots** | Yes | 9 rules | 15+ | Yes | Yes | Complete |
 | **wordpress** | Yes | 7 rules | 15+ | Yes | Yes | Complete |
+| **craftcms-nuxt** | Yes | 8 rules | 15+ | Yes | Yes | Complete |
+| **craftcms-nextjs** | Yes | 8 rules | 15+ | Yes | Yes | Complete |
+| **ee-nextjs** | Yes | 8 rules | 15+ | Yes | Yes | Complete |
+| **astro-strapi** | Yes | 8 rules | 15+ | Yes | Yes | Complete |
+| **astro-sanity** | Yes | 8 rules | 15+ | Yes | Yes | Complete |
 | **custom** | Yes | 4 rules | 15+ | Yes | Yes | Complete |
 
 ---
@@ -169,6 +174,12 @@ Templates support these auto-detected variables:
 
 ## Recent Changes
 
+### Headless CMS Stacks & Library References (Mar 2026)
+- Added 5 headless CMS stacks: `craftcms-nuxt`, `craftcms-nextjs`, `ee-nextjs`, `astro-strapi`, `astro-sanity`
+- Each includes CLAUDE.md template, AGENTS.md template, settings.local.json, rules, agents, commands, and VSCode config
+- Moved library references from global `~/.claude/libraries/` to project-local `.claude/libraries/` for portability
+- Added 10+ library reference docs (React, Vue, Next.js, Nuxt, Angular, Bootstrap, etc.)
+
 ### Genericized Templates (Feb 2026)
 - Replaced all hardcoded project references with `{{PLACEHOLDER}}` variables
 - Added `{{BRAND_*}}` color placeholders for project brand colors
@@ -183,7 +194,7 @@ Templates support these auto-detected variables:
 - Script now works on both macOS and Linux without modification
 
 ### Stack Permissions (Feb 2026)
-- Added `settings.local.json` with stack-appropriate CLI permissions to all 8 stacks
+- Added `settings.local.json` with stack-appropriate CLI permissions to all 13 stacks
 - PHP stacks include `composer`, `php`; WordPress stacks include `wp`; JS stacks include `node`, `yarn`
 
 ### CLI Flags (Feb 2026)
@@ -239,7 +250,7 @@ Templates support these auto-detected variables:
 
 **Repository Status: Production Ready**
 
-All 8 technology stacks have complete Claude Code configurations with:
+All 13 technology stacks have complete Claude Code configurations with:
 - **Generic templates** using `{{PLACEHOLDER}}` variables
 - **Stack permissions** via `settings.local.json`
 - **Sensitive file protection** preventing credential exposure

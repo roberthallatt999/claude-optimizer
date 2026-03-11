@@ -4,6 +4,8 @@ Complete reference for all supported technology stacks.
 
 ## Stack Overview
 
+### Monolithic Stacks
+
 | Stack | CMS/Framework | Template Engine | Primary Use Case |
 |-------|--------------|-----------------|------------------|
 | **expressionengine** | ExpressionEngine 7.x | EE Template Language | Content-heavy websites |
@@ -14,6 +16,16 @@ Complete reference for all supported technology stacks.
 | **nextjs** | Next.js | React/TSX | React web applications |
 | **docusaurus** | Docusaurus | MDX | Documentation sites |
 | **custom** | Any | Any | Discovery mode for unknown stacks |
+
+### Headless CMS Stacks
+
+| Stack | Backend | Frontend | Primary Use Case |
+|-------|---------|----------|------------------|
+| **craftcms-nuxt** | Craft CMS (GraphQL) | Nuxt 3 (Vue SSR/SSG) | Headless Craft with Vue |
+| **craftcms-nextjs** | Craft CMS (GraphQL) | Next.js 14+ (React SSR/SSG) | Headless Craft with React |
+| **ee-nextjs** | EE Coilpack (Laravel REST API) | Next.js 14+ (React SSR/SSG) | Headless EE with React |
+| **astro-strapi** | Strapi (REST/GraphQL) | Astro (Islands) | Content-driven Astro sites |
+| **astro-sanity** | Sanity.io (GROQ) | Astro (Islands) | Sanity-powered Astro sites |
 
 ## Common Features (All Stacks)
 
@@ -276,6 +288,151 @@ For `cva()` and `cn()` utility functions.
 }
 ```
 
+## Craft CMS + Nuxt
+
+**Stack ID:** `craftcms-nuxt`
+
+### Technologies
+
+- **Backend:** Craft CMS (GraphQL API)
+- **Frontend:** Nuxt 3 (Vue SSR/SSG)
+- **Languages:** PHP 8.0+, TypeScript
+- **Database:** MySQL/PostgreSQL
+
+### Rules Included
+
+**Always:**
+- `accessibility.md`
+- `craft-patterns.md` - Craft CMS backend best practices
+- `nuxt-patterns.md` - Nuxt 3 frontend patterns
+- `performance.md`
+- `tailwind-css.md`
+- `sensitive-files.md`
+- `memory-management.md`
+- `token-optimization.md`
+
+### Detection
+
+Craft CMS detected + `frontend/nuxt.config.ts` exists.
+
+---
+
+## Craft CMS + Next.js
+
+**Stack ID:** `craftcms-nextjs`
+
+### Technologies
+
+- **Backend:** Craft CMS (GraphQL API)
+- **Frontend:** Next.js 14+ (React SSR/SSG)
+- **Languages:** PHP 8.0+, TypeScript
+- **Database:** MySQL/PostgreSQL
+
+### Rules Included
+
+**Always:**
+- `accessibility.md`
+- `craft-patterns.md` - Craft CMS backend best practices
+- `nextjs-patterns.md` - Next.js frontend patterns
+- `performance.md`
+- `tailwind-css.md`
+- `sensitive-files.md`
+- `memory-management.md`
+- `token-optimization.md`
+
+### Detection
+
+Craft CMS detected + `frontend/next.config.js` or `frontend/next.config.mjs` exists.
+
+---
+
+## EE Coilpack + Next.js
+
+**Stack ID:** `ee-nextjs`
+
+### Technologies
+
+- **Backend:** ExpressionEngine + Coilpack (Laravel REST API)
+- **Frontend:** Next.js 14+ (React SSR/SSG)
+- **Languages:** PHP 8.1+, TypeScript
+- **Database:** MySQL/MariaDB
+
+### Rules Included
+
+**Always:**
+- `accessibility.md`
+- `laravel-patterns.md` - Laravel API patterns
+- `nextjs-patterns.md` - Next.js frontend patterns
+- `performance.md`
+- `tailwind-css.md`
+- `sensitive-files.md`
+- `memory-management.md`
+- `token-optimization.md`
+
+### Detection
+
+Coilpack detected + `frontend/next.config.js` or `frontend/next.config.mjs` exists.
+
+---
+
+## Astro + Strapi
+
+**Stack ID:** `astro-strapi`
+
+### Technologies
+
+- **Backend:** Strapi (REST/GraphQL)
+- **Frontend:** Astro (Islands Architecture)
+- **Languages:** TypeScript, JavaScript
+- **Node:** 18+
+
+### Rules Included
+
+**Always:**
+- `accessibility.md`
+- `astro-patterns.md` - Astro component patterns
+- `strapi-patterns.md` - Strapi content modeling
+- `performance.md`
+- `tailwind-css.md`
+- `sensitive-files.md`
+- `memory-management.md`
+- `token-optimization.md`
+
+### Detection
+
+`astro.config.mjs` exists + Strapi detected in `backend/` directory.
+
+---
+
+## Astro + Sanity
+
+**Stack ID:** `astro-sanity`
+
+### Technologies
+
+- **Backend:** Sanity.io (GROQ queries)
+- **Frontend:** Astro (Islands Architecture)
+- **Languages:** TypeScript, JavaScript
+- **Node:** 18+
+
+### Rules Included
+
+**Always:**
+- `accessibility.md`
+- `astro-patterns.md` - Astro component patterns
+- `sanity-patterns.md` - Sanity schema and GROQ
+- `performance.md`
+- `tailwind-css.md`
+- `sensitive-files.md`
+- `memory-management.md`
+- `token-optimization.md`
+
+### Detection
+
+`astro.config.mjs` exists + `sanity.config.ts` exists.
+
+---
+
 ## Custom (Discovery Mode)
 
 **Stack ID:** `custom`
@@ -310,6 +467,11 @@ The script checks for:
 
 | Stack | Detection Method |
 |-------|------------------|
+| craftcms-nuxt | Craft CMS + `frontend/nuxt.config.ts` |
+| craftcms-nextjs | Craft CMS + `frontend/next.config.js` |
+| ee-nextjs | Coilpack + `frontend/next.config.js` |
+| astro-sanity | `astro.config.mjs` + `sanity.config.ts` |
+| astro-strapi | `astro.config.mjs` + Strapi in `backend/` |
 | expressionengine | `system/ee/` directory |
 | coilpack | Laravel + EE indicators |
 | craftcms | `craft` executable |
