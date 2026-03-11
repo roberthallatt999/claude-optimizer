@@ -316,6 +316,10 @@ Contributions welcome! See [Contributing Guide](docs/development/contributing.md
 
 ---
 
+## Credits
+
+The [Superpowers](https://github.com/obra/superpowers) workflow skills framework by Jesse Vincent is included via a [forked copy](https://github.com/roberthallatt999/superpowers). Superpowers provides structured Claude Code skills for planning, debugging, code review, TDD, and more.
+
 ## License
 
 MIT License - See [LICENSE](LICENSE) file.
