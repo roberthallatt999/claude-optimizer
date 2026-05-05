@@ -179,8 +179,8 @@ ddev npm run build
 4. **Cache clearing**: Required after config/template changes
 5. **GraphQL**: Available at `/api` if enabled
 
-@import ../shared/knowledge/tailwind-css.md
-@import ../shared/knowledge/alpine-js.md
+@.claude/libraries/tailwind.md
+@.claude/libraries/alpinejs.md
 
 {{#SUPERPOWERS}}
 ## Workflow Skills (Superpowers)

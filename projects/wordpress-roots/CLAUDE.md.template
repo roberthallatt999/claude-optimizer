@@ -176,8 +176,8 @@ ddev wp search-replace 'https://old.com' 'https://new.com' --all-tables
 4. **Blade caching** - Clear with `ddev wp acorn view:clear`
 5. **WordPress core** - Never edit files in `web/wp/`
 
-@import ../shared/knowledge/tailwind-css.md
-@import ../shared/knowledge/alpine-js.md
+@.claude/libraries/tailwind.md
+@.claude/libraries/alpinejs.md
 
 {{#SUPERPOWERS}}
 ## Workflow Skills (Superpowers)

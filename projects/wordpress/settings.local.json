@@ -6,6 +6,7 @@
   ],
   "permissions": {
     "allow": [
+      "Bash(bun:*)",
       "Bash(cat:*)",
       "Bash(composer:*)",
       "Bash(cp:*)",
@@ -27,14 +28,17 @@
       "Bash(ls:*)",
       "Bash(mkdir:*)",
       "Bash(mv:*)",
+      "Bash(node:*)",
       "Bash(npm:*)",
       "Bash(npx:*)",
       "Bash(php:*)",
+      "Bash(pnpm:*)",
       "Bash(rm:*)",
       "Bash(tail:*)",
       "Bash(touch:*)",
       "Bash(wc:*)",
-      "Bash(wp:*)"
+      "Bash(wp:*)",
+      "Bash(yarn:*)"
     ],
     "deny": [
       "Read(**/.env)",
@@ -90,6 +94,18 @@
       "Read(**/wp-salt.php)",
       "Read(**/.ddev/db_snapshots/*)",
       "Read(**/.ddev/import-db/*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/session-start"
+          }
+        ]
+      }
     ]
   }
 }

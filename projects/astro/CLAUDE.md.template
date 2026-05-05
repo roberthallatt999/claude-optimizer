@@ -1,0 +1,175 @@
+# Project: {{PROJECT_NAME}}
+
+## Overview
+
+This is an **Astro** project — a content-focused framework with a component islands architecture that ships zero JavaScript by default.
+
+- **Dev Server**: http://localhost:4321
+- **Primary URL**: {{DDEV_PRIMARY_URL}}
+
+## Tech Stack
+
+- **Framework**: Astro 4.x
+- **Language**: TypeScript
+- **Rendering**: SSG (static) with optional SSR islands
+- **Styling**: Tailwind CSS
+- **Content**: Astro Content Collections or Markdown/MDX
+
+## Git Workflow
+
+- **Main Branch:** `{{GIT_MAIN_BRANCH}}` (production)
+- **Integration Branch:** `{{GIT_INTEGRATION_BRANCH}}` (feature branches merge here)
+- **Feature Branch Pattern:** `feature/<description>` from `{{GIT_INTEGRATION_BRANCH}}`
+- **Hotfix Branch Pattern:** `hotfix/<description>` from `{{GIT_MAIN_BRANCH}}`
+
+## Directory Structure
+
+```
+{{PROJECT_SLUG}}/
+├── astro.config.mjs           # Astro configuration
+├── src/
+│   ├── layouts/               # Page layouts
+│   │   └── BaseLayout.astro
+│   ├── pages/                 # File-based routing
+│   │   └── index.astro
+│   ├── components/            # UI components
+│   │   ├── *.astro            # Astro components (zero JS by default)
+│   │   └── interactive/       # Island components (React/Vue/Svelte)
+│   ├── content/               # Content Collections
+│   │   └── config.ts          # Collection schemas
+│   └── styles/                # Global styles
+├── public/                    # Static assets (copied verbatim)
+└── dist/                      # Build output (gitignored)
+```
+
+## Development Commands
+
+```bash
+# Start dev server
+npm run dev
+
+# Build for production
+npm run build
+
+# Preview production build locally
+npm run preview
+
+# Type checking
+npx astro check
+```
+
+## Astro Patterns
+
+### Page Components (SSG)
+```astro
+---
+// Frontmatter: runs at build time (server-only)
+import Layout from '../layouts/BaseLayout.astro';
+const posts = await Astro.glob('../content/blog/*.md');
+---
+
+<Layout title="Blog">
+  {posts.map(post => <article>{post.frontmatter.title}</article>)}
+</Layout>
+```
+
+### Client Islands
+```astro
+---
+import Counter from '../components/Counter.tsx';
+---
+
+<!-- Zero JS — rendered as static HTML -->
+<Counter client:idle />       <!-- Hydrate when browser is idle -->
+<Counter client:visible />    <!-- Hydrate when element is visible -->
+<Counter client:load />       <!-- Hydrate immediately -->
+```
+
+### Content Collections
+```typescript
+// src/content/config.ts
+import { defineCollection, z } from 'astro:content';
+
+export const collections = {
+  blog: defineCollection({
+    type: 'content',
+    schema: z.object({
+      title: z.string(),
+      pubDate: z.date(),
+      description: z.string(),
+    }),
+  }),
+};
+```
+
+### Dynamic Routes
+```astro
+---
+// src/pages/blog/[slug].astro
+export async function getStaticPaths() {
+  const posts = await getCollection('blog');
+  return posts.map(post => ({
+    params: { slug: post.slug },
+    props: { post },
+  }));
+}
+const { post } = Astro.props;
+---
+```
+
+## Coding Standards
+
+### Components
+- Default to `.astro` components — no JS shipped unless explicitly opted-in
+- Use `client:*` directives intentionally; document why each island needs hydration
+- Keep frontmatter logic minimal; extract complex logic to `src/lib/`
+- Props are typed via the `interface Props` convention
+
+### TypeScript
+- Enable strict mode in `tsconfig.json`
+- Use `Astro.props` typing via `interface Props`
+- Content Collection schemas are your source of truth for content types
+
+### Performance
+- Leverage Astro's zero-JS default — don't add islands unnecessarily
+- Use `<Image>` from `astro:assets` for optimized images
+- Prefer `client:idle` and `client:visible` over `client:load`
+- Use `<ViewTransitions>` for smooth page navigation
+
+## Important Notes
+
+1. **Frontmatter runs at build time** — no access to browser APIs; use islands for interactivity
+2. **Content Collections** — prefer over `Astro.glob()` for type safety
+3. **SSR mode** — if enabled (`output: 'server'`), pages run on every request
+4. **Adapters** — required for SSR; choose based on deployment target (Node, Vercel, Cloudflare, etc.)
+
+@.claude/libraries/tailwind.md
+
+{{#SUPERPOWERS}}
+## Workflow Skills (Superpowers)
+
+This project uses structured workflow skills for disciplined AI-assisted development.
+
+### Key Commands
+| Command | When to Use |
+|---------|-------------|
+| `/brainstorm` | Before building new features - design exploration |
+| `/write-plan` | After design approval - create implementation plan |
+| `/execute-plan` | With approved plan - batch execution with checkpoints |
+
+### Core Skills
+| Skill | When to Use |
+|-------|-------------|
+| `brainstorming` | Before any new feature or significant change |
+| `test-driven-development` | All code implementation (RED-GREEN-REFACTOR) |
+| `systematic-debugging` | Bug investigation and root cause analysis |
+| `subagent-driven-development` | Complex tasks requiring parallel work |
+| `verification-before-completion` | Ensure changes actually work |
+
+### How Skills Work
+Skills activate automatically based on task type, or can be invoked explicitly via the Skill tool. The `using-superpowers` bootstrap skill loads on every session start.
+
+**Key Principle**: If a skill might apply (even 1% chance), invoke it. Skills tell you HOW to approach tasks.
+
+See `.claude/skills/superpowers/using-superpowers/SKILL.md` for the full skill usage guide.
+{{/SUPERPOWERS}}

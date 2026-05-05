@@ -4,7 +4,7 @@ Automated Claude Code configuration for modern web development stacks with VS Co
 
 ## Project Overview
 
-This repository provides automated Claude Code configuration deployment across **13 technology stacks** with:
+This repository provides automated Claude Code configuration deployment across **14 technology stacks** with:
 - Automatic stack detection
 - Memory bank for persistent context
 - Token optimization and sensitive file protection rules
@@ -28,6 +28,12 @@ This repository provides automated Claude Code configuration deployment across *
 | `nextjs` | Next.js 14+ | React/TSX |
 | `docusaurus` | Docusaurus 3+ | MDX |
 | `custom` | Discovery mode | Any |
+
+### JS / Static Stacks
+
+| Stack ID | Framework | Notes |
+|----------|-----------|-------|
+| `astro` | Astro 4.x | Standalone Astro (Content Collections, MDX) |
 
 ### Headless CMS Stacks
 
@@ -61,6 +67,7 @@ projects/
 ├── craftcms-nuxt/            # Headless Craft CMS + Nuxt
 ├── craftcms-nextjs/          # Headless Craft CMS + Next.js
 ├── ee-nextjs/                # Headless EE Coilpack + Next.js
+├── astro/                    # Astro standalone (Content Collections, MDX)
 ├── astro-strapi/             # Astro + Strapi
 ├── astro-sanity/             # Astro + Sanity Studio
 └── custom/                   # Discovery mode base
@@ -187,6 +194,16 @@ Templates use `{{VARIABLE}}` syntax, replaced during deployment:
 
 ## Recent Changes
 
+- **Fixed SessionStart hook deployment** — hooks now injected into `settings.local.json` (where Claude Code actually reads them) instead of a standalone `hooks.json` that was never loaded
+- **Fixed `@import` paths** in `nextjs`, `craftcms`, `wordpress-roots`, and `docusaurus` templates — broken `../shared/knowledge/` paths replaced with correct `.claude/libraries/` paths
+- **Added `astro` standalone stack** — handles plain Astro projects (Content Collections, MDX, islands) that previously fell through to `custom`
+- **Added `bun` and `pnpm`** to allowed commands in all stack `settings.local.json` templates
+- **Removed dead `detect_stack()` function** — stack detection code was duplicated; consolidated into the single inline detection block
+- **Fixed standalone Astro detection** — plain Astro projects (no Sanity/Strapi) now correctly detected instead of falling through undetected
+- **Fixed `frontend/astro.config.*` detection** — subdirectory-layout Astro projects without Strapi now correctly fall back to `astro` stack instead of being undetected
+- **Added package.json Strapi fallback** — `astro-strapi` detection now works via `package.json` when no `astro.config.*` config file is present
+- **Updated `token-optimization.md`** — removed outdated token budget table; replaced with current strategy guidance
+- **Cleaned up repo `settings.local.json`** — removed accumulated junk command approvals
 - Genericized all templates (replaced hardcoded project references with `{{PLACEHOLDER}}` variables)
 - Added `sensitive-files.md` rule to prevent reading credentials, secrets, and API keys
 - Added 5 headless CMS stacks: `craftcms-nuxt`, `craftcms-nextjs`, `ee-nextjs`, `astro-strapi`, `astro-sanity`
@@ -194,11 +211,9 @@ Templates use `{{VARIABLE}}` syntax, replaced during deployment:
 - Added `{{BRAND_*}}` color placeholders for project brand colors
 - Fixed cross-platform `sed -i` compatibility (macOS/Linux)
 - Implemented `--skip-vscode` and `--install-extensions` CLI flags
-- Fixed `{{PRIMARY_URL}}` → `{{DDEV_PRIMARY_URL}}` across all templates
 - Added memory bank system (`MEMORY.md`, memory rules, memory skill)
 - Added token optimization rules
 - Added 15 Superpowers workflow skills
-- Removed all other AI assistants (focused on Claude + VS Code only)
 
 ## Quick Reference
 

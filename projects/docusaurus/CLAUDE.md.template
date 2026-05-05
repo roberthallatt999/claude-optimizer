@@ -204,8 +204,7 @@ module.exports = {
 4. **MDX support** - JSX works in .mdx files
 5. **Versioning** - Use `docusaurus docs:version` for versioned docs
 
-@import ../shared/knowledge/markdown.md
-@import ../shared/knowledge/react-patterns.md
+@.claude/libraries/react.md
 
 {{#SUPERPOWERS}}
 ## Workflow Skills (Superpowers)

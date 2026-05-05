@@ -6,6 +6,7 @@
   ],
   "permissions": {
     "allow": [
+      "Bash(bun:*)",
       "Bash(cat:*)",
       "Bash(composer:*)",
       "Bash(cp:*)",
@@ -27,9 +28,11 @@
       "Bash(ls:*)",
       "Bash(mkdir:*)",
       "Bash(mv:*)",
+      "Bash(node:*)",
       "Bash(npm:*)",
       "Bash(npx:*)",
       "Bash(php:*)",
+      "Bash(pnpm:*)",
       "Bash(rm:*)",
       "Bash(tail:*)",
       "Bash(touch:*)",
@@ -89,10 +92,20 @@
       "Read(**/wp-config.php)",
       "Read(**/wp-config-local.php)",
       "Read(**/wp-salt.php)",
-      "Read(**/config/application.php)",
-      "Read(**/config/environments/*.php)",
       "Read(**/.ddev/db_snapshots/*)",
       "Read(**/.ddev/import-db/*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/session-start"
+          }
+        ]
+      }
     ]
   }
 }

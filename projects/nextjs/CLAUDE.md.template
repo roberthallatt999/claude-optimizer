@@ -165,9 +165,8 @@ export default PostPage;
 3. **Environment Variables** - Prefix with `NEXT_PUBLIC_` for client access
 4. **API Routes** - Use Route Handlers in `app/api/`
 
-@import ../shared/knowledge/typescript.md
-@import ../shared/knowledge/tailwind-css.md
-@import ../shared/knowledge/react-patterns.md
+@.claude/libraries/tailwind.md
+@.claude/libraries/react.md
 
 {{#SUPERPOWERS}}
 ## Workflow Skills (Superpowers)

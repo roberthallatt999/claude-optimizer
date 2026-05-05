@@ -167,12 +167,14 @@ Grep everything, filter results
 | Verbose error analysis | Token heavy | Structured diagnosis |
 | Re-reading unchanged files | Redundant | Trust memory |
 
-## Token Budget Guidelines
+## Context Efficiency Guidelines
 
-| Task Type | Target Tokens | Strategy |
-|-----------|---------------|----------|
-| Quick fix | < 500 | Direct answer, minimal context |
-| Feature add | < 2000 | Focused reads, batch edits |
-| Architecture | < 3000 | Memory-first, summarize findings |
-| Debug session | < 4000 | Systematic, avoid re-reads |
-| Major refactor | < 5000 | Plan first, batch operations |
+| Task Type | Strategy |
+|-----------|----------|
+| Quick fix | Direct answer; read only the relevant file section |
+| Feature add | Focused reads, batch edits, single coherent commit |
+| Architecture | Memory-first, summarize findings before diving deep |
+| Debug session | Systematic: reproduce → isolate → fix; avoid re-reads |
+| Major refactor | Plan first with `/write-plan`, then `/execute-plan` in batches |
+
+Claude Code manages its own context window automatically. Focus on strategies that avoid redundant reads and edits rather than trying to count tokens.

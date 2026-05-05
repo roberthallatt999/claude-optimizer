@@ -6,7 +6,9 @@
   ],
   "permissions": {
     "allow": [
+      "Bash(bun:*)",
       "Bash(cat:*)",
+      "Bash(composer:*)",
       "Bash(cp:*)",
       "Bash(ddev:*)",
       "Bash(find:*)",
@@ -26,12 +28,15 @@
       "Bash(ls:*)",
       "Bash(mkdir:*)",
       "Bash(mv:*)",
+      "Bash(node:*)",
       "Bash(npm:*)",
       "Bash(npx:*)",
+      "Bash(pnpm:*)",
       "Bash(rm:*)",
       "Bash(tail:*)",
       "Bash(touch:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(yarn:*)"
     ],
     "deny": [
       "Read(**/.env)",
@@ -85,6 +90,18 @@
       "Read(**/system/user/config/config.php)",
       "Read(**/.ddev/db_snapshots/*)",
       "Read(**/.ddev/import-db/*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/session-start"
+          }
+        ]
+      }
     ]
   }
 }

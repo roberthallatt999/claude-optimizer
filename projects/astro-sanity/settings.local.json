@@ -6,6 +6,7 @@
   ],
   "permissions": {
     "allow": [
+      "Bash(bun:*)",
       "Bash(cat:*)",
       "Bash(cp:*)",
       "Bash(find:*)",
@@ -28,7 +29,9 @@
       "Bash(node:*)",
       "Bash(npm:*)",
       "Bash(npx:*)",
+      "Bash(pnpm:*)",
       "Bash(rm:*)",
+      "Bash(sanity:*)",
       "Bash(tail:*)",
       "Bash(touch:*)",
       "Bash(wc:*)",
@@ -83,6 +86,18 @@
       "Read(**/*.log)",
       "Read(**/logs/*)",
       "Read(**/storage/logs/*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/session-start"
+          }
+        ]
+      }
     ]
   }
 }

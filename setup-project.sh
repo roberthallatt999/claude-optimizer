@@ -238,7 +238,6 @@ if [[ -z "$STACK" ]]; then
 
   # Second try: Detect from project files
   if [[ -z "$STACK" ]]; then
-    # We need the detect_stack function - source it inline for now
     # ExpressionEngine (check for headless Coilpack + Next.js first)
     if [[ -d "$PROJECT_DIR/system/ee" ]] || [[ -f "$PROJECT_DIR/system/user/config/config.php" ]]; then
       if [[ -f "$PROJECT_DIR/composer.json" ]] && grep -q "laravel/framework" "$PROJECT_DIR/composer.json" 2>/dev/null; then
@@ -252,7 +251,6 @@ if [[ -z "$STACK" ]]; then
       fi
     # Craft CMS (check for headless variants first)
     elif [[ -f "$PROJECT_DIR/craft" ]] && [[ -f "$PROJECT_DIR/composer.json" ]] && grep -q "craftcms/cms" "$PROJECT_DIR/composer.json" 2>/dev/null; then
-      # Check if it's a headless Craft CMS with a JS frontend
       if [[ -f "$PROJECT_DIR/frontend/nuxt.config.ts" ]] || [[ -f "$PROJECT_DIR/frontend/nuxt.config.js" ]]; then
         STACK="craftcms-nuxt"
       elif [[ -f "$PROJECT_DIR/frontend/next.config.js" ]] || [[ -f "$PROJECT_DIR/frontend/next.config.mjs" ]] || [[ -f "$PROJECT_DIR/frontend/next.config.ts" ]]; then
@@ -260,29 +258,33 @@ if [[ -z "$STACK" ]]; then
       else
         STACK="craftcms"
       fi
-    # WordPress Bedrock/Roots (has web/app structure or roots/bedrock in composer)
+    # WordPress Bedrock/Roots (web/app structure or roots/bedrock in composer)
     elif [[ -d "$PROJECT_DIR/web/app/mu-plugins" ]] || [[ -d "$PROJECT_DIR/web/app/plugins" ]]; then
       STACK="wordpress-roots"
     elif [[ -f "$PROJECT_DIR/composer.json" ]] && grep -qE '"roots/bedrock"|"roots/wordpress"' "$PROJECT_DIR/composer.json" 2>/dev/null; then
       STACK="wordpress-roots"
-    # Standard WordPress (has wp-content or wp-config.php at root or in public/web)
+    # Standard WordPress (root, public/, or web/ docroot)
     elif [[ -f "$PROJECT_DIR/wp-config.php" ]] || [[ -d "$PROJECT_DIR/wp-content" ]]; then
       STACK="wordpress"
     elif [[ -f "$PROJECT_DIR/public/wp-config.php" ]] || [[ -d "$PROJECT_DIR/public/wp-content" ]]; then
       STACK="wordpress"
     elif [[ -f "$PROJECT_DIR/web/wp-config.php" ]] || [[ -d "$PROJECT_DIR/web/wp-content" ]]; then
       STACK="wordpress"
-    # Astro-based stacks (check for CMS integrations)
+    # Astro (check for CMS integrations first, then standalone)
     elif [[ -f "$PROJECT_DIR/astro.config.mjs" ]] || [[ -f "$PROJECT_DIR/astro.config.ts" ]]; then
       if [[ -f "$PROJECT_DIR/sanity.config.ts" ]] || [[ -f "$PROJECT_DIR/sanity.config.js" ]]; then
         STACK="astro-sanity"
       elif [[ -d "$PROJECT_DIR/backend" ]] && [[ -f "$PROJECT_DIR/backend/package.json" ]] && grep -q '"@strapi' "$PROJECT_DIR/backend/package.json" 2>/dev/null; then
         STACK="astro-strapi"
+      else
+        STACK="astro"
       fi
-    # Astro + Strapi (frontend/ subdirectory layout)
+    # Astro (frontend/ subdirectory layout — check Strapi, then standalone)
     elif [[ -f "$PROJECT_DIR/frontend/astro.config.mjs" ]] || [[ -f "$PROJECT_DIR/frontend/astro.config.ts" ]]; then
       if [[ -d "$PROJECT_DIR/backend" ]] && [[ -f "$PROJECT_DIR/backend/package.json" ]] && grep -q '"@strapi' "$PROJECT_DIR/backend/package.json" 2>/dev/null; then
         STACK="astro-strapi"
+      else
+        STACK="astro"
       fi
     # Next.js (standalone)
     elif [[ -f "$PROJECT_DIR/next.config.js" ]] || [[ -f "$PROJECT_DIR/next.config.mjs" ]] || [[ -f "$PROJECT_DIR/next.config.ts" ]]; then
@@ -290,7 +292,7 @@ if [[ -z "$STACK" ]]; then
     # Docusaurus
     elif [[ -f "$PROJECT_DIR/docusaurus.config.js" ]] || [[ -f "$PROJECT_DIR/docusaurus.config.ts" ]]; then
       STACK="docusaurus"
-    # Check package.json for Next.js, Docusaurus, Astro, or Nuxt
+    # package.json fallback detection
     elif [[ -f "$PROJECT_DIR/package.json" ]]; then
       if grep -q '"next"' "$PROJECT_DIR/package.json" 2>/dev/null; then
         STACK="nextjs"
@@ -299,6 +301,10 @@ if [[ -z "$STACK" ]]; then
       elif grep -q '"astro"' "$PROJECT_DIR/package.json" 2>/dev/null; then
         if grep -q '"@sanity' "$PROJECT_DIR/package.json" 2>/dev/null; then
           STACK="astro-sanity"
+        elif grep -q '"@strapi' "$PROJECT_DIR/package.json" 2>/dev/null; then
+          STACK="astro-strapi"
+        else
+          STACK="astro"
         fi
       fi
     fi
@@ -510,90 +516,6 @@ detect_git_branches() {
   fi
 
   return 0
-}
-
-# Auto-detect the technology stack based on project files
-detect_stack() {
-  local detected=""
-
-  # ExpressionEngine: system/ee/ directory
-  if [[ -d "$PROJECT_DIR/system/ee" ]] || [[ -f "$PROJECT_DIR/system/user/config/config.php" ]]; then
-    # Check if it's Coilpack (EE + Laravel)
-    if [[ -f "$PROJECT_DIR/composer.json" ]] && grep -q "laravel/framework" "$PROJECT_DIR/composer.json" 2>/dev/null; then
-      # Check for headless Coilpack + Next.js
-      if [[ -f "$PROJECT_DIR/frontend/next.config.js" ]] || [[ -f "$PROJECT_DIR/frontend/next.config.mjs" ]] || [[ -f "$PROJECT_DIR/frontend/next.config.ts" ]]; then
-        detected="ee-nextjs"
-      else
-        detected="coilpack"
-      fi
-    else
-      detected="expressionengine"
-    fi
-
-  # Craft CMS: craft executable or config/app.php with Craft
-  elif [[ -f "$PROJECT_DIR/craft" ]] || [[ -f "$PROJECT_DIR/bootstrap.php" && -d "$PROJECT_DIR/config" ]]; then
-    if [[ -f "$PROJECT_DIR/composer.json" ]] && grep -q "craftcms/cms" "$PROJECT_DIR/composer.json" 2>/dev/null; then
-      # Check for headless Craft CMS variants
-      if [[ -f "$PROJECT_DIR/frontend/nuxt.config.ts" ]] || [[ -f "$PROJECT_DIR/frontend/nuxt.config.js" ]]; then
-        detected="craftcms-nuxt"
-      elif [[ -f "$PROJECT_DIR/frontend/next.config.js" ]] || [[ -f "$PROJECT_DIR/frontend/next.config.mjs" ]] || [[ -f "$PROJECT_DIR/frontend/next.config.ts" ]]; then
-        detected="craftcms-nextjs"
-      else
-        detected="craftcms"
-      fi
-    fi
-
-  # WordPress Bedrock (Roots): web/app structure or wp-content
-  elif [[ -d "$PROJECT_DIR/web/app/mu-plugins" ]] || [[ -d "$PROJECT_DIR/web/app/plugins" ]]; then
-    detected="wordpress-roots"
-  elif [[ -f "$PROJECT_DIR/wp-config.php" ]] || [[ -d "$PROJECT_DIR/wp-content" ]]; then
-    detected="wordpress-roots"
-
-  # Astro-based stacks (check for CMS integrations first)
-  elif [[ -f "$PROJECT_DIR/astro.config.mjs" ]] || [[ -f "$PROJECT_DIR/astro.config.ts" ]]; then
-    if [[ -f "$PROJECT_DIR/sanity.config.ts" ]] || [[ -f "$PROJECT_DIR/sanity.config.js" ]]; then
-      detected="astro-sanity"
-    elif [[ -d "$PROJECT_DIR/backend" ]] && [[ -f "$PROJECT_DIR/backend/package.json" ]] && grep -q '"@strapi' "$PROJECT_DIR/backend/package.json" 2>/dev/null; then
-      detected="astro-strapi"
-    fi
-
-  # Astro + Strapi (frontend/ subdirectory layout)
-  elif [[ -f "$PROJECT_DIR/frontend/astro.config.mjs" ]] || [[ -f "$PROJECT_DIR/frontend/astro.config.ts" ]]; then
-    if [[ -d "$PROJECT_DIR/backend" ]] && [[ -f "$PROJECT_DIR/backend/package.json" ]] && grep -q '"@strapi' "$PROJECT_DIR/backend/package.json" 2>/dev/null; then
-      detected="astro-strapi"
-    fi
-
-  # Next.js: next.config.js or next.config.mjs
-  elif [[ -f "$PROJECT_DIR/next.config.js" ]] || [[ -f "$PROJECT_DIR/next.config.mjs" ]] || [[ -f "$PROJECT_DIR/next.config.ts" ]]; then
-    detected="nextjs"
-
-  # Docusaurus: docusaurus.config.js
-  elif [[ -f "$PROJECT_DIR/docusaurus.config.js" ]] || [[ -f "$PROJECT_DIR/docusaurus.config.ts" ]]; then
-    detected="docusaurus"
-
-  # Additional framework detection for future stacks
-  # Laravel (standalone): artisan file
-  elif [[ -f "$PROJECT_DIR/artisan" ]] && [[ -f "$PROJECT_DIR/composer.json" ]]; then
-    if grep -q "laravel/framework" "$PROJECT_DIR/composer.json" 2>/dev/null; then
-      detected="laravel"  # Future stack
-    fi
-
-  # Package.json-based detection (React, Astro, Nuxt, etc.)
-  elif [[ -f "$PROJECT_DIR/package.json" ]]; then
-    if grep -q '"react"' "$PROJECT_DIR/package.json" 2>/dev/null; then
-      if grep -q '"next"' "$PROJECT_DIR/package.json" 2>/dev/null; then
-        detected="nextjs"
-      elif grep -q '"@docusaurus' "$PROJECT_DIR/package.json" 2>/dev/null; then
-        detected="docusaurus"
-      fi
-    elif grep -q '"astro"' "$PROJECT_DIR/package.json" 2>/dev/null; then
-      if grep -q '"@sanity' "$PROJECT_DIR/package.json" 2>/dev/null; then
-        detected="astro-sanity"
-      fi
-    fi
-  fi
-
-  echo "$detected"
 }
 
 # Detect additional technologies for discovery report
@@ -1009,6 +931,7 @@ update_gitignore() {
     craftcms-nuxt)    stack_label="Craft CMS + Nuxt" ;;
     craftcms-nextjs)  stack_label="Craft CMS + Next.js" ;;
     ee-nextjs)        stack_label="EE Coilpack + Next.js" ;;
+    astro)            stack_label="Astro" ;;
     astro-strapi)     stack_label="Astro + Strapi" ;;
     astro-sanity)     stack_label="Astro + Sanity" ;;
     wordpress)        stack_label="WordPress" ;;
@@ -1140,33 +1063,34 @@ deploy_superpowers_hooks() {
   do_mkdir "$PROJECT_DIR/.claude/hooks"
 
   if [[ "$DRY_RUN" == true ]]; then
-    echo -e "  ${YELLOW}[DRY-RUN]${NC} Create hooks.json"
-    echo -e "  ${YELLOW}[DRY-RUN]${NC} Copy session-start.sh"
+    echo -e "  ${YELLOW}[DRY-RUN]${NC} Copy session-start hook script"
+    echo -e "  ${YELLOW}[DRY-RUN]${NC} Inject SessionStart hook into settings.local.json"
   else
-    # Create hooks.json pointing to project-local script
-    cat > "$PROJECT_DIR/.claude/hooks/hooks.json" << 'HOOKS_EOF'
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "startup|resume|clear|compact",
-        "hooks": [
-          {
-            "type": "command",
-            "command": ".claude/hooks/session-start.sh"
-          }
-        ]
-      }
-    ]
-  }
-}
-HOOKS_EOF
-    echo -e "  ${GREEN}✓${NC} Created hooks.json"
+    # Copy session-start script
+    cp "$SCRIPT_DIR/superpowers/hooks/session-start" "$PROJECT_DIR/.claude/hooks/"
+    chmod +x "$PROJECT_DIR/.claude/hooks/session-start"
+    echo -e "  ${GREEN}✓${NC} Copied session-start hook script"
 
-    # Copy session-start.sh and adapt paths
-    cp "$SCRIPT_DIR/superpowers/hooks/session-start.sh" "$PROJECT_DIR/.claude/hooks/"
-    chmod +x "$PROJECT_DIR/.claude/hooks/session-start.sh"
-    echo -e "  ${GREEN}✓${NC} Copied session-start.sh"
+    # Inject SessionStart hook into settings.local.json
+    # Claude Code reads hooks from settings.local.json, not from a standalone hooks.json
+    local settings_file="$PROJECT_DIR/.claude/settings.local.json"
+    if [[ -f "$settings_file" ]] && command -v jq &>/dev/null; then
+      if ! jq -e '.hooks.SessionStart' "$settings_file" &>/dev/null 2>&1; then
+        local updated
+        updated=$(jq '.hooks = {"SessionStart": [{"hooks": [{"type": "command", "command": ".claude/hooks/session-start"}]}]}' "$settings_file")
+        if [[ $? -eq 0 ]]; then
+          echo "$updated" > "$settings_file"
+          echo -e "  ${GREEN}✓${NC} Injected SessionStart hook into settings.local.json"
+        fi
+      else
+        echo -e "  ${GREEN}✓${NC} SessionStart hook already configured in settings.local.json"
+      fi
+    elif [[ ! -f "$settings_file" ]]; then
+      echo -e "  ${YELLOW}⚠${NC}  settings.local.json not found — hook injection skipped"
+    else
+      echo -e "  ${YELLOW}⚠${NC}  jq not found — add hook manually to .claude/settings.local.json:"
+      printf '  %s\n' '"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": ".claude/hooks/session-start"}]}]}'
+    fi
   fi
 }
 
