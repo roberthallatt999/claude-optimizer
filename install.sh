@@ -53,6 +53,17 @@ esac
 
 echo -e "${CYAN}Detected shell:${NC} $SHELL_NAME"
 echo -e "${CYAN}Config file:${NC} $SHELL_RC"
+
+# Resolve symlinks so sed -i can edit the real file (BSD sed won't edit symlinks)
+while [[ -L "$SHELL_RC" ]]; do
+  link_target="$(readlink "$SHELL_RC")"
+  if [[ "$link_target" = /* ]]; then
+    SHELL_RC="$link_target"
+  else
+    SHELL_RC="$(cd "$(dirname "$SHELL_RC")" && cd "$(dirname "$link_target")" && pwd)/$(basename "$link_target")"
+  fi
+done
+echo -e "${CYAN}Resolved to:${NC} $SHELL_RC"
 echo ""
 
 # Make scripts executable
