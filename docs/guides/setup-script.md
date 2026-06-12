@@ -205,6 +205,32 @@ Generate analysis prompt for Claude to customize configuration.
 
 Outputs a prompt you can paste into Claude to get customization suggestions.
 
+## Model Orchestration
+
+### --orchestrator
+
+Deploy the **Opus orchestrator + Sonnet implementer** pattern (opt-in, disabled by default).
+
+When enabled, the script:
+
+- Pins the main session to Opus (`model: "opus"` in `settings.local.json`)
+- Forces every subagent to Sonnet (`CLAUDE_CODE_SUBAGENT_MODEL=sonnet`), which wins over
+  any subagent's own `model:` frontmatter, so delegated work never consumes the Opus quota
+- Deploys an `implementer` subagent (Sonnet) to `.claude/agents/implementer.md`
+- Appends a **Model & Delegation Policy** block to `CLAUDE.md`
+
+The intent: Opus reasons, plans, architects, and reviews in the main thread; routine
+implementation, scaffolding, and refactors are delegated to the Sonnet `implementer`.
+
+**Refresh is sticky:** once deployed, `--refresh` re-applies the pattern automatically
+(detected via `.claude/agents/implementer.md` or the `CLAUDE_CODE_SUBAGENT_MODEL` env key),
+so you don't need to re-pass `--orchestrator`. Requires `jq` for the settings injection.
+
+**Example:**
+```bash
+ai-config --project=. --orchestrator
+```
+
 ## Project Detection
 
 The script automatically detects:
@@ -296,6 +322,12 @@ ai-config --project=. --install-extensions
 
 ```bash
 ai-config --project=. --superpowers-core
+```
+
+### Opus Orchestrator + Sonnet Implementer
+
+```bash
+ai-config --project=. --orchestrator
 ```
 
 ## Exit Codes

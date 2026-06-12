@@ -194,6 +194,7 @@ Templates use `{{VARIABLE}}` syntax, replaced during deployment:
 
 ## Recent Changes
 
+- **Added `--orchestrator` flag** — opt-in Opus orchestrator + Sonnet implementer pattern. Pins the main session to Opus (`model: "opus"`), forces all subagents to Sonnet (`CLAUDE_CODE_SUBAGENT_MODEL=sonnet`), deploys an `implementer` subagent, and appends a Model & Delegation Policy block to `CLAUDE.md`. Sticky across `--refresh`. Templates live in `projects/common/orchestrator/`. Requires `jq`.
 - **Fixed SessionStart hook deployment** — hooks now injected into `settings.local.json` (where Claude Code actually reads them) instead of a standalone `hooks.json` that was never loaded
 - **Fixed `@import` paths** in `nextjs`, `craftcms`, `wordpress-roots`, and `docusaurus` templates — broken `../shared/knowledge/` paths replaced with correct `.claude/libraries/` paths
 - **Added `astro` standalone stack** — handles plain Astro projects (Content Collections, MDX, islands) that previously fell through to `custom`
@@ -238,4 +239,7 @@ ai-config --project=. --install-extensions
 
 # Force clean reinstall
 ai-config --clean --force --project=.
+
+# Opus orchestrator + Sonnet implementer pattern (opt-in)
+ai-config --project=. --orchestrator
 ```

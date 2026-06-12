@@ -230,6 +230,62 @@ If you need to work without Superpowers for a session:
 Please work without invoking skills for this session
 ```
 
+## Maintaining Superpowers (Upstream Updates)
+
+Superpowers is a **third-party repository** vendored into `superpowers/` as a
+**squashed git subtree** — not a submodule. There is no `.gitmodules` file; the
+files live directly in this repo's history, which is why deployment can copy them
+without any extra clone or checkout step.
+
+- **Upstream:** [github.com/obra/superpowers](https://github.com/obra/superpowers) (branch `main`)
+- **Vendored prefix:** `superpowers/`
+- **Current version:** see `version` in `superpowers/.claude-plugin/plugin.json`
+
+### Pull the latest upstream changes
+
+From the repository root, on a clean working tree:
+
+```bash
+# One-time: add a named remote so you don't retype the URL
+git remote add superpowers-upstream https://github.com/obra/superpowers.git
+
+# Pull the latest upstream into the superpowers/ prefix (squashed)
+git subtree pull --prefix=superpowers superpowers-upstream main --squash
+```
+
+If you didn't add the remote, pass the URL inline instead:
+
+```bash
+git subtree pull --prefix=superpowers https://github.com/obra/superpowers.git main --squash
+```
+
+`--squash` collapses upstream history into a single merge commit, keeping this
+repo's log clean (matching how the subtree was originally added).
+
+### After updating
+
+1. **Review the diff** — `git diff HEAD~1 -- superpowers/` to see what changed upstream.
+2. **Check the skill count** — the setup script and docs reference a specific number
+   of deployed skills. If upstream adds or removes skills, update those references
+   (`CLAUDE.md`, this guide, `docs/reference/commands.md`).
+3. **Verify deployment** — run a `--dry-run` against a test project to confirm the
+   skills still copy into `.claude/skills/superpowers/` as expected:
+   ```bash
+   ai-config --dry-run --project=/path/to/test-project
+   ```
+4. **Bump the recorded version** if you track it in docs, and commit:
+   ```bash
+   git commit -am "chore: update superpowers subtree to vX.Y.Z"
+   ```
+
+### Resolving conflicts
+
+Because this repo only **reads** from `superpowers/` (deployment copies files out;
+we don't edit them in place), conflicts are rare. If you have local modifications
+inside `superpowers/`, prefer making them as deploy-time overrides in the stack
+templates instead — keeping `superpowers/` a pristine mirror of upstream makes
+future `subtree pull`s conflict-free.
+
 ## Next Steps
 
 - **[Memory System](memory-system.md)** - Persistent context guide

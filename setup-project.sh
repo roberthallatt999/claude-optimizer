@@ -57,6 +57,7 @@ SKIP_VSCODE=false
 INSTALL_EXTENSIONS=false
 WITH_SUPERPOWERS=true          # Enabled by default
 WITH_OPENAI=false              # Disabled by default; use --with-openai to enable
+WITH_ORCHESTRATOR=false        # Disabled by default; use --orchestrator to enable
 SUPERPOWERS_MODE=""            # all, core, minimal, custom
 SUPERPOWERS_CUSTOM_SKILLS=""   # comma-separated skill names
 
@@ -171,6 +172,10 @@ while [[ $# -gt 0 ]]; do
       WITH_OPENAI=true
       shift
       ;;
+    --orchestrator)
+      WITH_ORCHESTRATOR=true
+      shift
+      ;;
     -h|--help)
       echo "Usage: $0 --project=<path> [options]"
       echo ""
@@ -194,6 +199,11 @@ while [[ $# -gt 0 ]]; do
       echo ""
       echo "OpenAI / API tools:"
       echo "  --with-openai           Deploy AGENTS.md for OpenAI Codex and API tools"
+      echo ""
+      echo "Model orchestration:"
+      echo "  --orchestrator          Opus orchestrator + Sonnet implementer setup:"
+      echo "                          pins the main session to Opus, forces all subagents"
+      echo "                          to Sonnet, and deploys an 'implementer' subagent"
       echo ""
       echo "VSCode:"
       echo "  --skip-vscode           Skip VSCode settings deployment"
@@ -771,6 +781,112 @@ deploy_agents_md() {
   fi
 }
 
+# Detect whether a project already has the orchestrator pattern deployed.
+# Used to make --refresh "sticky" (preserve orchestrator without re-passing the flag).
+orchestrator_already_deployed() {
+  local settings_file="$PROJECT_DIR/.claude/settings.local.json"
+  [[ -f "$PROJECT_DIR/.claude/agents/implementer.md" ]] && return 0
+  if [[ -f "$settings_file" ]] && command -v jq &>/dev/null; then
+    local val
+    val=$(jq -r '.env.CLAUDE_CODE_SUBAGENT_MODEL // empty' "$settings_file" 2>/dev/null)
+    [[ -n "$val" ]] && return 0
+  fi
+  return 1
+}
+
+# Inject the Opus-orchestrator / Sonnet-subagent model config into settings.local.json.
+#   - .model = "opus"                              (pin main session to Opus)
+#   - .env.CLAUDE_CODE_SUBAGENT_MODEL = "sonnet"   (force every subagent to Sonnet)
+# Both keys are set explicitly (orchestrator wins) because --orchestrator is opt-in.
+inject_orchestrator_settings() {
+  local settings_file="$1"
+
+  if [[ "$DRY_RUN" == true ]]; then
+    echo -e "  ${YELLOW}[DRY-RUN]${NC} Set model=opus + env.CLAUDE_CODE_SUBAGENT_MODEL=sonnet in settings.local.json"
+    return
+  fi
+
+  if ! command -v jq &>/dev/null; then
+    echo -e "  ${YELLOW}⚠${NC}  jq not found — cannot set orchestrator model config (install jq to enable)"
+    return
+  fi
+
+  do_mkdir "$(dirname "$settings_file")"
+
+  # Start from existing settings if present and valid, otherwise an empty object.
+  local base="{}"
+  if [[ -f "$settings_file" ]] && jq empty "$settings_file" 2>/dev/null; then
+    base=$(cat "$settings_file")
+  fi
+
+  local updated
+  updated=$(echo "$base" | jq '
+    .model = "opus" |
+    .env = ((.env // {}) + {"CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"})
+  ')
+
+  if [[ $? -ne 0 || -z "$updated" ]]; then
+    echo -e "  ${RED}✗${NC}  Failed to set orchestrator model config — skipping"
+    return
+  fi
+
+  echo "$updated" > "$settings_file"
+  echo -e "  ${GREEN}✓${NC} settings.local.json: model=opus, subagents pinned to sonnet"
+}
+
+# Append the delegation policy block to CLAUDE.md, idempotently.
+# Removes any previously-injected block (between the managed markers) first,
+# so --refresh (which regenerates CLAUDE.md) never duplicates it.
+append_orchestrator_policy() {
+  local claude_md="$1"
+  local policy_file="$2"
+
+  if [[ ! -f "$policy_file" ]]; then
+    echo -e "  ${YELLOW}○${NC} Orchestrator policy template not found — skipping CLAUDE.md block"
+    return
+  fi
+
+  if [[ "$DRY_RUN" == true ]]; then
+    echo -e "  ${YELLOW}[DRY-RUN]${NC} Append Model & Delegation Policy block to CLAUDE.md"
+    return
+  fi
+
+  if [[ ! -f "$claude_md" ]]; then
+    echo -e "  ${YELLOW}○${NC} CLAUDE.md not found — skipping delegation policy block"
+    return
+  fi
+
+  # Strip any existing managed block (idempotent re-runs / refresh).
+  perl -i -0pe 's/\n?<!-- BEGIN ORCHESTRATOR POLICY.*?<!-- END ORCHESTRATOR POLICY -->\n?//gs' "$claude_md"
+
+  # Append a fresh copy.
+  printf '\n' >> "$claude_md"
+  cat "$policy_file" >> "$claude_md"
+  echo -e "  ${GREEN}✓${NC} CLAUDE.md: added Model & Delegation Policy block"
+}
+
+# Deploy the Opus-orchestrator + Sonnet-implementer pattern.
+#   1. implementer subagent (Sonnet) → .claude/agents/implementer.md
+#   2. model + env config           → .claude/settings.local.json
+#   3. delegation policy block       → CLAUDE.md
+deploy_orchestrator() {
+  local label="${1:-Deploying}"
+  echo ""
+  echo -e "${CYAN}${label} Opus orchestrator + Sonnet implementer pattern...${NC}"
+
+  local orch_dir="$SCRIPT_DIR/projects/common/orchestrator"
+
+  if [[ -f "$orch_dir/implementer.md" ]]; then
+    do_mkdir "$PROJECT_DIR/.claude/agents"
+    do_copy "$orch_dir/implementer.md" "$PROJECT_DIR/.claude/agents/"
+  else
+    echo -e "  ${YELLOW}○${NC} implementer.md template not found — skipping subagent"
+  fi
+
+  inject_orchestrator_settings "$PROJECT_DIR/.claude/settings.local.json"
+  append_orchestrator_policy "$PROJECT_DIR/CLAUDE.md" "$orch_dir/CLAUDE-orchestrator.md"
+}
+
 merge_gitignore_template() {
   local template_file="$1"
   local gitignore_path="$2"
@@ -1199,6 +1315,12 @@ if [[ "$REFRESH" == true ]]; then
     merge_settings_json "$STACK_DIR/settings.local.json" "$PROJECT_DIR/.claude/settings.local.json"
   fi
 
+  # Re-apply the orchestrator pattern if requested, or sticky if already deployed
+  if [[ "$WITH_ORCHESTRATOR" == true ]] || orchestrator_already_deployed; then
+    WITH_ORCHESTRATOR=true
+    deploy_orchestrator "Refreshing"
+  fi
+
   # Merge .gitignore security patterns (adds missing entries, preserves existing content)
   update_gitignore
 
@@ -1228,6 +1350,13 @@ if [[ "$REFRESH" == true ]]; then
   echo -e "  .claude/skills/              (your customizations)"
   echo -e "  settings.local.json (allow)  (project-specific rules kept)"
   echo -e "  .gitignore                   (existing entries kept, missing security patterns added)"
+  if [[ "$WITH_ORCHESTRATOR" == true ]]; then
+    echo ""
+    echo -e "${CYAN}Orchestrator pattern (Opus manager + Sonnet implementer):${NC}"
+    echo -e "  .claude/agents/implementer.md — Sonnet implementer subagent"
+    echo -e "  settings.local.json           — model=opus, CLAUDE_CODE_SUBAGENT_MODEL=sonnet"
+    echo -e "  CLAUDE.md                     — Model & Delegation Policy block"
+  fi
   if [[ "$WITH_SUPERPOWERS" == true ]]; then
     echo ""
     echo -e "${CYAN}Superpowers workflow skills deployed:${NC}"
@@ -1502,6 +1631,11 @@ if [[ "$WITH_OPENAI" == true ]]; then
   deploy_agents_md "Deploying"
 fi
 
+# 4b. Deploy Opus orchestrator + Sonnet implementer pattern (opt-in)
+if [[ "$WITH_ORCHESTRATOR" == true ]]; then
+  deploy_orchestrator "Deploying"
+fi
+
 # 5. Create MEMORY.md from template (if it doesn't exist)
 if [[ ! -f "$PROJECT_DIR/MEMORY.md" ]]; then
   echo ""
@@ -1699,6 +1833,15 @@ echo "  - MEMORY.md — Persistent project memory bank"
 echo "  - .claude/rules/memory-management.md — Memory update protocols"
 echo "  - .claude/rules/token-optimization.md — Context efficiency rules"
 echo ""
+if [[ "$WITH_ORCHESTRATOR" == true ]]; then
+  echo -e "${CYAN}Orchestrator pattern deployed (Opus manager + Sonnet implementer):${NC}"
+  echo "  - .claude/agents/implementer.md — Sonnet implementer subagent"
+  echo "  - settings.local.json — model=opus, all subagents pinned to Sonnet"
+  echo "  - CLAUDE.md — Model & Delegation Policy block"
+  echo ""
+  echo -e "${GREEN}Opus plans & reviews in the main thread; delegate coding to the implementer.${NC}"
+  echo ""
+fi
 if [[ -n "$vscode_source" ]] || [[ -d "$PROJECT_DIR/.vscode" ]]; then
   echo -e "${CYAN}VSCode settings deployed:${NC}"
   echo "  - .vscode/settings.json — Editor + formatter preferences"
