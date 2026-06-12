@@ -194,6 +194,9 @@ Templates use `{{VARIABLE}}` syntax, replaced during deployment:
 
 ## Recent Changes
 
+- **Added always-on safety guardrails** — every deploy/refresh appends a managed **Operational Safety Guardrails** block to each project's `CLAUDE.md` (and `AGENTS.md` with `--with-openai`): never read secrets/`.env`/credentials, never push to GitHub without explicit per-action approval, never change production without explicit permission. Source: `projects/common/safety-guardrails.md`; reference rule: `projects/common/rules/deployment-safety.md` (deployed to `.claude/rules/`). Idempotent across refresh via `<!-- BEGIN/END SAFETY GUARDRAILS -->` markers.
+- **Superpowers auto-updates on deploy/refresh** — `deploy_superpowers()` now runs `update-superpowers.sh` (best-effort) first, pulling the latest squashed subtree from the fork. Skips cleanly when the optimizer repo is dirty/offline. Opt out with `--skip-superpowers-update`.
+- **Documented `--with-openai`** — the AGENTS.md flag for OpenAI Codex / API tools is now covered in `docs/guides/setup-script.md`.
 - **Added `--orchestrator` flag** — opt-in Opus orchestrator + Sonnet implementer pattern. Pins the main session to Opus (`model: "opus"`), forces all subagents to Sonnet (`CLAUDE_CODE_SUBAGENT_MODEL=sonnet`), deploys an `implementer` subagent, and appends a Model & Delegation Policy block to `CLAUDE.md`. Sticky across `--refresh`. Templates live in `projects/common/orchestrator/`. Requires `jq`.
 - **Fixed SessionStart hook deployment** — hooks now injected into `settings.local.json` (where Claude Code actually reads them) instead of a standalone `hooks.json` that was never loaded
 - **Fixed `@import` paths** in `nextjs`, `craftcms`, `wordpress-roots`, and `docusaurus` templates — broken `../shared/knowledge/` paths replaced with correct `.claude/libraries/` paths
@@ -239,6 +242,9 @@ ai-config --project=. --install-extensions
 
 # Force clean reinstall
 ai-config --clean --force --project=.
+
+# Deploy AGENTS.md for OpenAI Codex / API tools (opt-in)
+ai-config --project=. --with-openai
 
 # Opus orchestrator + Sonnet implementer pattern (opt-in)
 ai-config --project=. --orchestrator

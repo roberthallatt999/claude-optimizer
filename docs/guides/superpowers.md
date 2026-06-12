@@ -237,34 +237,45 @@ Superpowers is a **third-party repository** vendored into `superpowers/` as a
 files live directly in this repo's history, which is why deployment can copy them
 without any extra clone or checkout step.
 
-- **Upstream:** [github.com/obra/superpowers](https://github.com/obra/superpowers) (branch `main`)
+- **Source fork:** [github.com/roberthallatt999/superpowers](https://github.com/roberthallatt999/superpowers) (branch `main`) — tracks [obra/superpowers](https://github.com/obra/superpowers) upstream
 - **Vendored prefix:** `superpowers/`
 - **Current version:** see `version` in `superpowers/.claude-plugin/plugin.json`
 
-### Pull the latest upstream changes
+### Automatic updates on deploy/refresh
 
-From the repository root, on a clean working tree:
+Every `ai-config` deploy or `--refresh` (when Superpowers is enabled) runs
+`update-superpowers.sh` **before** copying skills into the target project, so each
+deployment ships the current set. This is **best-effort**: if the optimizer repo
+has uncommitted changes, you're offline, or `git` is unavailable, it prints a
+warning and falls back to the already-vendored copy — it never blocks the deploy.
+
+> **Note:** the update targets the **claude-optimizer repo itself** (where the
+> subtree lives), not the project being configured. A successful pull creates a
+> squashed merge commit in this repo.
+
+Opt out for a single run:
 
 ```bash
-# One-time: add a named remote so you don't retype the URL
-git remote add superpowers-upstream https://github.com/obra/superpowers.git
-
-# Pull the latest upstream into the superpowers/ prefix (squashed)
-git subtree pull --prefix=superpowers superpowers-upstream main --squash
+ai-config --refresh --project=. --skip-superpowers-update
 ```
 
-If you didn't add the remote, pass the URL inline instead:
+### Manual update
+
+Run the helper directly from the repository root (clean working tree required):
 
 ```bash
-git subtree pull --prefix=superpowers https://github.com/obra/superpowers.git main --squash
+./update-superpowers.sh           # verbose
+./update-superpowers.sh --quiet   # only warnings (how setup-project.sh calls it)
 ```
 
-`--squash` collapses upstream history into a single merge commit, keeping this
-repo's log clean (matching how the subtree was originally added).
+The script pulls from the fork with `git subtree pull --prefix=superpowers … --squash`,
+collapsing upstream history into a single merge commit (matching how the subtree
+was originally added). It preflight-checks for a clean tree and a reachable remote,
+and on a conflict it aborts the merge to leave the tree clean.
 
 ### After updating
 
-1. **Review the diff** — `git diff HEAD~1 -- superpowers/` to see what changed upstream.
+1. **Review the diff** — the script prints the exact `git diff <before> <after> -- superpowers/` command to run.
 2. **Check the skill count** — the setup script and docs reference a specific number
    of deployed skills. If upstream adds or removes skills, update those references
    (`CLAUDE.md`, this guide, `docs/reference/commands.md`).
@@ -273,17 +284,13 @@ repo's log clean (matching how the subtree was originally added).
    ```bash
    ai-config --dry-run --project=/path/to/test-project
    ```
-4. **Bump the recorded version** if you track it in docs, and commit:
-   ```bash
-   git commit -am "chore: update superpowers subtree to vX.Y.Z"
-   ```
 
 ### Resolving conflicts
 
 Because this repo only **reads** from `superpowers/` (deployment copies files out;
 we don't edit them in place), conflicts are rare. If you have local modifications
 inside `superpowers/`, prefer making them as deploy-time overrides in the stack
-templates instead — keeping `superpowers/` a pristine mirror of upstream makes
+templates instead — keeping `superpowers/` a pristine mirror of the fork makes
 future `subtree pull`s conflict-free.
 
 ## Next Steps

@@ -107,6 +107,13 @@ Superpowers workflow skills are enabled by default:
 | `--superpowers-core` | Deploy core skills only |
 | `--superpowers-minimal` | Deploy bootstrap skill only |
 | `--superpowers-skill=X` | Deploy specific skills (comma-separated) |
+| `--skip-superpowers-update` | Don't pull the latest subtree before deploying |
+
+By default, every deploy/refresh first runs `update-superpowers.sh` (best-effort)
+to pull the latest vendored skills. See
+[Superpowers → Maintaining Superpowers](superpowers.md#maintaining-superpowers-upstream-updates).
+Pass `--skip-superpowers-update` to use the already-vendored copy without touching
+the network or the optimizer repo.
 
 ### Available Skills
 
@@ -205,6 +212,33 @@ Generate analysis prompt for Claude to customize configuration.
 
 Outputs a prompt you can paste into Claude to get customization suggestions.
 
+## OpenAI / API Tools
+
+### --with-openai
+
+Deploy an `AGENTS.md` file for OpenAI Codex and other API-based AI coding tools
+(GitHub Copilot Workspace, and similar assistants that read `AGENTS.md`). Opt-in,
+disabled by default.
+
+`AGENTS.md` is the OpenAI-ecosystem counterpart to `CLAUDE.md`: it gives those
+tools the same project context (identity, local dev commands, git workflow, coding
+conventions) that `CLAUDE.md` gives Claude Code. Deploy it when a project is worked
+on by both Claude Code **and** OpenAI/Codex-based tools.
+
+**Template resolution:** the script uses the stack-specific
+`projects/<stack>/AGENTS.md.template` when one exists, falling back to
+`projects/common/AGENTS.md.template`. Template variables (`{{PROJECT_NAME}}`,
+`{{GIT_MAIN_BRANCH}}`, etc.) are substituted the same way as in `CLAUDE.md`.
+
+**Refresh:** unlike `--orchestrator`, this flag is **not** sticky — pass
+`--with-openai` again on `--refresh` to regenerate `AGENTS.md`. (It is regenerated
+from the template, so local edits to a deployed `AGENTS.md` are overwritten.)
+
+**Example:**
+```bash
+ai-config --project=. --with-openai
+```
+
 ## Model Orchestration
 
 ### --orchestrator
@@ -230,6 +264,32 @@ so you don't need to re-pass `--orchestrator`. Requires `jq` for the settings in
 ```bash
 ai-config --project=. --orchestrator
 ```
+
+## Safety Guardrails (Always Deployed)
+
+Every deploy and refresh — for **all** stacks, with no flag required — writes a
+non-negotiable **Operational Safety Guardrails** block into the project's
+`CLAUDE.md` (and `AGENTS.md` when `--with-openai` is used). It is wrapped in
+managed markers, so refreshes update it in place rather than duplicating it.
+
+The block instructs the AI assistant to:
+
+1. **Never read secrets or confidential data** — `.env`/`.env.*`, credentials,
+   keys, certs, tokens, usernames, passwords (full patterns in
+   `.claude/rules/sensitive-files.md`).
+2. **Never push to GitHub without explicit, per-action approval** — local commits
+   are fine; `git push`, PRs, and tag pushes are not.
+3. **Never change a production environment without explicit permission** — no
+   migrations, writes, deploys, or destructive commands against production.
+
+These are reinforced at two layers:
+
+- **Awareness:** the always-loaded `CLAUDE.md` block (source:
+  `projects/common/safety-guardrails.md`).
+- **Reference rules:** `.claude/rules/deployment-safety.md` and
+  `.claude/rules/sensitive-files.md`.
+- **Enforcement:** the `deny` list in `.claude/settings.local.json` blocks reads of
+  `.env`, keys, certs, and other secret files at the permission layer.
 
 ## Project Detection
 
@@ -322,6 +382,12 @@ ai-config --project=. --install-extensions
 
 ```bash
 ai-config --project=. --superpowers-core
+```
+
+### Deploy AGENTS.md for OpenAI / Codex
+
+```bash
+ai-config --project=. --with-openai
 ```
 
 ### Opus Orchestrator + Sonnet Implementer

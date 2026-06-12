@@ -58,6 +58,7 @@ INSTALL_EXTENSIONS=false
 WITH_SUPERPOWERS=true          # Enabled by default
 WITH_OPENAI=false              # Disabled by default; use --with-openai to enable
 WITH_ORCHESTRATOR=false        # Disabled by default; use --orchestrator to enable
+SKIP_SUPERPOWERS_UPDATE=false  # Auto-update the superpowers subtree before deploy; --skip-superpowers-update opts out
 SUPERPOWERS_MODE=""            # all, core, minimal, custom
 SUPERPOWERS_CUSTOM_SKILLS=""   # comma-separated skill names
 
@@ -176,6 +177,10 @@ while [[ $# -gt 0 ]]; do
       WITH_ORCHESTRATOR=true
       shift
       ;;
+    --skip-superpowers-update)
+      SKIP_SUPERPOWERS_UPDATE=true
+      shift
+      ;;
     -h|--help)
       echo "Usage: $0 --project=<path> [options]"
       echo ""
@@ -196,6 +201,7 @@ while [[ $# -gt 0 ]]; do
       echo "  --superpowers-core      Deploy core skills only (TDD, debugging, brainstorming)"
       echo "  --superpowers-minimal   Deploy only the bootstrap skill"
       echo "  --superpowers-skill=X   Deploy specific skills (comma-separated)"
+      echo "  --skip-superpowers-update  Don't pull the latest superpowers subtree before deploying"
       echo ""
       echo "OpenAI / API tools:"
       echo "  --with-openai           Deploy AGENTS.md for OpenAI Codex and API tools"
@@ -887,6 +893,38 @@ deploy_orchestrator() {
   append_orchestrator_policy "$PROJECT_DIR/CLAUDE.md" "$orch_dir/CLAUDE-orchestrator.md"
 }
 
+# Append the non-negotiable safety guardrails block to CLAUDE.md, idempotently.
+# Always runs (not gated on any flag): these guardrails — no reading secrets, no
+# unauthorized push, no production changes — must be present in every project's
+# always-loaded CLAUDE.md. Markers make it safe to re-append on --refresh.
+append_safety_policy() {
+  local claude_md="$1"
+  local policy_file="$SCRIPT_DIR/projects/common/safety-guardrails.md"
+
+  if [[ ! -f "$policy_file" ]]; then
+    echo -e "  ${YELLOW}○${NC} Safety guardrails template not found — skipping CLAUDE.md block"
+    return
+  fi
+
+  if [[ "$DRY_RUN" == true ]]; then
+    echo -e "  ${YELLOW}[DRY-RUN]${NC} Append Operational Safety Guardrails block to CLAUDE.md"
+    return
+  fi
+
+  if [[ ! -f "$claude_md" ]]; then
+    echo -e "  ${YELLOW}○${NC} CLAUDE.md not found — skipping safety guardrails block"
+    return
+  fi
+
+  # Strip any existing managed block (idempotent re-runs / refresh).
+  perl -i -0pe 's/\n?<!-- BEGIN SAFETY GUARDRAILS.*?<!-- END SAFETY GUARDRAILS -->\n?//gs' "$claude_md"
+
+  # Append a fresh copy.
+  printf '\n' >> "$claude_md"
+  cat "$policy_file" >> "$claude_md"
+  echo -e "  ${GREEN}✓${NC} CLAUDE.md: added Operational Safety Guardrails block"
+}
+
 merge_gitignore_template() {
   local template_file="$1"
   local gitignore_path="$2"
@@ -1070,8 +1108,37 @@ update_gitignore() {
 # Superpowers Skills Deployment
 # ============================================================================
 
+# Best-effort: pull the latest superpowers/ subtree from upstream before we copy
+# skills into the target project, so every deploy/refresh ships the current set.
+# Runs update-superpowers.sh, which targets THIS repo (SCRIPT_DIR), not the
+# project. Never fatal — if the tree is dirty, offline, or jq/git is missing, it
+# warns and we fall back to the already-vendored copy.
+update_superpowers() {
+  [[ "$SKIP_SUPERPOWERS_UPDATE" == true ]] && return 0
+  [[ "$DRY_RUN" == true ]] && {
+    echo -e "  ${YELLOW}[DRY-RUN]${NC} Pull latest superpowers subtree (update-superpowers.sh)"
+    return 0
+  }
+
+  local updater="$SCRIPT_DIR/update-superpowers.sh"
+  if [[ ! -x "$updater" ]]; then
+    [[ -f "$updater" ]] || return 0   # script not present — nothing to do
+  fi
+
+  echo ""
+  echo -e "${CYAN}Checking for superpowers updates...${NC}"
+  if bash "$updater" --quiet; then
+    echo -e "  ${GREEN}✓${NC} Superpowers subtree is current"
+  else
+    echo -e "  ${YELLOW}○${NC} Skipped superpowers update — using the vendored copy"
+  fi
+}
+
 deploy_superpowers() {
   local mode="${SUPERPOWERS_MODE:-all}"
+
+  # Refresh the vendored subtree first (best-effort, opt-out via --skip-superpowers-update)
+  update_superpowers
 
   echo ""
   echo -e "${CYAN}Deploying Superpowers workflow skills...${NC}"
@@ -1295,6 +1362,9 @@ if [[ "$REFRESH" == true ]]; then
     do_copy "$STACK_DIR/CLAUDE.md" "$PROJECT_DIR/"
   fi
 
+  # Re-apply the non-negotiable safety guardrails block (always, idempotent)
+  append_safety_policy "$PROJECT_DIR/CLAUDE.md"
+
   # Copy library reference docs to project-local CLAUDE context
   if [[ -d "$SCRIPT_DIR/libraries" ]]; then
     do_mkdir "$PROJECT_DIR/.claude/libraries"
@@ -1308,6 +1378,7 @@ if [[ "$REFRESH" == true ]]; then
   # Regenerate AGENTS.md from template (OpenAI Codex / API tools)
   if [[ "$WITH_OPENAI" == true ]]; then
     deploy_agents_md "Refreshing"
+    append_safety_policy "$PROJECT_DIR/AGENTS.md"
   fi
 
   # Merge settings.local.json (adds missing global rules, preserves project customizations)
@@ -1517,7 +1588,7 @@ if [[ -d "$STACK_DIR/rules" ]]; then
   do_mkdir "$PROJECT_DIR/.claude/rules"
 
   # Core rules - ALWAYS copy if they exist (stack-specific or common fallback)
-  for rule in accessibility.md performance.md memory-management.md token-optimization.md sensitive-files.md; do
+  for rule in accessibility.md performance.md memory-management.md token-optimization.md sensitive-files.md deployment-safety.md; do
     if [[ -f "$STACK_DIR/rules/$rule" ]]; then
       do_copy "$STACK_DIR/rules/$rule" "$PROJECT_DIR/.claude/rules/"
     elif [[ -f "$SCRIPT_DIR/projects/common/rules/$rule" ]]; then
@@ -1626,9 +1697,13 @@ elif [[ -f "$STACK_DIR/CLAUDE.md" ]]; then
   do_copy "$STACK_DIR/CLAUDE.md" "$PROJECT_DIR/"
 fi
 
+# 4·safety. Append the non-negotiable safety guardrails block (always, idempotent)
+append_safety_policy "$PROJECT_DIR/CLAUDE.md"
+
 # 4a. Create AGENTS.md from template (OpenAI Codex / API tools)
 if [[ "$WITH_OPENAI" == true ]]; then
   deploy_agents_md "Deploying"
+  append_safety_policy "$PROJECT_DIR/AGENTS.md"
 fi
 
 # 4b. Deploy Opus orchestrator + Sonnet implementer pattern (opt-in)
