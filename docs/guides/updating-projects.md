@@ -111,11 +111,22 @@ Review output before committing to changes.
 
 All stay intact.
 
+**Library curation is preserved too.** A refresh updates the libraries you still
+have under `.claude/libraries/`, but it does **not** re-add ones you deleted —
+unless the refresh newly detects that technology (e.g. you just added Tailwind).
+So curating `.claude/libraries/` down to what the project actually uses sticks
+across refreshes. (Detection-backed: `tailwind.md`, `alpinejs.md`,
+`foundation.md`, `scss.md`; framework libraries are stack-implied and never
+re-added once removed.)
+
 ### Regenerated During --refresh
 
-- `CLAUDE.md` - Regenerated from template
+- `CLAUDE.md` - Regenerated from template, then the managed safety-guardrails and
+  memory-protocol blocks are re-applied in place
 - `.vscode/` - Updated with latest settings
 - `settings.local.json` - Updated with permissions
+- `.claude/libraries/` - Existing libraries updated; missing ones added only when
+  newly detected (see above)
 
 ### Lost During --clean
 

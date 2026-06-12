@@ -136,10 +136,27 @@ Update configuration files while preserving customizations.
 
 **Behavior:**
 - Re-scans project for technology changes
-- Updates `CLAUDE.md` and other config files
+- Regenerates `CLAUDE.md` (re-applying the managed safety-guardrails and
+  memory-protocol blocks in place)
 - **Preserves `MEMORY.md`** (never overwritten)
-- Preserves `.claude/` customizations
-- Updates Superpowers skills
+- Preserves `.claude/` customizations (rules, agents, and skills are **not**
+  re-copied on refresh)
+- Updates the vendored Superpowers subtree (best-effort) before deploying skills
+
+**Library references respect your curation.** On refresh, `.claude/libraries/` is
+updated, not reset:
+
+- A library that is **already present** is updated to the latest version.
+- A library you **deleted** is **not** re-added — unless this refresh newly
+  **detects** its technology (e.g. you just added Tailwind, so `tailwind.md`
+  comes back).
+- Detection-backed libraries are `tailwind.md`, `alpinejs.md`, `foundation.md`,
+  and `scss.md`. Framework libraries (`react.md`, `vue.md`, `nextjs.md`, …) are
+  stack-implied with no runtime signal, so once removed they stay removed.
+
+This means a refresh never silently re-introduces a library you intentionally
+curated away — the kind of change that previously required re-running analysis to
+undo.
 
 **Example:**
 ```bash

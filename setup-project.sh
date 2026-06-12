@@ -925,6 +925,54 @@ append_safety_policy() {
   echo -e "  ${GREEN}✓${NC} CLAUDE.md: added Operational Safety Guardrails block"
 }
 
+# Append the Project Memory Protocol block to CLAUDE.md, idempotently.
+# Always runs: the protocol that tells Claude to read MEMORY.md at session start
+# and log every change/decision to it must live in the always-loaded CLAUDE.md,
+# because .claude/rules/* are not @imported and may never reach context on their
+# own. Markers make it safe to re-append on --refresh.
+append_memory_policy() {
+  local claude_md="$1"
+  local policy_file="$SCRIPT_DIR/projects/common/memory-protocol.md"
+
+  if [[ ! -f "$policy_file" ]]; then
+    echo -e "  ${YELLOW}○${NC} Memory protocol template not found — skipping CLAUDE.md block"
+    return
+  fi
+
+  if [[ "$DRY_RUN" == true ]]; then
+    echo -e "  ${YELLOW}[DRY-RUN]${NC} Append Project Memory Protocol block to CLAUDE.md"
+    return
+  fi
+
+  if [[ ! -f "$claude_md" ]]; then
+    echo -e "  ${YELLOW}○${NC} CLAUDE.md not found — skipping memory protocol block"
+    return
+  fi
+
+  # Strip any existing managed block (idempotent re-runs / refresh).
+  perl -i -0pe 's/\n?<!-- BEGIN MEMORY PROTOCOL.*?<!-- END MEMORY PROTOCOL -->\n?//gs' "$claude_md"
+
+  # Append a fresh copy.
+  printf '\n' >> "$claude_md"
+  cat "$policy_file" >> "$claude_md"
+  echo -e "  ${GREEN}✓${NC} CLAUDE.md: added Project Memory Protocol block"
+}
+
+# True only when a library file is backed by a positive detection signal in THIS
+# run. Used on --refresh to decide whether a *missing* library may be added.
+# Framework libraries (react, vue, nextjs, …) are stack-implied with no runtime
+# signal, so they return false here: once a developer removes them, --refresh
+# will not re-introduce them.
+library_is_detected() {
+  case "$1" in
+    tailwind.md)   [[ "$HAS_TAILWIND" == true ]] ;;
+    alpinejs.md)   [[ "$HAS_ALPINE" == true ]] ;;
+    foundation.md) [[ "$HAS_FOUNDATION" == true ]] ;;
+    scss.md)       [[ "$HAS_SCSS" == true ]] ;;
+    *) return 1 ;;
+  esac
+}
+
 merge_gitignore_template() {
   local template_file="$1"
   local gitignore_path="$2"
@@ -1362,16 +1410,33 @@ if [[ "$REFRESH" == true ]]; then
     do_copy "$STACK_DIR/CLAUDE.md" "$PROJECT_DIR/"
   fi
 
-  # Re-apply the non-negotiable safety guardrails block (always, idempotent)
+  # Re-apply the non-negotiable safety guardrails + memory protocol (always, idempotent)
   append_safety_policy "$PROJECT_DIR/CLAUDE.md"
+  append_memory_policy "$PROJECT_DIR/CLAUDE.md"
 
-  # Copy library reference docs to project-local CLAUDE context
+  # Refresh library references WITHOUT undoing the developer's curation.
+  # On --refresh we only:
+  #   - update a library that is ALREADY present (keep its content current), and
+  #   - add a MISSING library when this run newly detects its technology.
+  # A library the developer deleted is NOT re-added unless it is detected, so a
+  # refresh never silently re-introduces things that required analysis to remove.
   if [[ -d "$SCRIPT_DIR/libraries" ]]; then
-    do_mkdir "$PROJECT_DIR/.claude/libraries"
+    proj_lib_dir="$PROJECT_DIR/.claude/libraries"
+    echo ""
+    echo -e "${CYAN}Refreshing library references (present = update, detected = add)...${NC}"
     for library in "$SCRIPT_DIR/libraries"/*.md; do
-      if [[ -f "$library" ]]; then
-        do_copy "$library" "$PROJECT_DIR/.claude/libraries/"
+      [[ -f "$library" ]] || continue
+      lib_name="$(basename "$library")"
+      [[ "$lib_name" == "README.md" ]] && continue
+
+      if [[ -f "$proj_lib_dir/$lib_name" ]]; then
+        do_copy "$library" "$proj_lib_dir/"
+      elif library_is_detected "$lib_name"; then
+        do_mkdir "$proj_lib_dir"
+        do_copy "$library" "$proj_lib_dir/"
+        echo -e "  ${GREEN}✓${NC} Added newly detected library: $lib_name"
       fi
+      # Not present and not detected → leave out (respect curation).
     done
   fi
 
@@ -1379,6 +1444,7 @@ if [[ "$REFRESH" == true ]]; then
   if [[ "$WITH_OPENAI" == true ]]; then
     deploy_agents_md "Refreshing"
     append_safety_policy "$PROJECT_DIR/AGENTS.md"
+    append_memory_policy "$PROJECT_DIR/AGENTS.md"
   fi
 
   # Merge settings.local.json (adds missing global rules, preserves project customizations)
@@ -1697,13 +1763,15 @@ elif [[ -f "$STACK_DIR/CLAUDE.md" ]]; then
   do_copy "$STACK_DIR/CLAUDE.md" "$PROJECT_DIR/"
 fi
 
-# 4·safety. Append the non-negotiable safety guardrails block (always, idempotent)
+# 4·safety. Append the safety guardrails + memory protocol blocks (always, idempotent)
 append_safety_policy "$PROJECT_DIR/CLAUDE.md"
+append_memory_policy "$PROJECT_DIR/CLAUDE.md"
 
 # 4a. Create AGENTS.md from template (OpenAI Codex / API tools)
 if [[ "$WITH_OPENAI" == true ]]; then
   deploy_agents_md "Deploying"
   append_safety_policy "$PROJECT_DIR/AGENTS.md"
+  append_memory_policy "$PROJECT_DIR/AGENTS.md"
 fi
 
 # 4b. Deploy Opus orchestrator + Sonnet implementer pattern (opt-in)
