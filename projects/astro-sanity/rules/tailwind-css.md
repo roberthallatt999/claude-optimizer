@@ -223,7 +223,7 @@ export default {
 ### Avoiding Bloat
 - Purge unused styles in production (configured in tailwind.config.mjs)
 - Use `@apply` sparingly (prefer utility classes in templates)
-- JIT mode is default in Tailwind 3+
+- JIT is automatic in current Tailwind — verify the installed major version in package.json
 - NEVER create unnecessary custom CSS
 
 ## Accessibility with Tailwind

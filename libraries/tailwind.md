@@ -1,5 +1,16 @@
 # Tailwind CSS Conventions
 
+> **Verify the installed Tailwind major version before assuming config or syntax.**
+> Check `package.json` (`tailwindcss` dependency) — do not assume a version. The
+> two current lines differ significantly:
+> - **v3:** JavaScript config (`tailwind.config.js` with `module.exports`), a
+>   `content: []` array, and `@tailwind base/components/utilities` in CSS.
+> - **v4:** CSS-first config — `@import "tailwindcss";` plus a `@theme { }` block
+>   in your CSS; automatic content detection; `tailwind.config.js` is optional.
+>
+> The utility-class guidance below applies to both. The config example is v3-style;
+> translate it to a `@theme` block when the project is on v4.
+
 ## General Principles
 - Use Tailwind utilities; avoid custom CSS unless necessary
 - Extract repeated patterns into components, not @apply
@@ -83,8 +94,10 @@ Order classes logically for readability:
 <p class="line-clamp-3">...</p>
 ```
 
-## Customization (tailwind.config.js)
+## Customization
+<!-- v3 (JS config) shown below. For v4, define the same tokens in a CSS `@theme { }` block instead. -->
 ```javascript
+// tailwind.config.js — Tailwind v3
 module.exports = {
   theme: {
     extend: {

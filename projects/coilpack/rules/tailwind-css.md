@@ -197,7 +197,7 @@ module.exports = {
   content: [
     './templates/**/*.{twig,html}',
   ],
-  // JIT mode is default in Tailwind 3+
+  // JIT is automatic in current Tailwind — verify the installed major version in package.json
 }
 ```
 
