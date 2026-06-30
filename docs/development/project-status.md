@@ -4,7 +4,7 @@
 
 **Status: PRODUCTION READY**
 
-18 technology stacks have complete Claude Code configurations:
+19 technology stacks have complete Claude Code configurations:
 - Full template systems with generic `{{PLACEHOLDER}}` variables
 - Stack-appropriate `settings.local.json` for all stacks
 - Memory bank system for persistent context with Design System, Integrations, and API inventory sections
@@ -33,6 +33,7 @@
 | **craftcms-nuxt** | Yes | 8 rules | 17+ | Yes | Yes | Complete |
 | **craftcms-nextjs** | Yes | 8 rules | 17+ | Yes | Yes | Complete |
 | **ee-nextjs** | Yes | 8 rules | 17+ | Yes | Yes | Complete |
+| **astro-tina** | Yes | 6 rules | 17+ | Yes | Yes | Complete |
 | **astro** | Yes | 6 rules | 17+ | Yes | Yes | Complete |
 | **astro-strapi** | Yes | 8 rules | 17+ | Yes | Yes | Complete |
 | **astro-sanity** | Yes | 8 rules | 17+ | Yes | Yes | Complete |

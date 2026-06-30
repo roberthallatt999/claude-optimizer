@@ -144,6 +144,20 @@ touch "$p/astro.config.mjs"
 echo '{"name":"test","dependencies":{"astro":"4.0.0"}}' > "$p/package.json"
 assert_stack "Astro standalone" "$p" "astro"
 
+# Astro + Tina CMS (tina/config.ts file)
+p=$(make_project)
+touch "$p/astro.config.mjs"
+mkdir -p "$p/tina"
+touch "$p/tina/config.ts"
+echo '{"name":"test","dependencies":{"astro":"4.0.0","tinacms":"2.0.0"}}' > "$p/package.json"
+assert_stack "Astro + Tina CMS (tina/config.ts)" "$p" "astro-tina"
+
+# Astro + Tina CMS (package.json only)
+p=$(make_project)
+touch "$p/astro.config.mjs"
+echo '{"name":"test","dependencies":{"astro":"4.0.0","tinacms":"2.0.0","@tinacms/cli":"1.5.0"}}' > "$p/package.json"
+assert_stack "Astro + Tina CMS (package.json)" "$p" "astro-tina"
+
 # Docusaurus
 p=$(make_project)
 touch "$p/docusaurus.config.js"

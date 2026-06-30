@@ -70,7 +70,8 @@ claude-optimizer/
     ├── craftcms-nuxt/            # Headless Craft CMS + Nuxt
     ├── craftcms-nextjs/          # Headless Craft CMS + Next.js
     ├── ee-nextjs/                # Headless EE Coilpack + Next.js
-    ├── astro/                    # Astro standalone (+ Tina CMS auto-injected)
+    ├── astro-tina/               # Astro + Tina CMS (Git-based MDX content)
+    ├── astro/                    # Astro standalone
     ├── astro-strapi/             # Astro + Strapi
     ├── astro-sanity/             # Astro + Sanity Studio
     ├── wordpress-roots/

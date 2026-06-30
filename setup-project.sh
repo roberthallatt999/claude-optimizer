@@ -323,6 +323,10 @@ if [[ -z "$STACK" ]]; then
         STACK="astro-sanity"
       elif [[ -d "$PROJECT_DIR/backend" ]] && [[ -f "$PROJECT_DIR/backend/package.json" ]] && grep -q '"@strapi' "$PROJECT_DIR/backend/package.json" 2>/dev/null; then
         STACK="astro-strapi"
+      elif [[ -f "$PROJECT_DIR/tina/config.ts" ]] || [[ -f "$PROJECT_DIR/tina/config.js" ]]; then
+        STACK="astro-tina"
+      elif [[ -f "$PROJECT_DIR/package.json" ]] && grep -q '"tinacms"' "$PROJECT_DIR/package.json" 2>/dev/null; then
+        STACK="astro-tina"
       else
         STACK="astro"
       fi
@@ -356,6 +360,8 @@ if [[ -z "$STACK" ]]; then
           STACK="astro-sanity"
         elif grep -q '"@strapi' "$PROJECT_DIR/package.json" 2>/dev/null; then
           STACK="astro-strapi"
+        elif grep -q '"tinacms"' "$PROJECT_DIR/package.json" 2>/dev/null; then
+          STACK="astro-tina"
         else
           STACK="astro"
         fi
@@ -1269,6 +1275,7 @@ update_gitignore() {
     astro)            stack_label="Astro" ;;
     astro-strapi)     stack_label="Astro + Strapi" ;;
     astro-sanity)     stack_label="Astro + Sanity" ;;
+    astro-tina)       stack_label="Astro + Tina CMS" ;;
     wordpress)        stack_label="WordPress" ;;
     wordpress-roots)  stack_label="WordPress Roots/Bedrock" ;;
     nextjs)           stack_label="Next.js" ;;

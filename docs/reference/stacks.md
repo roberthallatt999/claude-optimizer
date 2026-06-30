@@ -35,7 +35,8 @@ Complete reference for all supported technology stacks.
 | **ee-nextjs** | EE Coilpack (Laravel REST API) | Next.js 14+ (React SSR/SSG) | Headless EE with React |
 | **astro-strapi** | Strapi (REST/GraphQL) | Astro (Islands) | Content-driven Astro sites |
 | **astro-sanity** | Sanity.io (GROQ) | Astro (Islands) | Sanity-powered Astro sites |
-| **astro** | Tina CMS (auto-injected) | Astro (Islands) | Git-based CMS with Tina |
+| **astro-tina** | Tina CMS (Git-based) | Astro (Islands) | Git-committed MDX content + visual editor |
+| **astro** | — | Astro (Islands) | Static/island sites (no CMS) |
 
 ## Common Features (All Stacks)
 
@@ -602,6 +603,47 @@ Then run `/project-discover` in Claude Code to generate custom rules.
 
 ---
 
+## Astro + Tina CMS
+
+**Stack ID:** `astro-tina`
+
+### Technologies
+
+- **CMS:** Tina CMS 2.x (Git-based, MDX/Markdown content)
+- **Frontend:** Astro 4.x+ (Islands architecture)
+- **Language:** TypeScript
+- **Styling:** Tailwind CSS
+- **Node:** 18+
+
+### How Tina CMS Works
+
+Tina is a Git-backed CMS — content is stored as `.mdx` / `.md` files committed directly to the repository, rather than in a hosted database. Editors use a visual admin UI (served at `/admin`) that writes changes back to Git. In production, Tina Cloud handles authentication and commits via GitHub OAuth.
+
+### Rules Included
+
+**Always:**
+- `accessibility.md`, `performance.md`, `sensitive-files.md`, `deployment-safety.md`
+- `memory-management.md`, `token-optimization.md`
+
+**Auto-injected on detection:**
+- `tinacms.md` — schema definition, collections, Astro data fetching, live editing
+- `typescript.md`, `tailwind.md`, `vitest.md`, `playwright.md`, `zod.md` (if detected)
+
+### Key Patterns
+
+- Schema defined in `tina/config.ts` → `defineConfig()` with collections
+- `tina/__generated__/` is auto-generated — never edit
+- Always import from `tina/__generated__/client` for type-safe queries
+- Dev: `tinacms dev -c "astro dev"` (not `astro dev` directly)
+- Build: `tinacms build && astro build` (order is mandatory)
+- Admin UI shell at `src/pages/admin/[...all].astro` (served from `public/admin/`)
+
+### Detection
+
+`astro.config.mjs/ts` + `tina/config.ts/js` at project root. Falls back to `astro` + `tinacms` in `package.json`.
+
+---
+
 ## Detection Logic
 
 ### How Stacks Are Detected
@@ -624,6 +666,7 @@ The script checks in this order (first match wins):
 | remix | `remix.config.js/ts` or `app/root.tsx` + `@remix-run/react` |
 | astro-sanity | `astro.config.mjs` + `sanity.config.ts` |
 | astro-strapi | `astro.config.mjs` + Strapi in `backend/` |
+| astro-tina | `astro.config.mjs` + `tina/config.ts` (or `tinacms` in `package.json`) |
 | astro | `astro.config.mjs` or `astro.config.ts` |
 | nextjs | `next.config.js/mjs/ts` |
 | docusaurus | `docusaurus.config.js/ts` |

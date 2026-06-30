@@ -1,0 +1,293 @@
+# Project: {{PROJECT_NAME}}
+
+## Overview
+
+This is an **Astro + Tina CMS** project. Tina is a Git-based headless CMS — content is stored as MDX/Markdown files committed directly to the repository, with a visual editor UI served from `/admin`. Astro handles the frontend as a static-first site with islands architecture.
+
+- **Dev server**: http://localhost:4321
+- **Tina admin UI**: http://localhost:4321/admin (local mode, no auth required)
+- **Tina Cloud dashboard**: https://app.tina.io
+
+## Tech Stack
+
+### CMS (Tina)
+- **CMS**: Tina CMS 2.x (`tinacms` + `@tinacms/cli`)
+- **Content storage**: MDX / Markdown files in `src/content/`
+- **Schema**: `tina/config.ts` → `defineConfig()` with collections
+- **Generated client**: `tina/__generated__/client.ts` (type-safe, never edit)
+- **Admin UI**: Built to `public/admin/` by `tinacms build`
+- **Auth (cloud)**: Tina Cloud + GitHub OAuth
+
+### Frontend (Astro)
+- **Framework**: Astro 4.x+
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS
+- **Rendering**: SSG (static) with optional SSR islands
+- **Content API**: `tina/__generated__/client` (type-safe queries)
+
+## Git Workflow
+
+- **Main Branch:** `{{GIT_MAIN_BRANCH}}` (production)
+- **Integration Branch:** `{{GIT_INTEGRATION_BRANCH}}` (feature branches merge here)
+- **Feature Branch Pattern:** `feature/<description>` from `{{GIT_INTEGRATION_BRANCH}}`
+- **Content commits**: Tina Cloud commits content changes via GitHub on behalf of editors
+
+## Directory Structure
+
+```
+{{PROJECT_SLUG}}/
+├── astro.config.mjs               # Astro configuration
+├── tina/
+│   ├── config.ts                  # Tina CMS schema + build config (EDIT THIS)
+│   └── __generated__/             # Auto-generated — NEVER edit
+│       ├── client.ts              # Type-safe query client
+│       ├── types.ts               # TypeScript types for all collections
+│       └── queries.gql            # Generated GraphQL queries
+├── src/
+│   ├── content/                   # Git-committed content files
+│   │   └── blog/
+│   │       ├── hello-world.mdx
+│   │       └── another-post.mdx
+│   ├── layouts/
+│   │   └── BaseLayout.astro
+│   ├── pages/
+│   │   ├── index.astro
+│   │   ├── blog/
+│   │   │   ├── index.astro        # Blog listing
+│   │   │   └── [slug].astro       # Blog detail (uses Tina client)
+│   │   └── admin/
+│   │       └── [...all].astro     # Tina admin UI shell (catch-all)
+│   ├── components/
+│   │   ├── Header.astro
+│   │   ├── Footer.astro
+│   │   └── BlogCard.astro
+│   └── styles/
+│       └── global.css
+├── public/
+│   ├── uploads/                   # Tina media uploads
+│   └── admin/                     # Built by tinacms build (gitignored)
+├── tailwind.config.mjs
+└── package.json
+```
+
+## Development Commands
+
+```bash
+npm install                         # Install dependencies
+
+# Development (always use tinacms dev wrapper — starts both Tina + Astro)
+npm run dev                         # tinacms dev -c "astro dev"
+
+# Production build (tinacms build MUST run before astro build)
+npm run build                       # tinacms build && astro build
+npm run preview                     # Preview production build
+
+# Tina CLI
+npx tinacms dev -c "astro dev"      # Equivalent to npm run dev
+npx tinacms build                   # Build admin UI to public/admin/
+```
+
+### package.json scripts (canonical)
+```json
+{
+  "scripts": {
+    "dev":     "tinacms dev -c \"astro dev\"",
+    "build":   "tinacms build && astro build",
+    "preview": "astro preview"
+  }
+}
+```
+
+## Tina CMS Configuration
+
+### tina/config.ts — complete structure
+
+```typescript
+import { defineConfig } from 'tinacms'
+
+export default defineConfig({
+  branch: process.env.GITHUB_BRANCH ?? process.env.VERCEL_GIT_COMMIT_REF ?? '{{GIT_MAIN_BRANCH}}',
+  clientId:  process.env.NEXT_PUBLIC_TINA_CLIENT_ID,  // Tina Cloud
+  token:     process.env.TINA_TOKEN,                   // Tina Cloud read/write token
+
+  build: {
+    outputFolder: 'admin',    // → public/admin/ (served at /admin)
+    publicFolder: 'public',
+  },
+
+  media: {
+    tina: {
+      mediaRoot: 'uploads',
+      publicFolder: 'public',
+    },
+  },
+
+  schema: {
+    collections: [
+      {
+        name:   'post',
+        label:  'Blog Posts',
+        path:   'src/content/blog',
+        format: 'mdx',
+        ui: {
+          router: ({ document }) => `/blog/${document._sys.filename}`,
+        },
+        fields: [
+          { type: 'string',   name: 'title',       label: 'Title',        required: true, isTitle: true },
+          { type: 'string',   name: 'description', label: 'Description',  ui: { component: 'textarea' } },
+          { type: 'datetime', name: 'date',         label: 'Publish Date' },
+          { type: 'boolean',  name: 'draft',        label: 'Draft' },
+          { type: 'image',    name: 'hero',         label: 'Hero Image' },
+          { type: 'string',   name: 'tags',         label: 'Tags',         list: true },
+          { type: 'rich-text', name: 'body',        label: 'Body',         isBody: true },
+        ],
+      },
+    ],
+  },
+})
+```
+
+## Data Fetching in Astro
+
+### List page
+
+```astro
+---
+// src/pages/blog/index.astro
+import { client } from '../../tina/__generated__/client'
+import BaseLayout from '../../layouts/BaseLayout.astro'
+
+const { data } = await client.queries.postConnection({
+  sort: 'date',
+  filter: { draft: { eq: false } },
+})
+const posts = data.postConnection.edges!.map(e => e!.node!)
+---
+
+<BaseLayout title="Blog">
+  {posts.map(post => (
+    <article>
+      <a href={`/blog/${post._sys.filename}`}>{post.title}</a>
+      <time>{post.date}</time>
+    </article>
+  ))}
+</BaseLayout>
+```
+
+### Detail page (SSG with getStaticPaths)
+
+```astro
+---
+// src/pages/blog/[slug].astro
+import { client } from '../../tina/__generated__/client'
+import BaseLayout from '../../layouts/BaseLayout.astro'
+
+export async function getStaticPaths() {
+  const posts = await client.queries.postConnection()
+  return posts.data.postConnection.edges!.map(edge => ({
+    params: { slug: edge!.node!._sys.filename },
+    props:  { post: edge!.node! },
+  }))
+}
+
+const { slug } = Astro.params
+const { data } = await client.queries.post({ relativePath: `${slug}.mdx` })
+---
+
+<BaseLayout title={data.post.title}>
+  <h1>{data.post.title}</h1>
+  <time>{data.post.date}</time>
+  <!-- Render body as MDX via Astro's content collections or a custom renderer -->
+</BaseLayout>
+```
+
+### Admin UI page (catch-all route)
+
+```astro
+---
+// src/pages/admin/[...all].astro
+// This catch-all renders the Tina admin shell.
+// The actual JS/CSS is built by `tinacms build` into public/admin/.
+---
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{PROJECT_NAME}} CMS</title>
+  </head>
+  <body>
+    <script src="/admin/index.js"></script>
+  </body>
+</html>
+```
+
+## Environment Variables
+
+```bash
+# .env.local — never commit
+NEXT_PUBLIC_TINA_CLIENT_ID=   # Tina Cloud project ID (from app.tina.io)
+TINA_TOKEN=                    # Read/write token from Tina Cloud
+GITHUB_BRANCH={{GIT_MAIN_BRANCH}}  # or VERCEL_GIT_COMMIT_REF in CI
+```
+
+> In local development, `clientId` and `token` are not required — Tina runs without auth.
+
+## Coding Standards
+
+### Tina Schema
+- All collections live in `tina/config.ts` — one source of truth
+- Use `isTitle: true` on the string field that names the document in the admin list
+- Use `isBody: true` on the rich-text field that maps to the MDX file body
+- Never edit `tina/__generated__/` — it is always regenerated on `tinacms dev/build`
+
+### Content
+- MDX files live in `src/content/` and are committed to Git — treat them like code
+- Never hardcode content in `.astro` files when it belongs in a Tina collection
+- Use `filter: { draft: { eq: false } }` on all public-facing queries
+
+### TypeScript
+- Import from `tina/__generated__/client` (not from `tinacms`) for all data queries
+- Types for collection documents are auto-generated in `tina/__generated__/types.ts`
+- Use strict mode; avoid `any`
+
+### Astro
+- Use `.astro` for static components (default)
+- Use React/Vue/Svelte only when interactivity is genuinely required (islands)
+- Keep frontmatter minimal; move query logic to `src/lib/` helpers
+
+## Important Notes
+
+1. **Build order**: Always `tinacms build` before `astro build` in CI — the generated client must exist
+2. **Local mode**: No Tina Cloud credentials required for local development — editors can save files locally
+3. **Cloud mode**: Tina Cloud commits content changes directly to GitHub via OAuth
+4. **Media**: Images are stored in `public/uploads/` and committed to Git (or use external media provider)
+5. **Admin access**: In production, protect `/admin` with Tina Cloud auth — it is public by default in local mode
+6. **Webhooks**: Configure deployment webhooks (Vercel/Netlify) to rebuild on Tina Cloud content publishes
+
+@.claude/libraries/tinacms.md
+
+{{#SUPERPOWERS}}
+## Workflow Skills (Superpowers)
+
+This project uses structured workflow skills for disciplined AI-assisted development.
+
+### Key Commands
+| Command | When to Use |
+|---------|-------------|
+| `/brainstorm` | Before building new features — design exploration |
+| `/write-plan` | After design approval — create implementation plan |
+| `/execute-plan` | With approved plan — batch execution with checkpoints |
+
+### Core Skills
+| Skill | When to Use |
+|-------|-------------|
+| `brainstorming` | Before any new feature or significant change |
+| `test-driven-development` | All code implementation (RED-GREEN-REFACTOR) |
+| `systematic-debugging` | Bug investigation and root cause analysis |
+| `design-system-builder` | Audit and build the project's design token system |
+| `component-scaffolder` | Generate typed Astro/React components with tests |
+| `verification-before-completion` | Ensure changes actually work |
+
+See `.claude/skills/superpowers/using-superpowers/SKILL.md` for the full skill usage guide.
+{{/SUPERPOWERS}}
