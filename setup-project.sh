@@ -91,6 +91,7 @@ HAS_FRAMER_MOTION=false
 HAS_SHADCN=false
 HAS_ZOD=false
 HAS_PINIA=false
+HAS_TINA=false
 
 # Brand colors (discovered from project's Tailwind config or set manually)
 BRAND_GREEN=""
@@ -553,6 +554,13 @@ detect_frontend_tools() {
   # shadcn/ui: components/ui directory is canonical indicator
   if [[ -d "$PROJECT_DIR/components/ui" ]] || [[ -d "$PROJECT_DIR/src/components/ui" ]] || [[ -d "$PROJECT_DIR/app/components/ui" ]]; then
     HAS_SHADCN=true
+  fi
+
+  # Tina CMS: tina/config.ts/js is the canonical indicator
+  if [[ -f "$PROJECT_DIR/tina/config.ts" ]] || [[ -f "$PROJECT_DIR/tina/config.js" ]]; then
+    HAS_TINA=true
+  elif [[ -f "$PROJECT_DIR/package.json" ]] && grep -q '"tinacms"' "$PROJECT_DIR/package.json" 2>/dev/null; then
+    HAS_TINA=true
   fi
 
   return 0
@@ -1049,6 +1057,7 @@ library_is_detected() {
     playwright.md)     [[ "$HAS_PLAYWRIGHT" == true ]] ;;
     prisma.md)         [[ "$HAS_PRISMA" == true ]] ;;
     shadcn-ui.md)      [[ "$HAS_SHADCN" == true ]] ;;
+    tinacms.md)        [[ "$HAS_TINA" == true ]] ;;
     *) return 1 ;;
   esac
 }
@@ -1075,6 +1084,7 @@ inject_detected_library_imports() {
     "tailwind.md"
     "alpinejs.md"
     "scss.md"
+    "tinacms.md"
   )
 
   local injected=0

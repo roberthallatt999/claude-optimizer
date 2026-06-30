@@ -223,6 +223,20 @@ touch "$p/next.config.js"
 echo '{"name":"test","dependencies":{"next":"14.0.0","@supabase/supabase-js":"2.0.0"}}' > "$p/package.json"
 assert_library_injected "Supabase injection" "$p" "supabase.md"
 
+# Tina CMS detection (tina/config.ts file)
+p=$(make_project)
+touch "$p/astro.config.mjs"
+mkdir -p "$p/tina"
+touch "$p/tina/config.ts"
+echo '{"name":"test","dependencies":{"astro":"4.0.0","tinacms":"2.0.0","@tinacms/cli":"1.5.0"}}' > "$p/package.json"
+assert_library_injected "Tina CMS injection (tina/config.ts)" "$p" "tinacms.md"
+
+# Tina CMS detection (package.json only)
+p=$(make_project)
+touch "$p/astro.config.mjs"
+echo '{"name":"test","dependencies":{"astro":"4.0.0","tinacms":"2.0.0"}}' > "$p/package.json"
+assert_library_injected "Tina CMS injection (package.json)" "$p" "tinacms.md"
+
 # ============================================================================
 # Summary
 # ============================================================================

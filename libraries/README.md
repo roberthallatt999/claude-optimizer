@@ -41,6 +41,9 @@ Framework, CSS, and tooling references for local Claude library context.
 ## API Layer
 - [trpc.md](trpc.md) — tRPC v10/v11 (end-to-end typesafe APIs)
 
+## CMS
+- [tinacms.md](tinacms.md) — Tina CMS (Git-based, MDX, live editing, Astro/Next.js)
+
 ## Database & Backend
 - [prisma.md](prisma.md) — Prisma ORM
 - [supabase.md](supabase.md) — Supabase JS client, Auth, Storage, Realtime
