@@ -4,7 +4,19 @@ Complete reference for all supported technology stacks.
 
 ## Stack Overview
 
-### Monolithic Stacks
+### Modern JS / Full-Stack
+
+| Stack | Framework | Language | Primary Use Case |
+|-------|-----------|----------|------------------|
+| **sveltekit** | SvelteKit 2 + Svelte 5 | TypeScript | Full-stack Svelte apps |
+| **remix** | Remix / React Router v7 | TypeScript | Full-stack React apps |
+| **t3-stack** | Next.js + tRPC + Prisma | TypeScript | End-to-end typesafe apps |
+| **nuxt** | Nuxt 3 (standalone) | TypeScript | Vue SSR/SSG apps |
+| **nextjs** | Next.js 14+ | TypeScript | React web applications |
+| **docusaurus** | Docusaurus 3+ | TypeScript/MDX | Documentation sites |
+| **custom** | Any | Any | Discovery mode for unknown stacks |
+
+### Monolithic CMS Stacks
 
 | Stack | CMS/Framework | Template Engine | Primary Use Case |
 |-------|--------------|-----------------|------------------|
@@ -13,9 +25,6 @@ Complete reference for all supported technology stacks.
 | **craftcms** | Craft CMS | Twig | Content management |
 | **wordpress-roots** | WordPress/Bedrock | Blade (via Sage) | WordPress with modern stack |
 | **wordpress** | WordPress | PHP Templates | Standard WordPress |
-| **nextjs** | Next.js | React/TSX | React web applications |
-| **docusaurus** | Docusaurus | MDX | Documentation sites |
-| **custom** | Any | Any | Discovery mode for unknown stacks |
 
 ### Headless CMS Stacks
 
@@ -26,6 +35,7 @@ Complete reference for all supported technology stacks.
 | **ee-nextjs** | EE Coilpack (Laravel REST API) | Next.js 14+ (React SSR/SSG) | Headless EE with React |
 | **astro-strapi** | Strapi (REST/GraphQL) | Astro (Islands) | Content-driven Astro sites |
 | **astro-sanity** | Sanity.io (GROQ) | Astro (Islands) | Sanity-powered Astro sites |
+| **astro** | Tina CMS (auto-injected) | Astro (Islands) | Git-based CMS with Tina |
 
 ## Common Features (All Stacks)
 
@@ -37,9 +47,18 @@ Every stack deployment includes:
 | Memory Rules | `.claude/rules/memory-management.md` |
 | Token Optimization | `.claude/rules/token-optimization.md` |
 | Sensitive File Protection | `.claude/rules/sensitive-files.md` |
+| Deployment Safety | `.claude/rules/deployment-safety.md` |
+| Accessibility | `.claude/rules/accessibility.md` |
+| TypeScript Patterns | `.claude/rules/typescript-patterns.md` |
+| Design System | `.claude/rules/design-system.md` |
+| API Design | `.claude/rules/api-design.md` |
 | Permissions | `.claude/settings.local.json` |
 | Superpowers Skills | `.claude/skills/superpowers/` |
 | Session Hooks | `.claude/hooks/` |
+
+> The three rules marked in bold above (`typescript-patterns`, `design-system`, `api-design`) are
+> deployed from `projects/common/rules/` to modern JS stacks (SvelteKit, Remix, T3, Nuxt, Next.js).
+> PHP/CMS stacks (WordPress, Craft, EE) continue to receive the original 6-rule set.
 
 ## ExpressionEngine
 
@@ -459,49 +478,183 @@ ai-config --discover --project=/path/to/project
 
 Then run `/project-discover` in Claude Code to generate custom rules.
 
+## SvelteKit
+
+**Stack ID:** `sveltekit`
+
+### Technologies
+
+- **Framework:** SvelteKit 2 with Svelte 5 Runes
+- **Language:** TypeScript
+- **Rendering:** SSR, SSG, or hybrid (per-route)
+- **Node:** 18+
+
+### Rules Included
+
+**Always:**
+- `accessibility.md`, `performance.md`, `sensitive-files.md`, `deployment-safety.md`
+- `memory-management.md`, `token-optimization.md`
+- `sveltekit-patterns.md` — routing files, Runes, load functions, form actions
+
+**Conditional (auto-injected via library detection):**
+- `typescript.md`, `tailwind.md`, `vitest.md`, `playwright.md`, `zod.md`
+
+### Detection
+
+`svelte.config.js` or `svelte.config.ts` at project root, OR `@sveltejs/kit` in `package.json`.
+
+---
+
+## Remix / React Router v7
+
+**Stack ID:** `remix`
+
+### Technologies
+
+- **Framework:** Remix or React Router v7
+- **Language:** TypeScript
+- **Rendering:** SSR-first, nested routes
+- **Node:** 18+
+
+### Rules Included
+
+**Always:**
+- `accessibility.md`, `performance.md`, `sensitive-files.md`, `deployment-safety.md`
+- `memory-management.md`, `token-optimization.md`
+
+**Conditional (auto-injected):**
+- `typescript.md`, `tailwind.md`, `zod.md`, `vitest.md`, `playwright.md`, `shadcn-ui.md`
+
+### Key Patterns
+
+- Loaders/actions with Zod validation at every boundary
+- Error boundaries with `isRouteErrorResponse()`
+- `useFetcher` for optimistic updates and non-navigating mutations
+- `Promise.all` in loaders for parallel data loading
+- `app/lib/*.server.ts` for server-only modules
+
+### Detection
+
+`remix.config.js/ts` at project root, OR `app/root.tsx` + `@remix-run/react` in `package.json`.
+
+---
+
+## T3 Stack
+
+**Stack ID:** `t3-stack`
+
+### Technologies
+
+- **Framework:** Next.js 14+
+- **API Layer:** tRPC v11 (end-to-end typesafe)
+- **ORM:** Prisma
+- **Auth:** NextAuth.js / Auth.js
+- **UI:** shadcn/ui + Tailwind CSS
+- **Validation:** Zod
+- **Language:** TypeScript (strict)
+
+### Rules Included
+
+**Always:**
+- `accessibility.md`, `performance.md`, `sensitive-files.md`, `deployment-safety.md`
+- `memory-management.md`, `token-optimization.md`
+
+**Auto-injected (all detected by default in T3):**
+- `typescript.md`, `trpc.md`, `prisma.md`, `zod.md`, `tailwind.md`, `shadcn-ui.md`
+
+### Detection
+
+`next.config.*` + `prisma/schema.prisma` + `@trpc/server` in `package.json`. Checked **before** generic `nextjs` to avoid misclassification.
+
+---
+
+## Nuxt 3 (Standalone)
+
+**Stack ID:** `nuxt`
+
+### Technologies
+
+- **Framework:** Nuxt 3
+- **Language:** TypeScript
+- **Rendering:** SSR, SSG, or hybrid
+- **State:** Pinia
+- **Node:** 18+
+
+### Rules Included
+
+**Always:**
+- `accessibility.md`, `performance.md`, `sensitive-files.md`, `deployment-safety.md`
+- `memory-management.md`, `token-optimization.md`
+
+**Conditional (auto-injected):**
+- `typescript.md`, `tailwind.md`, `pinia.md`, `zod.md`, `vitest.md`, `playwright.md`
+
+### Key Patterns
+
+- `useFetch` > `useAsyncData` > `$fetch` (prefer in that order)
+- Server routes: `server/api/items.get.ts` (method suffix pattern)
+- `defineEventHandler` + `readValidatedBody(event, schema.parse)` in API routes
+- `runtimeConfig` for env vars; `useRuntimeConfig()` in composables
+
+### Detection
+
+`nuxt.config.ts` or `nuxt.config.js` at project root, OR `nuxt` in `package.json`.
+
+---
+
 ## Detection Logic
 
 ### How Stacks Are Detected
 
-The script checks for:
+The script checks in this order (first match wins):
 
 | Stack | Detection Method |
 |-------|------------------|
-| craftcms-nuxt | Craft CMS + `frontend/nuxt.config.ts` |
-| craftcms-nextjs | Craft CMS + `frontend/next.config.js` |
-| ee-nextjs | Coilpack + `frontend/next.config.js` |
-| astro-sanity | `astro.config.mjs` + `sanity.config.ts` |
-| astro-strapi | `astro.config.mjs` + Strapi in `backend/` |
 | expressionengine | `system/ee/` directory |
 | coilpack | Laravel + EE indicators |
+| craftcms-nuxt | Craft CMS + `frontend/nuxt.config.ts` |
+| craftcms-nextjs | Craft CMS + `frontend/next.config.js` |
 | craftcms | `craft` executable |
+| ee-nextjs | Coilpack + `frontend/next.config.js` |
 | wordpress-roots | `wp-config.php` + Bedrock structure |
 | wordpress | `wp-config.php` |
-| nextjs | `next.config.js` or `.next/` |
-| docusaurus | `docusaurus.config.js` |
+| sveltekit | `svelte.config.js/ts` |
+| nuxt | `nuxt.config.ts/js` |
+| t3-stack | `next.config.*` + `prisma/schema.prisma` + `@trpc/server` |
+| remix | `remix.config.js/ts` or `app/root.tsx` + `@remix-run/react` |
+| astro-sanity | `astro.config.mjs` + `sanity.config.ts` |
+| astro-strapi | `astro.config.mjs` + Strapi in `backend/` |
+| astro | `astro.config.mjs` or `astro.config.ts` |
+| nextjs | `next.config.js/mjs/ts` |
+| docusaurus | `docusaurus.config.js/ts` |
 
 ### How Technologies Are Detected
 
-**Tailwind CSS:**
-- `tailwind.config.js` exists, OR
-- `npm list tailwindcss` succeeds, OR
-- CDN link in HTML
+**CSS / Styling:**
+- Tailwind: `tailwind.config.*` or `tailwindcss` in `package.json`
+- Foundation: `foundation-sites` in `package.json`
+- SCSS: `sass` or `node-sass` in `package.json`, or `.scss` files
+- Alpine.js: `alpinejs` in `package.json` or `x-data`/`@click` in templates
 
-**Alpine.js:**
-- `x-data` or `@click` attributes in template files
+**Modern Web Tooling (auto-inject library docs):**
+- TypeScript: `tsconfig.json` at project root
+- Zod: `zod` in `package.json`
+- Zustand: `zustand` in `package.json`
+- TanStack Query: `@tanstack/react-query` in `package.json`
+- tRPC: `@trpc/server` in `package.json`
+- Prisma: `prisma/schema.prisma` file OR `@prisma/client` in `package.json`
+- Supabase: `@supabase/supabase-js` or `@supabase/ssr` in `package.json`
+- Vitest: `vitest` in `package.json`
+- Playwright: `playwright.config.ts/js` file OR `@playwright/test` in `package.json`
+- Framer Motion: `framer-motion` or `motion` in `package.json`
+- shadcn/ui: `components/ui/` directory (root, `src/`, or `app/`)
+- Pinia: `pinia` in `package.json`
+- Tina CMS: `tina/config.ts/js` file OR `tinacms` in `package.json`
 
-**SCSS/Sass:**
-- `.scss` or `.sass` files exist
-
-**Bilingual Content:**
-- `user_language` compared to `'en'` or `'fr'`
-- `{lang:` ExpressionEngine language tags
-- `{% if.*lang` Twig language conditionals
-- `@lang` Laravel localization helper
-
-**EE Add-ons:**
-- Stash: `{exp:stash` in templates
-- Structure: `{exp:structure` in templates
+**CMS / PHP:**
+- Bilingual: `user_language` in EE templates, `@lang` in Blade, `{%.*lang` in Twig
+- Stash add-on: `{exp:stash` in templates
+- Structure add-on: `{exp:structure` in templates
 
 See [Conditional Deployment Guide](../guides/conditional-deployment.md) for detailed detection logic.
 

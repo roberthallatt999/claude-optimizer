@@ -4,13 +4,14 @@
 
 **Status: PRODUCTION READY**
 
-All 13 technology stacks have complete Claude Code configurations:
+18 technology stacks have complete Claude Code configurations:
 - Full template systems with generic `{{PLACEHOLDER}}` variables
 - Stack-appropriate `settings.local.json` for all stacks
-- Memory bank system for persistent context
+- Memory bank system for persistent context with Design System, Integrations, and API inventory sections
 - Token optimization and sensitive file protection rules
-- 15 Superpowers workflow skills
-- Technology-specific coding rules (4-8 rules per stack)
+- 17 Superpowers workflow skills (including design-system-builder and component-scaffolder)
+- 30 library references covering modern web tooling (auto-injected on detection)
+- Technology-specific coding rules (4-9 rules per stack)
 
 ---
 
@@ -18,19 +19,24 @@ All 13 technology stacks have complete Claude Code configurations:
 
 | Stack | Claude | Rules | Skills | Memory | Permissions | Status |
 |-------|--------|-------|--------|--------|-------------|--------|
-| **coilpack** | Yes | 9 rules | 15+ | Yes | Yes | Complete |
-| **craftcms** | Yes | 9 rules | 15+ | Yes | Yes | Complete |
-| **docusaurus** | Yes | 7 rules | 15+ | Yes | Yes | Complete |
-| **expressionengine** | Yes | 9 rules | 19+ | Yes | Yes | Complete |
-| **nextjs** | Yes | 7 rules | 15+ | Yes | Yes | Complete |
-| **wordpress-roots** | Yes | 9 rules | 15+ | Yes | Yes | Complete |
-| **wordpress** | Yes | 7 rules | 15+ | Yes | Yes | Complete |
-| **craftcms-nuxt** | Yes | 8 rules | 15+ | Yes | Yes | Complete |
-| **craftcms-nextjs** | Yes | 8 rules | 15+ | Yes | Yes | Complete |
-| **ee-nextjs** | Yes | 8 rules | 15+ | Yes | Yes | Complete |
-| **astro-strapi** | Yes | 8 rules | 15+ | Yes | Yes | Complete |
-| **astro-sanity** | Yes | 8 rules | 15+ | Yes | Yes | Complete |
-| **custom** | Yes | 4 rules | 15+ | Yes | Yes | Complete |
+| **sveltekit** | Yes | 7 rules | 17+ | Yes | Yes | Complete |
+| **remix** | Yes | 6 rules | 17+ | Yes | Yes | Complete |
+| **t3-stack** | Yes | 6 rules | 17+ | Yes | Yes | Complete |
+| **nuxt** | Yes | 6 rules | 17+ | Yes | Yes | Complete |
+| **coilpack** | Yes | 9 rules | 17+ | Yes | Yes | Complete |
+| **craftcms** | Yes | 9 rules | 17+ | Yes | Yes | Complete |
+| **docusaurus** | Yes | 7 rules | 17+ | Yes | Yes | Complete |
+| **expressionengine** | Yes | 9 rules | 21+ | Yes | Yes | Complete |
+| **nextjs** | Yes | 7 rules | 17+ | Yes | Yes | Complete |
+| **wordpress-roots** | Yes | 9 rules | 17+ | Yes | Yes | Complete |
+| **wordpress** | Yes | 7 rules | 17+ | Yes | Yes | Complete |
+| **craftcms-nuxt** | Yes | 8 rules | 17+ | Yes | Yes | Complete |
+| **craftcms-nextjs** | Yes | 8 rules | 17+ | Yes | Yes | Complete |
+| **ee-nextjs** | Yes | 8 rules | 17+ | Yes | Yes | Complete |
+| **astro** | Yes | 6 rules | 17+ | Yes | Yes | Complete |
+| **astro-strapi** | Yes | 8 rules | 17+ | Yes | Yes | Complete |
+| **astro-sanity** | Yes | 8 rules | 17+ | Yes | Yes | Complete |
+| **custom** | Yes | 4 rules | 17+ | Yes | Yes | Complete |
 
 ---
 
@@ -49,18 +55,23 @@ Every deployment includes:
 
 ### Memory Bank Sections
 
-- **Project Identity** - Name, type, tech stack
-- **Architecture** - Patterns, directory map, decisions
-- **Decision Log** - Architectural decisions with rationale
-- **Active Context** - Current work, blockers, recent changes
-- **Session Handoff** - Next steps for incomplete work
-- **Knowledge Base** - Environment setup, common issues
+- **Project Identity** — Name, type, tech stack
+- **Architecture** — Patterns, directory map, decisions
+- **Decision Log** — Architectural decisions with rationale
+- **Active Context** — Current work, blockers, recent changes
+- **Session Handoff** — Next steps for incomplete work
+- **Knowledge Base** — Environment setup, common issues
+- **Design System** — Token categories, CSS variables, Tailwind keys, component registry
+- **Third-Party Integrations** — Service, purpose, SDK, config location, status
+- **Environment Variables** — Variable, purpose, required/optional, where set
+- **MCP Servers** — Configured MCP integrations
+- **API / Route Inventory** — Method, path, auth, handler, status
 
 ---
 
 ## Superpowers Skills
 
-15 workflow skills deployed with every stack:
+17 workflow skills deployed with every stack:
 
 | Skill | Purpose |
 |-------|---------|
@@ -79,6 +90,8 @@ Every deployment includes:
 | `using-superpowers` | Skill system guide |
 | `verification-before-completion` | Quality checks |
 | `writing-skills` | Custom skill creation |
+| `design-system-builder` | Token audit, component inventory, shadcn/ui + cva scaffold |
+| `component-scaffolder` | Typed React/Vue/Svelte component + test generation |
 
 ---
 
@@ -174,9 +187,53 @@ Templates support these auto-detected variables:
 
 ## Recent Changes
 
+### Web Design Optimization (Jun 2026)
+
+**4 new modern JS stacks:**
+- `sveltekit` — SvelteKit 2 + Svelte 5 Runes, load functions, form actions, `$lib` alias
+- `remix` — Remix/React Router v7, loaders/actions with Zod, error boundaries, `useFetcher`
+- `t3-stack` — Next.js + tRPC + Prisma + NextAuth + shadcn/ui + Zod (detected before generic nextjs)
+- `nuxt` — Nuxt 3, server API routes, `useFetch`, Pinia, `runtimeConfig`
+
+**13 new library references** (`libraries/`):
+- `typescript.md` — strict mode, utility types, branded IDs, exhaustive checks
+- `zod.md` — schema validation, `safeParse`, React Hook Form integration
+- `tanstack-query.md` — React Query v5, query keys, mutations, prefetching
+- `zustand.md` — global state, slice pattern, persistence, selectors
+- `shadcn-ui.md` — component usage, form + Zod integration, `cva` variants
+- `supabase.md` — browser/server clients, auth, RLS, storage, realtime
+- `prisma.md` — schema, singleton client, CRUD, transactions, migrations
+- `vitest.md` — unit tests, React Testing Library, mocking patterns
+- `playwright.md` — E2E, page object model, locator strategies
+- `framer-motion.md` — AnimatePresence, scroll effects, layout animations
+- `trpc.md` — end-to-end typesafe APIs, procedures, client patterns
+- `pinia.md` — Vue/Nuxt state management, composition stores, persistence
+- `tinacms.md` — Git-based CMS, `defineConfig`, collections, Astro SSG integration
+
+**3 new common rules** (`projects/common/rules/`):
+- `typescript-patterns.md` — strict TS enforcement, discriminated unions
+- `design-system.md` — token-first design, `cva` variants, component inventory protocol
+- `api-design.md` — Zod validation, response envelopes, auth guard, rate limiting
+
+**Expanded MEMORY.md template**: Design System tokens, Component Registry, Third-Party Integrations, Environment Variables, MCP Servers, API Inventory sections
+
+**2 new Superpowers skills:**
+- `design-system-builder` — token audit, component inventory, build + document
+- `component-scaffolder` — typed React/Vue/Svelte component + test generation
+
+**Smart library auto-injection:**
+- 13 `HAS_*` detection variables for modern web tooling
+- `inject_detected_library_imports()` — idempotent, runs on fresh deploy and `--refresh`
+- 16 detection-backed libraries (file presence + `package.json` signals)
+
+**New docs:**
+- `docs/guides/mcp-integration.md` — Supabase, GitHub, Cloudflare, PostgreSQL, Zapier MCP setup
+
+**Tests:**
+- `test-stack-detection.sh` — 22 automated integration tests (all passing)
+
 ### Headless CMS Stacks & Library References (Mar 2026)
 - Added 5 headless CMS stacks: `craftcms-nuxt`, `craftcms-nextjs`, `ee-nextjs`, `astro-strapi`, `astro-sanity`
-- Each includes CLAUDE.md template, AGENTS.md template, settings.local.json, rules, agents, commands, and VSCode config
 - Moved library references from global `~/.claude/libraries/` to project-local `.claude/libraries/` for portability
 - Added 10+ library reference docs (React, Vue, Next.js, Nuxt, Angular, Bootstrap, etc.)
 

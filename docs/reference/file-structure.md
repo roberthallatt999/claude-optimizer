@@ -30,27 +30,47 @@ claude-optimizer/
 │   ├── commands/                 # Slash commands
 │   └── hooks/                    # Session hooks
 │
-├── libraries/                    # Project-local library references
+├── libraries/                    # Project-local library references (30+ files)
 │   ├── README.md
-│   ├── react.md
-│   ├── vue.md
-│   ├── nextjs.md
-│   ├── nuxt.md
-│   └── ...                       # 10+ framework/CSS/JS references
+│   ├── react.md, vue.md, svelte.md, nextjs.md, nuxt.md, angular.md
+│   ├── typescript.md             # Strict mode, utility types, branded IDs
+│   ├── tailwind.md, bootstrap.md, bulma.md, foundation.md, scss.md, html5.md
+│   ├── shadcn-ui.md              # Radix-based, copy-into-project components
+│   ├── alpinejs.md, material-ui.md
+│   ├── framer-motion.md          # Motion v11+ animation
+│   ├── zustand.md, pinia.md      # React and Vue state management
+│   ├── tanstack-query.md         # React Query v5
+│   ├── zod.md                    # Schema validation
+│   ├── trpc.md                   # End-to-end typesafe APIs
+│   ├── prisma.md, supabase.md    # Database / backend
+│   ├── vitest.md, playwright.md  # Testing
+│   ├── tinacms.md                # Git-based CMS (auto-injected when detected)
+│   └── vanilla-js.md, jquery.md
 │
 └── projects/                     # Stack templates
     ├── common/                   # Global fallback templates
-    │   ├── rules/                # Common rules
+    │   ├── rules/                # Common rules (deployed to all/most stacks)
     │   │   ├── memory-management.md
     │   │   ├── token-optimization.md
-    │   │   └── sensitive-files.md
-    │   └── MEMORY.md.template    # Memory bank template
+    │   │   ├── sensitive-files.md
+    │   │   ├── deployment-safety.md
+    │   │   ├── accessibility.md
+    │   │   ├── performance.md
+    │   │   ├── typescript-patterns.md  # Strict TS, discriminated unions
+    │   │   ├── design-system.md        # Token-first design, cva variants
+    │   │   └── api-design.md           # Zod validation, response envelopes
+    │   └── MEMORY.md.template    # Memory bank template (with Design System, Integrations, API inventory)
+    ├── sveltekit/                # SvelteKit 2 + Svelte 5 Runes
+    ├── remix/                    # Remix / React Router v7
+    ├── t3-stack/                 # Next.js + tRPC + Prisma + shadcn/ui
+    ├── nuxt/                     # Nuxt 3 standalone
     ├── expressionengine/
     ├── coilpack/
     ├── craftcms/
     ├── craftcms-nuxt/            # Headless Craft CMS + Nuxt
     ├── craftcms-nextjs/          # Headless Craft CMS + Next.js
     ├── ee-nextjs/                # Headless EE Coilpack + Next.js
+    ├── astro/                    # Astro standalone (+ Tina CMS auto-injected)
     ├── astro-strapi/             # Astro + Strapi
     ├── astro-sanity/             # Astro + Sanity Studio
     ├── wordpress-roots/
@@ -66,9 +86,15 @@ The `projects/common/rules/` directory contains rules deployed to all stacks:
 
 ```
 projects/common/rules/
-├── memory-management.md      # Memory protocols
+├── memory-management.md      # Memory protocols + what to log (components, integrations, env vars)
 ├── token-optimization.md     # Token efficiency
-└── sensitive-files.md        # Prevents reading credentials/secrets
+├── sensitive-files.md        # Prevents reading credentials/secrets
+├── deployment-safety.md      # No unauthorized pushes or production changes
+├── accessibility.md          # WCAG AA compliance
+├── performance.md            # Core web vitals and perceived performance
+├── typescript-patterns.md    # Strict TS, discriminated unions, branded types (modern JS stacks)
+├── design-system.md          # Token-first, cva variants, component inventory (modern JS stacks)
+└── api-design.md             # Zod at boundaries, response envelopes, auth guards (modern JS stacks)
 ```
 
 ## Superpowers Skills Structure
@@ -77,28 +103,28 @@ projects/common/rules/
 superpowers/
 ├── skills/
 │   ├── memory-management/
-│   │   └── SKILL.md
 │   ├── brainstorming/
-│   │   └── SKILL.md
 │   ├── writing-plans/
-│   │   └── SKILL.md
 │   ├── executing-plans/
-│   │   └── SKILL.md
 │   ├── systematic-debugging/
-│   │   └── SKILL.md
 │   ├── test-driven-development/
-│   │   └── SKILL.md
 │   ├── dispatching-parallel-agents/
-│   │   └── SKILL.md
-│   └── using-superpowers/
-│       └── SKILL.md
+│   ├── using-git-worktrees/
+│   ├── finishing-a-development-branch/
+│   ├── receiving-code-review/
+│   ├── requesting-code-review/
+│   ├── subagent-driven-development/
+│   ├── using-superpowers/
+│   ├── verification-before-completion/
+│   ├── writing-skills/
+│   ├── design-system-builder/    # Token audit, component inventory, shadcn/ui + cva
+│   └── component-scaffolder/     # Typed React/Vue/Svelte component + test generation
 ├── commands/
 │   ├── brainstorm.md
 │   ├── write-plan.md
 │   └── execute-plan.md
 └── hooks/
-    ├── hooks.json.template
-    └── session-start.sh
+    └── session-start              # Auto-bootstrap on Claude Code session start
 ```
 
 ## Project Template Structure

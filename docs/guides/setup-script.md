@@ -27,12 +27,16 @@ ai-config --project=/path/to/project
 ```
 
 **Detects:**
-- ExpressionEngine 7.x
-- Craft CMS
-- WordPress/Bedrock
-- Standard WordPress
+- SvelteKit 2
+- Remix / React Router v7
+- T3 Stack (Next.js + tRPC + Prisma)
+- Nuxt 3
 - Next.js 14+
+- Astro (standalone, + Sanity, + Strapi)
 - Docusaurus 3+
+- ExpressionEngine 7.x
+- Craft CMS (standalone, + Nuxt, + Next.js)
+- WordPress / Bedrock
 - Coilpack (Laravel + EE hybrid)
 
 ### --stack=\<name>
@@ -40,13 +44,19 @@ ai-config --project=/path/to/project
 Manually specify the technology stack template to use.
 
 **Available stacks:**
+- `sveltekit`
+- `remix`
+- `t3-stack`
+- `nuxt`
+- `nextjs`
+- `astro` / `astro-sanity` / `astro-strapi`
+- `docusaurus`
 - `expressionengine`
 - `coilpack`
-- `craftcms`
+- `craftcms` / `craftcms-nuxt` / `craftcms-nextjs`
+- `ee-nextjs`
 - `wordpress-roots`
 - `wordpress`
-- `nextjs`
-- `docusaurus`
 - `custom` (used with `--discover`)
 
 **Example:**
@@ -127,6 +137,8 @@ the network or the optimizer repo.
 | `test-driven-development` | TDD workflow |
 | `dispatching-parallel-agents` | Multi-agent coordination |
 | `using-git-worktrees` | Git worktree workflows |
+| `design-system-builder` | Token audit, component inventory, shadcn/ui + cva build |
+| `component-scaffolder` | Typed React/Vue/Svelte component generation with tests |
 
 ## Update Options
 
@@ -150,9 +162,12 @@ updated, not reset:
 - A library you **deleted** is **not** re-added — unless this refresh newly
   **detects** its technology (e.g. you just added Tailwind, so `tailwind.md`
   comes back).
-- Detection-backed libraries are `tailwind.md`, `alpinejs.md`, `foundation.md`,
-  and `scss.md`. Framework libraries (`react.md`, `vue.md`, `nextjs.md`, …) are
-  stack-implied with no runtime signal, so once removed they stay removed.
+- Detection-backed libraries (16 total): `typescript.md`, `zod.md`, `zustand.md`,
+  `tanstack-query.md`, `trpc.md`, `prisma.md`, `supabase.md`, `vitest.md`,
+  `playwright.md`, `framer-motion.md`, `shadcn-ui.md`, `pinia.md`, `tailwind.md`,
+  `alpinejs.md`, `foundation.md`, `scss.md`, `tinacms.md`.
+- Framework libraries (`react.md`, `vue.md`, `nextjs.md`, …) are stack-implied
+  with no runtime signal, so once removed they stay removed.
 
 This means a refresh never silently re-introduces a library you intentionally
 curated away — the kind of change that previously required re-running analysis to
@@ -313,29 +328,39 @@ These are reinforced at two layers:
 The script automatically detects:
 
 ### DDEV Configuration
-- Project name
-- Document root
-- PHP version
-- Database type and version
-- Primary URL
+- Project name, document root, PHP version, database type and version, primary URL
 
-### Frontend Technologies
-- **Tailwind CSS** - `tailwind.config.js` or npm dependency
-- **Foundation** - npm dependency or CDN link
-- **SCSS/Sass** - `.scss` files
-- **Alpine.js** - `x-data` or `@click` attributes in templates
-- **Vanilla JS** - `.js` files without framework imports
+### Modern Web Tooling (triggers auto-injection of library docs)
+- **TypeScript** — `tsconfig.json` at project root
+- **Zod** — `zod` in `package.json`
+- **Zustand** — `zustand` in `package.json`
+- **TanStack Query** — `@tanstack/react-query` in `package.json`
+- **tRPC** — `@trpc/server` in `package.json`
+- **Prisma** — `prisma/schema.prisma` file or `@prisma/client` in `package.json`
+- **Supabase** — `@supabase/supabase-js` or `@supabase/ssr` in `package.json`
+- **Vitest** — `vitest` in `package.json`
+- **Playwright** — `playwright.config.ts/js` or `@playwright/test` in `package.json`
+- **Framer Motion** — `framer-motion` or `motion` in `package.json`
+- **shadcn/ui** — `components/ui/` directory (root, `src/`, or `app/`)
+- **Pinia** — `pinia` in `package.json`
+- **Tina CMS** — `tina/config.ts/js` or `tinacms` in `package.json`
 
-### Template Engines
-- **ExpressionEngine** - `system/ee/` directory
-- **Craft CMS** - `craft` executable
-- **Blade** - `.blade.php` files
-- **Twig** - `.twig` files
+### CSS / Styling
+- **Tailwind CSS** — `tailwind.config.*` or `tailwindcss` in `package.json`
+- **Foundation** — `foundation-sites` in `package.json`
+- **SCSS/Sass** — `sass` or `node-sass` in `package.json`, or `.scss` files
+- **Alpine.js** — `alpinejs` in `package.json` or `x-data`/`@click` in templates
+
+### CMS / Template Engines
+- **ExpressionEngine** — `system/ee/` directory
+- **Craft CMS** — `craft` executable
+- **Blade** — `.blade.php` files
+- **Twig** — `.twig` files
 
 ### Content Patterns
-- **Bilingual** - French language strings or `lang:` tags
-- **Stash add-on** - `exp:stash` tags (ExpressionEngine)
-- **Structure add-on** - `exp:structure` tags (ExpressionEngine)
+- **Bilingual** — French language strings or `lang:` tags
+- **Stash add-on** — `exp:stash` tags (ExpressionEngine)
+- **Structure add-on** — `exp:structure` tags (ExpressionEngine)
 
 ## Examples
 
