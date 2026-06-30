@@ -78,6 +78,19 @@ HAS_VANILLA_JS=false
 HAS_STASH=false
 HAS_STRUCTURE=false
 HAS_BILINGUAL=false
+# Modern web tooling detection
+HAS_TYPESCRIPT=false
+HAS_ZUSTAND=false
+HAS_TANSTACK_QUERY=false
+HAS_PRISMA=false
+HAS_SUPABASE=false
+HAS_TRPC=false
+HAS_VITEST=false
+HAS_PLAYWRIGHT=false
+HAS_FRAMER_MOTION=false
+HAS_SHADCN=false
+HAS_ZOD=false
+HAS_PINIA=false
 
 # Brand colors (discovered from project's Tailwind config or set manually)
 BRAND_GREEN=""
@@ -286,6 +299,23 @@ if [[ -z "$STACK" ]]; then
       STACK="wordpress"
     elif [[ -f "$PROJECT_DIR/web/wp-config.php" ]] || [[ -d "$PROJECT_DIR/web/wp-content" ]]; then
       STACK="wordpress"
+    # SvelteKit (svelte.config.js/ts is the canonical indicator)
+    elif [[ -f "$PROJECT_DIR/svelte.config.js" ]] || [[ -f "$PROJECT_DIR/svelte.config.ts" ]]; then
+      STACK="sveltekit"
+    # Nuxt 3 standalone (nuxt.config.* without a CMS backend)
+    elif [[ -f "$PROJECT_DIR/nuxt.config.ts" ]] || [[ -f "$PROJECT_DIR/nuxt.config.js" ]]; then
+      STACK="nuxt"
+    # T3 Stack: Next.js + tRPC + Prisma — check BEFORE generic nextjs
+    # Canonical signals: next.config.* AND prisma schema AND @trpc/server
+    elif ([[ -f "$PROJECT_DIR/next.config.js" ]] || [[ -f "$PROJECT_DIR/next.config.mjs" ]] || [[ -f "$PROJECT_DIR/next.config.ts" ]]) \
+      && [[ -f "$PROJECT_DIR/prisma/schema.prisma" ]] \
+      && [[ -f "$PROJECT_DIR/package.json" ]] && grep -q '"@trpc/server"' "$PROJECT_DIR/package.json" 2>/dev/null; then
+      STACK="t3-stack"
+    # Remix / React Router v7 (app/root.tsx or remix.config.js are canonical)
+    elif [[ -f "$PROJECT_DIR/remix.config.js" ]] || [[ -f "$PROJECT_DIR/remix.config.ts" ]] \
+      || ([[ -f "$PROJECT_DIR/app/root.tsx" ]] && [[ -f "$PROJECT_DIR/package.json" ]] \
+        && grep -q '"@remix-run/react"\|"react-router"' "$PROJECT_DIR/package.json" 2>/dev/null); then
+      STACK="remix"
     # Astro (check for CMS integrations first, then standalone)
     elif [[ -f "$PROJECT_DIR/astro.config.mjs" ]] || [[ -f "$PROJECT_DIR/astro.config.ts" ]]; then
       if [[ -f "$PROJECT_DIR/sanity.config.ts" ]] || [[ -f "$PROJECT_DIR/sanity.config.js" ]]; then
@@ -314,6 +344,12 @@ if [[ -z "$STACK" ]]; then
         STACK="nextjs"
       elif grep -q '"@docusaurus' "$PROJECT_DIR/package.json" 2>/dev/null; then
         STACK="docusaurus"
+      elif grep -q '"@sveltejs/kit"' "$PROJECT_DIR/package.json" 2>/dev/null; then
+        STACK="sveltekit"
+      elif grep -q '"nuxt"' "$PROJECT_DIR/package.json" 2>/dev/null; then
+        STACK="nuxt"
+      elif grep -q '"@remix-run/react"\|"react-router"' "$PROJECT_DIR/package.json" 2>/dev/null; then
+        STACK="remix"
       elif grep -q '"astro"' "$PROJECT_DIR/package.json" 2>/dev/null; then
         if grep -q '"@sanity' "$PROJECT_DIR/package.json" 2>/dev/null; then
           STACK="astro-sanity"
@@ -485,6 +521,38 @@ detect_frontend_tools() {
   # If no Tailwind, Foundation, or Alpine, assume vanilla JS/HTML is being used
   if [[ "$HAS_TAILWIND" == false ]] && [[ "$HAS_FOUNDATION" == false ]] && [[ "$HAS_ALPINE" == false ]]; then
     HAS_VANILLA_JS=true
+  fi
+
+  # Modern web tooling detection (used for smarter library @-import injection)
+  [[ -f "$PROJECT_DIR/tsconfig.json" ]] && HAS_TYPESCRIPT=true
+
+  if [[ -f "$PROJECT_DIR/package.json" ]]; then
+    grep -q '"zustand"' "$PROJECT_DIR/package.json" 2>/dev/null           && HAS_ZUSTAND=true
+    grep -q '"@tanstack/react-query"' "$PROJECT_DIR/package.json" 2>/dev/null && HAS_TANSTACK_QUERY=true
+    grep -q '"@trpc/server"' "$PROJECT_DIR/package.json" 2>/dev/null      && HAS_TRPC=true
+    grep -q '"vitest"' "$PROJECT_DIR/package.json" 2>/dev/null            && HAS_VITEST=true
+    grep -q '"zod"' "$PROJECT_DIR/package.json" 2>/dev/null               && HAS_ZOD=true
+    grep -q '"pinia"' "$PROJECT_DIR/package.json" 2>/dev/null             && HAS_PINIA=true
+    grep -q '"@supabase/supabase-js"\|"@supabase/ssr"' "$PROJECT_DIR/package.json" 2>/dev/null && HAS_SUPABASE=true
+    grep -q '"framer-motion"\|"\"motion\""' "$PROJECT_DIR/package.json" 2>/dev/null && HAS_FRAMER_MOTION=true
+    grep -q '"@playwright/test"' "$PROJECT_DIR/package.json" 2>/dev/null  && HAS_PLAYWRIGHT=true
+  fi
+
+  # Prisma: schema file is canonical indicator
+  if [[ -f "$PROJECT_DIR/prisma/schema.prisma" ]]; then
+    HAS_PRISMA=true
+  elif [[ -f "$PROJECT_DIR/package.json" ]] && grep -q '"@prisma/client"' "$PROJECT_DIR/package.json" 2>/dev/null; then
+    HAS_PRISMA=true
+  fi
+
+  # Playwright: config file is canonical indicator
+  if [[ -f "$PROJECT_DIR/playwright.config.ts" ]] || [[ -f "$PROJECT_DIR/playwright.config.js" ]]; then
+    HAS_PLAYWRIGHT=true
+  fi
+
+  # shadcn/ui: components/ui directory is canonical indicator
+  if [[ -d "$PROJECT_DIR/components/ui" ]] || [[ -d "$PROJECT_DIR/src/components/ui" ]] || [[ -d "$PROJECT_DIR/app/components/ui" ]]; then
+    HAS_SHADCN=true
   fi
 
   return 0
@@ -965,12 +1033,67 @@ append_memory_policy() {
 # will not re-introduce them.
 library_is_detected() {
   case "$1" in
-    tailwind.md)   [[ "$HAS_TAILWIND" == true ]] ;;
-    alpinejs.md)   [[ "$HAS_ALPINE" == true ]] ;;
-    foundation.md) [[ "$HAS_FOUNDATION" == true ]] ;;
-    scss.md)       [[ "$HAS_SCSS" == true ]] ;;
+    tailwind.md)       [[ "$HAS_TAILWIND" == true ]] ;;
+    alpinejs.md)       [[ "$HAS_ALPINE" == true ]] ;;
+    foundation.md)     [[ "$HAS_FOUNDATION" == true ]] ;;
+    scss.md)           [[ "$HAS_SCSS" == true ]] ;;
+    typescript.md)     [[ "$HAS_TYPESCRIPT" == true ]] ;;
+    zustand.md)        [[ "$HAS_ZUSTAND" == true ]] ;;
+    tanstack-query.md) [[ "$HAS_TANSTACK_QUERY" == true ]] ;;
+    trpc.md)           [[ "$HAS_TRPC" == true ]] ;;
+    vitest.md)         [[ "$HAS_VITEST" == true ]] ;;
+    zod.md)            [[ "$HAS_ZOD" == true ]] ;;
+    pinia.md)          [[ "$HAS_PINIA" == true ]] ;;
+    supabase.md)       [[ "$HAS_SUPABASE" == true ]] ;;
+    framer-motion.md)  [[ "$HAS_FRAMER_MOTION" == true ]] ;;
+    playwright.md)     [[ "$HAS_PLAYWRIGHT" == true ]] ;;
+    prisma.md)         [[ "$HAS_PRISMA" == true ]] ;;
+    shadcn-ui.md)      [[ "$HAS_SHADCN" == true ]] ;;
     *) return 1 ;;
   esac
+}
+
+# Append @.claude/libraries/<name>.md import lines to CLAUDE.md for any
+# detected technology whose library reference is not already imported.
+inject_detected_library_imports() {
+  local claude_md="$1"
+
+  # Libraries eligible for auto-injection (signal-backed only)
+  local injectable_libs=(
+    "typescript.md"
+    "zod.md"
+    "zustand.md"
+    "tanstack-query.md"
+    "trpc.md"
+    "prisma.md"
+    "supabase.md"
+    "vitest.md"
+    "playwright.md"
+    "framer-motion.md"
+    "shadcn-ui.md"
+    "pinia.md"
+    "tailwind.md"
+    "alpinejs.md"
+    "scss.md"
+  )
+
+  local injected=0
+  for lib in "${injectable_libs[@]}"; do
+    if library_is_detected "$lib"; then
+      # In dry-run: always report what would be injected (file may not exist yet)
+      if [[ "$DRY_RUN" == true ]]; then
+        echo -e "  ${YELLOW}[DRY-RUN]${NC} Would inject @.claude/libraries/${lib}"
+      elif [[ -f "$claude_md" ]] && ! grep -q "@.claude/libraries/${lib}" "$claude_md" 2>/dev/null; then
+        echo "" >> "$claude_md"
+        echo "@.claude/libraries/${lib}" >> "$claude_md"
+        echo -e "  ${GREEN}✓${NC} Injected library import: @.claude/libraries/${lib}"
+        injected=$((injected + 1))
+      fi
+    fi
+  done
+
+  [[ $injected -gt 0 ]] && echo ""
+  return 0
 }
 
 merge_gitignore_template() {
@@ -1139,6 +1262,10 @@ update_gitignore() {
     wordpress)        stack_label="WordPress" ;;
     wordpress-roots)  stack_label="WordPress Roots/Bedrock" ;;
     nextjs)           stack_label="Next.js" ;;
+    sveltekit)        stack_label="SvelteKit" ;;
+    remix)            stack_label="Remix / React Router v7" ;;
+    t3-stack)         stack_label="T3 Stack (Next.js + tRPC + Prisma)" ;;
+    nuxt)             stack_label="Nuxt 3" ;;
     docusaurus)       stack_label="Docusaurus" ;;
     custom)           stack_label="Custom" ;;
     *)                stack_label="$STACK" ;;
@@ -1409,6 +1536,9 @@ if [[ "$REFRESH" == true ]]; then
   elif [[ -f "$STACK_DIR/CLAUDE.md" ]]; then
     do_copy "$STACK_DIR/CLAUDE.md" "$PROJECT_DIR/"
   fi
+
+  # Re-inject detected library @-imports, then safety/memory blocks
+  inject_detected_library_imports "$PROJECT_DIR/CLAUDE.md"
 
   # Re-apply the non-negotiable safety guardrails + memory protocol (always, idempotent)
   append_safety_policy "$PROJECT_DIR/CLAUDE.md"
@@ -1762,6 +1892,9 @@ if [[ -f "$STACK_DIR/CLAUDE.md.template" ]]; then
 elif [[ -f "$STACK_DIR/CLAUDE.md" ]]; then
   do_copy "$STACK_DIR/CLAUDE.md" "$PROJECT_DIR/"
 fi
+
+# 4·libs. Inject @-import lines for detected technologies not already in the template
+inject_detected_library_imports "$PROJECT_DIR/CLAUDE.md"
 
 # 4·safety. Append the safety guardrails + memory protocol blocks (always, idempotent)
 append_safety_policy "$PROJECT_DIR/CLAUDE.md"

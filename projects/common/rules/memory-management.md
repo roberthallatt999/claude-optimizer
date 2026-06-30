@@ -83,8 +83,15 @@ Always use this format:
 - Key file locations and purposes
 - Every code change made (in Recent Changes)
 
+**Also persist for web projects:**
+- New UI components created → add to Component Registry table
+- New third-party service integrated → add to Third-Party Integrations table
+- New environment variable required → add to Environment Variables table
+- New API endpoint or tRPC procedure → add to API/Route Inventory table
+- Design token decisions (colors, fonts, spacing) → update Design Tokens table
+
 **Never persist:**
-- Sensitive credentials or tokens
+- Sensitive credentials or tokens (document the variable NAME, never the value)
 - User-specific preferences
 - Raw error messages (summarize instead)
 

@@ -9,9 +9,9 @@
 
 ### Overview
 - **Name:** {{PROJECT_NAME}}
-- **Type:** _[Web app / API / Library / Documentation / etc.]_
+- **Type:** _[Web app / Marketing site / API / Headless CMS / etc.]_
 - **Primary Language:** _[TypeScript / PHP / Python / etc.]_
-- **Framework:** _[Next.js / Laravel / Express / etc.]_
+- **Framework:** _[Next.js / SvelteKit / Astro / Laravel / etc.]_
 
 ### Key Stakeholders
 - **Owner:** _[Name/Team]_
@@ -29,10 +29,16 @@
 ### Tech Stack
 | Layer | Technology | Notes |
 |-------|------------|-------|
-| Frontend | _TBD_ | |
-| Backend | _TBD_ | |
-| Database | _TBD_ | |
-| Hosting | _TBD_ | |
+| Frontend Framework | _TBD_ | |
+| Styling | _TBD_ | e.g. Tailwind CSS v4 |
+| UI Components | _TBD_ | e.g. shadcn/ui, Radix |
+| State Management | _TBD_ | e.g. Zustand, Pinia |
+| Data Fetching | _TBD_ | e.g. TanStack Query, tRPC |
+| Backend / API | _TBD_ | e.g. Next.js API routes, Laravel |
+| Database / ORM | _TBD_ | e.g. Prisma + PostgreSQL |
+| Auth | _TBD_ | e.g. NextAuth, Supabase Auth, Lucia |
+| Hosting | _TBD_ | e.g. Vercel, Cloudflare, Fly.io |
+| CMS | _TBD_ (if applicable) | |
 
 ### Key Patterns
 <!-- Document patterns unique to this project -->
@@ -47,11 +53,66 @@
 
 ```
 src/
-├── components/    # Purpose
-├── services/      # Purpose
-├── utils/         # Purpose
-└── types/         # Purpose
+├── app/           # Routes / pages
+├── components/
+│   ├── ui/        # Primitive components (shadcn/ui etc.)
+│   └── features/  # Feature-specific components
+├── lib/           # Shared utilities, clients
+├── hooks/         # Custom hooks
+├── types/         # TypeScript types / Zod schemas
+└── styles/        # Global CSS, design tokens
 ```
+
+---
+
+## Design System
+
+<!-- Update as the design system is built out -->
+
+### Design Tokens
+| Token | Value | Usage |
+|-------|-------|-------|
+| Primary color | _TBD_ | Buttons, links, CTAs |
+| Font family | _TBD_ | Body text |
+| Heading font | _TBD_ | Headings |
+| Border radius | _TBD_ | Cards, buttons |
+| Base spacing | _TBD_ | Layout rhythm |
+
+### Component Registry
+<!-- Add entries as components are created — prevents re-invention -->
+
+| Component | Path | Variants | Notes |
+|-----------|------|----------|-------|
+| | | | |
+
+### Brand Assets
+- **Logo path:** _TBD_
+- **Favicon path:** _TBD_
+- **OG image path:** _TBD_
+- **Fonts source:** _TBD_ (Google / local / Adobe)
+
+---
+
+## Third-Party Integrations
+<!-- Track all external services and their configuration status -->
+
+| Service | Purpose | SDK / Package | Config Location | Status |
+|---------|---------|--------------|-----------------|--------|
+| | | | | |
+
+### Environment Variables
+<!-- Document all env vars (never their values) -->
+
+| Variable | Required | Purpose | Example |
+|----------|----------|---------|---------|
+| | | | |
+
+### MCP Servers
+<!-- List any connected MCP servers for this project -->
+
+| Server | Purpose | Connection |
+|--------|---------|------------|
+| | | |
 
 ---
 
@@ -124,7 +185,16 @@ _Brief summary of what was accomplished_
 <!-- Quick reference for local development -->
 
 ```bash
-# Commands to get started
+# Clone and install
+git clone <repo-url>
+cd {{PROJECT_SLUG}}
+npm install   # or pnpm install / bun install
+
+# Copy env file
+cp .env.example .env.local
+
+# Start dev server
+npm run dev
 ```
 
 ### Common Issues
@@ -138,8 +208,22 @@ _Brief summary of what was accomplished_
 <!-- How to run tests, what to watch for -->
 
 ```bash
-# Test commands
+# Unit tests
+npm run test
+
+# E2E tests
+npm run test:e2e
+
+# Type check
+npm run type-check
 ```
+
+### API / Route Inventory
+<!-- Running list of API endpoints or tRPC procedures -->
+
+| Method | Path / Procedure | Auth? | Purpose |
+|--------|-----------------|-------|---------|
+| | | | |
 
 ---
 
@@ -148,6 +232,8 @@ _Brief summary of what was accomplished_
 **Guidelines:**
 - Update "Active Context" after each significant change
 - Add to "Decision Log" for any architectural choices
+- Add to "Component Registry" when creating new components
+- Add to "Third-Party Integrations" when connecting new services
 - Archive completed work when this file exceeds 500 lines
 - Keep "Session Handoff" current for continuity
 

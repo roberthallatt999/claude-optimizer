@@ -1,0 +1,268 @@
+# Project: {{PROJECT_NAME}}
+
+## Overview
+
+This is a **Nuxt 3** project with TypeScript and Vue 3.
+
+- **Primary URL**: {{DDEV_PRIMARY_URL}}
+- **Environment**: Node.js development
+
+## Tech Stack
+
+- **Framework**: Nuxt 3
+- **Language**: TypeScript
+- **Vue**: Vue 3 (Composition API)
+- **Styling**: Tailwind CSS (via `@nuxtjs/tailwindcss`)
+- **State Management**: Pinia (via `@pinia/nuxt`)
+- **Data Fetching**: Nuxt `useFetch` / `useAsyncData` / `$fetch`
+- **Testing**: Vitest + Playwright
+
+## Git Workflow
+
+- **Main Branch:** `{{GIT_MAIN_BRANCH}}` (production)
+- **Integration Branch:** `{{GIT_INTEGRATION_BRANCH}}` (feature branches merge here)
+- **Feature Branch Pattern:** `feature/<description>` from `{{GIT_INTEGRATION_BRANCH}}`
+- **Hotfix Branch Pattern:** `hotfix/<description>` from `{{GIT_MAIN_BRANCH}}`
+
+## Directory Structure
+
+```
+{{PROJECT_SLUG}}/
+├── assets/               # Processed by Vite (CSS, fonts, global images)
+├── components/           # Auto-imported components
+│   ├── ui/               # UI primitives
+│   └── features/         # Feature components
+├── composables/          # Auto-imported composables (useX pattern)
+├── layouts/              # Named layouts
+│   ├── default.vue       # Default layout
+│   └── auth.vue          # Auth layout
+├── middleware/            # Route guards
+├── pages/                # File-based routing (auto-generates routes)
+│   ├── index.vue          # Homepage (/)
+│   └── posts/
+│       ├── index.vue      # /posts
+│       └── [id].vue       # /posts/:id (dynamic route)
+├── plugins/               # Nuxt plugins (client/server)
+├── public/                # Static files (not processed)
+├── server/
+│   ├── api/               # Server routes (/api/*)
+│   ├── middleware/        # Server middleware
+│   └── utils/             # Server-only utilities
+├── stores/                # Pinia stores
+├── types/                 # TypeScript interfaces
+├── app.vue                # Root component
+└── nuxt.config.ts         # Nuxt configuration
+```
+
+## Development Commands
+
+```bash
+# Development server
+npm run dev
+
+# Build for production
+npm run build
+
+# Preview production build
+npm run preview
+
+# Generate static site
+npm run generate
+
+# Type check
+npm run typecheck
+
+# Tests
+npm run test
+
+# E2E tests
+npm run test:e2e
+
+# Lint
+npm run lint
+```
+
+## Nuxt 3 Patterns
+
+### Page with Data Fetching
+```vue
+<!-- pages/posts/[id].vue -->
+<script setup lang="ts">
+// Route params are auto-typed
+const route = useRoute();
+
+// useFetch: SSR-friendly, cached, auto-refreshed on route change
+const { data: post, pending, error } = await useFetch(`/api/posts/${route.params.id}`, {
+  key: `post-${route.params.id}`,
+});
+
+// SEO meta
+useSeoMeta({
+  title: () => post.value?.title ?? 'Post',
+  description: () => post.value?.excerpt,
+});
+</script>
+
+<template>
+  <div>
+    <div v-if="pending">Loading...</div>
+    <article v-else-if="post">
+      <h1>{{ post.title }}</h1>
+      <div v-html="post.content" />
+    </article>
+    <div v-else-if="error">{{ error.message }}</div>
+  </div>
+</template>
+```
+
+### Server API Route
+```ts
+// server/api/posts/[id].get.ts — GET /api/posts/:id
+export default defineEventHandler(async (event) => {
+  const id = getRouterParam(event, 'id');
+  if (!id) throw createError({ statusCode: 400, statusMessage: 'ID required' });
+
+  const post = await db.post.findUnique({ where: { id } });
+  if (!post) throw createError({ statusCode: 404, statusMessage: 'Not Found' });
+
+  return post;
+});
+
+// server/api/posts/index.post.ts — POST /api/posts
+export default defineEventHandler(async (event) => {
+  const session = await requireUserSession(event);
+  const body = await readValidatedBody(event, postCreateSchema.parse);
+  return db.post.create({ data: { ...body, authorId: session.user.id } });
+});
+```
+
+### Pinia Store
+```ts
+// stores/auth.ts
+export const useAuthStore = defineStore('auth', () => {
+  const user = ref<User | null>(null);
+  const isAuthenticated = computed(() => !!user.value);
+
+  async function login(email: string, password: string) {
+    const { data } = await useFetch('/api/auth/login', {
+      method: 'POST',
+      body: { email, password },
+    });
+    user.value = data.value?.user ?? null;
+  }
+
+  function logout() {
+    user.value = null;
+    navigateTo('/login');
+  }
+
+  return { user, isAuthenticated, login, logout };
+});
+```
+
+### Composables (Auto-Imported)
+```ts
+// composables/usePostActions.ts
+export function usePostActions() {
+  const postStore = usePostStore();
+
+  async function publish(id: string) {
+    await $fetch(`/api/posts/${id}/publish`, { method: 'PATCH' });
+    await postStore.refresh();
+  }
+
+  return { publish };
+}
+```
+
+### Route Middleware (Auth Guard)
+```ts
+// middleware/auth.ts — named middleware
+export default defineNuxtRouteMiddleware(() => {
+  const { isAuthenticated } = useAuthStore();
+  if (!isAuthenticated) return navigateTo('/login');
+});
+```
+
+```vue
+<!-- In page: apply middleware -->
+<script setup lang="ts">
+definePageMeta({ middleware: 'auth' });
+</script>
+```
+
+### Nuxt Config
+```ts
+// nuxt.config.ts
+export default defineNuxtConfig({
+  devtools: { enabled: true },
+  modules: [
+    '@nuxtjs/tailwindcss',
+    '@pinia/nuxt',
+    '@nuxt/image',
+    'nuxt-auth-utils',
+  ],
+  runtimeConfig: {
+    // Server-only (not exposed to client)
+    databaseUrl: process.env.DATABASE_URL,
+    // Public (exposed as NUXT_PUBLIC_*)
+    public: {
+      apiBase: process.env.NUXT_PUBLIC_API_BASE ?? '/api',
+    },
+  },
+  typescript: { strict: true },
+});
+```
+
+## Coding Standards
+
+### Auto-Import Rules
+- Components in `components/` — auto-imported, no import statement needed
+- Composables in `composables/` — auto-imported with `useX` naming
+- Stores in `stores/` — NOT auto-imported (use `useXStore = defineStore(...)` and import explicitly)
+- Server utilities in `server/utils/` — auto-imported in server routes only
+
+### Data Fetching Hierarchy
+1. `useFetch` — SSR-safe, cached, use for page-level data
+2. `useAsyncData` — when you need more control over the fetch key/transform
+3. `$fetch` — inside event handlers, mutations, and non-SSR contexts
+4. Never `fetch()` directly — use `$fetch` which handles base URL and errors
+
+### Server Route Naming
+- `[id].get.ts` → GET handler only
+- `[id].post.ts` → POST handler only
+- `index.ts` → all methods (use `getMethod(event)` to branch)
+
+## Performance
+
+- Use `<NuxtLink>` (not `<a>`) for internal navigation with prefetching
+- Lazy-load heavy components: `defineAsyncComponent(() => import('~/components/Heavy.vue'))`
+- Use `<NuxtImage>` for optimized images (requires `@nuxt/image`)
+- Stream responses with `useEventStream` for real-time features
+
+## Important Notes
+
+1. **`runtimeConfig`** — server secrets in top-level, public config under `public:`
+2. **SSR by default** — use `<ClientOnly>` wrapper or `process.client` guards for browser APIs
+3. **`.server.ts` pattern** — suffix server routes with the HTTP method for clarity
+4. **Hydration** — data fetched in `useFetch` is serialized and hydrated client-side automatically
+
+@.claude/libraries/vue.md
+@.claude/libraries/tailwind.md
+@.claude/libraries/typescript.md
+@.claude/libraries/pinia.md
+
+{{#SUPERPOWERS}}
+## Workflow Skills (Superpowers)
+
+### Key Skills
+| Skill | When to Use |
+|-------|-------------|
+| `brainstorming` | Before any new feature or route |
+| `design-system-builder` | Setting up or extending the design system |
+| `component-scaffolder` | Creating new Vue components |
+| `test-driven-development` | All implementation |
+| `systematic-debugging` | Bug investigation |
+
+See `.claude/skills/superpowers/using-superpowers/SKILL.md` for the full guide.
+{{/SUPERPOWERS}}

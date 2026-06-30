@@ -1,0 +1,268 @@
+# Project: {{PROJECT_NAME}}
+
+## Overview
+
+This is a **T3 Stack** project — Next.js + tRPC + Prisma + NextAuth + Tailwind CSS + TypeScript.
+
+- **Primary URL**: {{DDEV_PRIMARY_URL}}
+- **Environment**: Node.js development
+
+## Tech Stack
+
+- **Framework**: Next.js 14+ (App Router)
+- **API Layer**: tRPC v10+ (end-to-end typesafe)
+- **Database ORM**: Prisma
+- **Authentication**: NextAuth.js v5 / Auth.js
+- **Language**: TypeScript (strict mode)
+- **Styling**: Tailwind CSS
+- **UI Components**: shadcn/ui
+- **Validation**: Zod
+- **Data Fetching**: TanStack Query (via `@trpc/react-query`)
+- **Testing**: Vitest + Playwright
+
+## Git Workflow
+
+- **Main Branch:** `{{GIT_MAIN_BRANCH}}` (production)
+- **Integration Branch:** `{{GIT_INTEGRATION_BRANCH}}` (feature branches merge here)
+- **Feature Branch Pattern:** `feature/<description>` from `{{GIT_INTEGRATION_BRANCH}}`
+- **Hotfix Branch Pattern:** `hotfix/<description>` from `{{GIT_MAIN_BRANCH}}`
+
+## Directory Structure
+
+```
+{{PROJECT_SLUG}}/
+├── prisma/
+│   └── schema.prisma          # Database schema (source of truth)
+├── src/
+│   ├── app/                   # Next.js App Router
+│   │   ├── api/
+│   │   │   ├── auth/[...nextauth]/route.ts
+│   │   │   └── trpc/[trpc]/route.ts
+│   │   ├── _components/       # Server-only components
+│   │   ├── layout.tsx
+│   │   └── page.tsx
+│   ├── components/
+│   │   └── ui/                # shadcn/ui primitives
+│   ├── server/
+│   │   ├── api/
+│   │   │   ├── root.ts        # Router registry
+│   │   │   ├── trpc.ts        # tRPC initialization
+│   │   │   └── routers/       # Feature routers
+│   │   ├── auth.ts            # NextAuth config
+│   │   └── db.ts              # Prisma client singleton
+│   ├── trpc/
+│   │   ├── react.tsx          # React client + Provider
+│   │   └── server.ts          # Server-side caller
+│   └── env.js                 # Validated env vars (t3-env)
+├── next.config.js
+└── tailwind.config.ts
+```
+
+## Development Commands
+
+```bash
+# Development server
+npm run dev
+
+# Database operations
+npx prisma migrate dev --name <name>   # Create + apply migration
+npx prisma migrate deploy              # Apply migrations (production)
+npx prisma db push                     # Sync schema without migration (dev)
+npx prisma studio                      # Database GUI
+npx prisma generate                    # Regenerate client after schema change
+
+# Type check
+npm run typecheck
+
+# Tests
+npm run test
+npm run test:e2e
+
+# Build
+npm run build
+```
+
+## T3 Stack Patterns
+
+### tRPC Procedure — Add a New Feature
+```ts
+// src/server/api/routers/post.ts
+import { z } from 'zod';
+import { createTRPCRouter, protectedProcedure, publicProcedure } from '@/server/api/trpc';
+
+export const postRouter = createTRPCRouter({
+  list: publicProcedure
+    .input(z.object({ limit: z.number().default(20) }))
+    .query(async ({ ctx, input }) => {
+      return ctx.db.post.findMany({
+        take: input.limit,
+        where: { published: true },
+        orderBy: { createdAt: 'desc' },
+      });
+    }),
+
+  create: protectedProcedure
+    .input(z.object({ title: z.string().min(1), content: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.post.create({
+        data: { ...input, createdById: ctx.session.user.id },
+      });
+    }),
+});
+```
+
+```ts
+// src/server/api/root.ts — register new router
+import { postRouter } from './routers/post';
+export const appRouter = createTRPCRouter({ post: postRouter });
+export type AppRouter = typeof appRouter;
+```
+
+### Using tRPC in Client Components
+```tsx
+'use client';
+import { api } from '@/trpc/react';
+
+export function PostList() {
+  const utils = api.useUtils();
+
+  const { data } = api.post.list.useQuery({ limit: 10 });
+
+  const create = api.post.create.useMutation({
+    onSuccess: () => utils.post.list.invalidate(),
+  });
+
+  return (
+    <>
+      <button onClick={() => create.mutate({ title: 'New', content: 'Body' })}>
+        Create
+      </button>
+      {data?.map(p => <p key={p.id}>{p.title}</p>)}
+    </>
+  );
+}
+```
+
+### Using tRPC in Server Components
+```tsx
+// app/page.tsx — Server Component
+import { api, HydrateClient } from '@/trpc/server';
+
+export default async function Home() {
+  // Prefetch for client component hydration
+  void api.post.list.prefetch({ limit: 10 });
+
+  return (
+    <HydrateClient>
+      <PostList />
+    </HydrateClient>
+  );
+}
+```
+
+### Environment Variables (t3-env)
+```ts
+// src/env.js — all env vars validated here
+import { createEnv } from '@t3-oss/env-nextjs';
+import { z } from 'zod';
+
+export const env = createEnv({
+  server: {
+    DATABASE_URL: z.string().url(),
+    NEXTAUTH_SECRET: z.string().min(1),
+    NEXTAUTH_URL: z.preprocess(
+      (str) => process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : str,
+      z.string().url()
+    ),
+  },
+  client: {
+    NEXT_PUBLIC_APP_URL: z.string().url(),
+  },
+  runtimeEnv: {
+    DATABASE_URL: process.env.DATABASE_URL,
+    NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET,
+    NEXTAUTH_URL: process.env.NEXTAUTH_URL,
+    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+  },
+});
+```
+
+### Authentication Check
+```ts
+// In tRPC procedure (ctx.session is set by protectedProcedure middleware)
+// In Server Component:
+import { auth } from '@/server/auth';
+import { redirect } from 'next/navigation';
+
+export default async function ProtectedPage() {
+  const session = await auth();
+  if (!session) redirect('/api/auth/signin');
+  return <div>Welcome, {session.user.name}</div>;
+}
+```
+
+### Prisma Schema Pattern
+```prisma
+// prisma/schema.prisma
+model Post {
+  id          String   @id @default(cuid())
+  title       String
+  content     String
+  published   Boolean  @default(false)
+  createdBy   User     @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([createdById])
+  @@map("posts")
+}
+```
+
+## Coding Standards
+
+### Type Derivation
+- Types come from `z.infer<typeof schema>` or `Prisma.GetPayload<...>` — never handwrite duplicates
+- Use `AppRouter` export from `root.ts` as the single type reference for the API
+- Use `env.js` for all environment variable access — never `process.env.X` directly
+
+### tRPC Discipline
+- `publicProcedure` for read-only, unauthenticated data only
+- `protectedProcedure` for anything requiring a user session
+- Input schema on every procedure with Zod (even no-input procedures use `z.void()`)
+
+### Data Fetching Rule
+- Server Components: use server-side caller (`api.X.query()`)
+- Client Components: use `api.X.useQuery()` / `api.X.useMutation()`
+- Never mix: don't call `fetch('/api/trpc/...')` directly
+
+## Important Notes
+
+1. **Single API layer** — all data goes through tRPC. No REST endpoints alongside tRPC.
+2. **Prisma = source of truth** — schema.prisma defines the data model, not TypeScript interfaces
+3. **env.js** — always import `env` from `@/env` to get type-safe, validated env vars
+4. **Server/Client boundary** — `src/server/` is NEVER bundled to the client
+
+@.claude/libraries/react.md
+@.claude/libraries/typescript.md
+@.claude/libraries/tailwind.md
+@.claude/libraries/shadcn-ui.md
+@.claude/libraries/zod.md
+@.claude/libraries/trpc.md
+@.claude/libraries/prisma.md
+@.claude/libraries/tanstack-query.md
+
+{{#SUPERPOWERS}}
+## Workflow Skills (Superpowers)
+
+### Key Skills
+| Skill | When to Use |
+|-------|-------------|
+| `brainstorming` | Before any new tRPC router or feature |
+| `design-system-builder` | shadcn/ui component work |
+| `component-scaffolder` | New React components |
+| `test-driven-development` | All implementation |
+| `systematic-debugging` | API / type errors |
+
+See `.claude/skills/superpowers/using-superpowers/SKILL.md` for the full guide.
+{{/SUPERPOWERS}}
