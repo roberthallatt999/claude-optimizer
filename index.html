@@ -185,6 +185,25 @@
             color: var(--link);
         }
 
+        .back-to-nav {
+            text-align: right;
+            font-size: 0.8em;
+            margin: 0 0 30px 0;
+            padding-top: 10px;
+            border-top: 1px solid var(--border);
+        }
+
+        .back-to-nav a {
+            color: var(--text);
+            text-decoration: none;
+            opacity: 0.5;
+        }
+
+        .back-to-nav a:hover {
+            color: var(--link);
+            opacity: 1;
+        }
+
         @media (max-width: 768px) {
             .sidebar {
                 display: none;
@@ -234,6 +253,15 @@
     </div>
 
     <script>
+        function slugify(text) {
+            return text
+                .toLowerCase()
+                .trim()
+                .replace(/[^\w\s-]/g, '')
+                .replace(/[\s_]+/g, '-')
+                .replace(/-+/g, '-');
+        }
+
         async function loadMarkdown(file) {
             try {
                 const response = await fetch(file);
@@ -241,7 +269,31 @@
                     throw new Error(`File not found: ${file}`);
                 }
                 const text = await response.text();
-                document.getElementById('markdown-content').innerHTML = marked.parse(text);
+                const content = document.getElementById('markdown-content');
+                content.innerHTML = marked.parse(text);
+
+                // Add IDs to headings so in-page anchor links work
+                content.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(el => {
+                    if (!el.id) {
+                        el.id = slugify(el.textContent);
+                    }
+                });
+
+                // Inject back-to-nav links at the end of each section
+                const hasNav = content.querySelector('#quick-navigation');
+                if (hasNav) {
+                    const h2s = [...content.querySelectorAll('h2')];
+                    h2s.slice(1).forEach(el => {
+                        const p = document.createElement('p');
+                        p.className = 'back-to-nav';
+                        p.innerHTML = '<a href="#quick-navigation">↑ Back to navigation</a>';
+                        el.insertAdjacentElement('beforebegin', p);
+                    });
+                    const last = document.createElement('p');
+                    last.className = 'back-to-nav';
+                    last.innerHTML = '<a href="#quick-navigation">↑ Back to navigation</a>';
+                    content.appendChild(last);
+                }
 
                 // Update active state
                 document.querySelectorAll('.sidebar a').forEach(a => {
@@ -281,8 +333,16 @@
             if (link.closest('#markdown-content') && link.getAttribute('href')) {
                 const href = link.getAttribute('href');
 
-                // Skip external links and anchors
-                if (href.startsWith('http') || href.startsWith('#') || href.startsWith('mailto:')) {
+                // External links — let browser handle
+                if (href.startsWith('http') || href.startsWith('mailto:')) {
+                    return;
+                }
+
+                // In-page anchor links — smooth scroll without touching the URL hash
+                if (href.startsWith('#')) {
+                    e.preventDefault();
+                    const target = document.getElementById('markdown-content').querySelector(href);
+                    if (target) target.scrollIntoView({ behavior: 'smooth' });
                     return;
                 }
 
@@ -323,6 +383,7 @@
         // Load initial page from hash or default to README
         const initialFile = window.location.hash.slice(1) || 'README.md';
         loadMarkdown(initialFile);
+
     </script>
 </body>
 </html>

@@ -2,6 +2,22 @@
 
 Complete reference for all supported technology stacks.
 
+## Quick Navigation
+
+**Modern JS / Full-Stack**
+[SvelteKit](#sveltekit) · [Remix](#remix-react-router-v7) · [T3 Stack](#t3-stack) · [Nuxt 3](#nuxt-3-standalone) · [Next.js](#nextjs) · [Docusaurus](#docusaurus) · [Custom](#custom-discovery-mode)
+
+**Monolithic CMS**
+[ExpressionEngine](#expressionengine) · [Coilpack](#coilpack) · [Craft CMS](#craft-cms) · [WordPress/Roots](#wordpressroots) · [WordPress](#wordpress-standard)
+
+**Headless CMS**
+[Craft + Nuxt](#craft-cms-nuxt) · [Craft + Next.js](#craft-cms-nextjs) · [EE + Next.js](#ee-coilpack-nextjs) · [Astro + Strapi](#astro-strapi) · [Astro + Sanity](#astro-sanity) · [Astro + Tina CMS](#astro-tina-cms)
+
+**Reference**
+[Detection Logic](#detection-logic)
+
+---
+
 ## Stack Overview
 
 ### Modern JS / Full-Stack
