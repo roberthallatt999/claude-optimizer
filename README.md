@@ -101,13 +101,18 @@ This detects 50+ technologies (React, Vue, Laravel, Django, etc.), deploys base 
 | **Commands** | `.claude/commands/` - Slash commands |
 | **Skills** | `.claude/skills/` - Workflow automation |
 | **Library References** | `.claude/libraries/` - Framework/CSS/JS reference docs |
-| **Hooks** | `.claude/hooks/` - Session hooks |
+| **Hooks** | `.claude/hooks/` - Safety guard (PreToolUse) and session hooks |
+| **Permissions** | `.claude/settings.local.json` - Stack permissions + shared deny/ask safety policy |
+| **Update state** | `.claude/ai-config/` - Manifest, backups, staged updates, version stamp |
 
 ### Additional Features
 
+- **Enforced safety guardrails** - No secret reads; approval for each push, deploy, or destructive action (Bash and MCP tools)
+- **Additive updates** - `--refresh` never overwrites your edits; every change is backed up
+- **Token-lean defaults** - Concise response style, on-demand library references, path-scoped rules
 - **Superpowers Skills** - Workflow automation (planning, debugging, TDD)
+- **Optional code intelligence** - OKF knowledge bundle (`--okf-memory`), codegraph, php-lsp, template maps for EE/Craft/Sage
 - **VSCode Settings** - Syntax highlighting, Xdebug, DDEV tasks
-- **Context7 Integration** - Up-to-date library documentation
 - **MCP Server Support** - Supabase, Playwright, and more
 
 ---
@@ -135,10 +140,9 @@ This detects 50+ technologies (React, Vue, Laravel, Django, etc.), deploys base 
 
 | Technology | Detection | Result |
 |------------|-----------|--------|
-| Tailwind CSS | `tailwind.config.*` or package.json | Adds Tailwind rules + VSCode support |
-| Alpine.js | `x-data` attributes or package.json | Adds Alpine.js rules |
-| Foundation | `foundation-sites` in package.json | Adds Foundation patterns |
-| SCSS/Sass | `.scss` files or package.json | Adds SCSS best practices |
+| Front-end stack (50+ CSS/JS frameworks, UI kits, libraries, build tools) | Every `package.json` (incl. theme folders), vendored asset files, CDN/enqueue references, `x-data` / `hx-*` markup | Scan summary + Front-End Stack block in `CLAUDE.md`; reports "custom JS/CSS, no framework" when none is found |
+| Tailwind CSS / Alpine.js | As above | Adds Tailwind / Alpine rules + library references |
+| Bootstrap, Foundation, Bulma, jQuery, Material UI, SCSS | As above | Adds library references |
 | Bilingual (EN/FR) | Language patterns in templates | Adds bilingual content rules |
 | Stash (EE) | `exp:stash` tags | Adds Stash optimization tools |
 
@@ -175,23 +179,45 @@ ai-config --project=<path> [options]
 
 | Option | Description |
 |--------|-------------|
-| `--refresh` | Update existing configuration |
-| `--force` | Overwrite without prompts |
-| `--clean` | Remove existing config before deploying |
+| `--refresh` | Update existing configuration — additive: your edits are kept, new versions staged in `.claude/ai-config/pending/` |
+| `--apply-pending` | Adopt staged new versions (backs up your copy first) |
+| `--force` | Skip prompts (updates stay additive) |
+| `--clean` | Move existing config to a backup, then deploy fresh |
+| `--uninstall` | Remove ai-config: unedited files, managed blocks, policy rules, hook registrations (all backed up) |
+| `--doctor` | Read-only health check, including a live safety-hook test |
+
+### Safety, Memory & Cost Options
+
+| Option | Description |
+|--------|-------------|
+| `--shared-policy` | Also put the safety policy in committed `.claude/settings.json` for teammates |
+| `--okf-memory` | Project memory as an OKF knowledge bundle in `.okf/` instead of `MEMORY.md` |
+| `--no-response-style` | Skip the concise Response Style block |
+| `--eager-libraries` | Keep `@imports` of library references (loaded every session) |
+| `--effort=<level>` | Set `effortLevel` (`low`, `medium`, `high`, `xhigh`, `max`) |
+| `--orchestrator` | Opus orchestrator + Sonnet implementer |
+| `--with-openai` | Also deploy `AGENTS.md` |
 
 ### Other Options
 
 | Option | Description |
 |--------|-------------|
 | `--dry-run` | Preview without making changes |
+| `--install-deps` | Install missing tools first (jq, git; Intelephense for PHP stacks) |
 | `--skip-vscode` | Skip VSCode settings deployment |
 | `--install-extensions` | Auto-install VSCode extensions |
-| `--no-superpowers` | Disable Superpowers workflow skills |
 | `--name=<name>` | Set project name (auto-detected from directory) |
+
+### Many Projects
+
+```bash
+ai-config-fleet --root=~/sites            # --doctor every ai-config project, one summary
+ai-config-fleet --root=~/sites --refresh  # refresh them all
+```
 
 ### Available Stacks
 
-`expressionengine`, `coilpack`, `craftcms`, `craftcms-nuxt`, `craftcms-nextjs`, `ee-nextjs`, `wordpress-roots`, `wordpress`, `nextjs`, `docusaurus`, `astro-strapi`, `astro-sanity`, `custom`
+`expressionengine`, `coilpack`, `craftcms`, `craftcms-nuxt`, `craftcms-nextjs`, `ee-nextjs`, `wordpress-roots`, `wordpress`, `nextjs`, `nuxt`, `remix`, `sveltekit`, `t3-stack`, `docusaurus`, `astro`, `astro-strapi`, `astro-sanity`, `astro-tina`, `custom`
 
 ---
 
@@ -248,7 +274,7 @@ ai-config --project=. --install-extensions
 
 ## Context7 Integration
 
-All stacks include Context7 for up-to-date library documentation (Tailwind, Alpine.js, React, Vue, 100+ more).
+For up-to-date library documentation (Tailwind, Alpine.js, React, Vue, 100+ more), install the Context7 plugin once: `/plugin install context7@claude-plugins-official`. Stack templates no longer enable a `context7` project MCP server, since no `.mcp.json` ever defined one.
 
 ---
 
@@ -265,9 +291,10 @@ your-project/
 │   ├── rules/                    # Coding standards
 │   ├── agents/                   # AI personas
 │   ├── commands/                 # Slash commands
-│   ├── skills/                   # Workflow skills
-│   ├── skills/superpowers/       # Workflow skills
-│   └── hooks/                    # Session hooks
+│   ├── skills/                   # Stack + Superpowers skills (one folder per skill)
+│   ├── hooks/                    # safety-guard.sh (PreToolUse) + session-start
+│   ├── settings.local.json       # Permissions, safety policy, hook registrations
+│   └── ai-config/                # Manifest, backups/, pending/, version (gitignored)
 └── .vscode/
     ├── settings.json
     ├── launch.json

@@ -1,3 +1,8 @@
+---
+paths:
+  - "**/*.{html,htm,twig,php,vue,svelte,astro,jsx,tsx,mdx}"
+---
+
 # Accessibility Standards
 
 ## WCAG 2.1 AA Compliance

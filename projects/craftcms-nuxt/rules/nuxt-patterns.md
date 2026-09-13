@@ -1,3 +1,9 @@
+---
+paths:
+  - "**/*.{vue,ts,js}"
+  - "**/nuxt.config.*"
+---
+
 # Nuxt 3 Patterns and Best Practices
 
 These rules MUST be followed when developing with Nuxt 3.

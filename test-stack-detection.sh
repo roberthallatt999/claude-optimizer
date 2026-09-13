@@ -8,6 +8,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SETUP_SCRIPT="$SCRIPT_DIR/setup-project.sh"
+# Independent of the developer's global plugins (a global superpowers plugin shortens dry-run output).
+export AI_CONFIG_USER_SETTINGS="/nonexistent/settings.json"
 PASS=0
 FAIL=0
 SKIP=0
@@ -47,15 +49,17 @@ assert_stack() {
 
   run_detection "$project_dir"
 
-  if echo "$DETECTION_OUTPUT" | grep -qE "Auto-detected stack.*(from project files|from CLAUDE\.md): $expected_stack"; then
+  # Here-strings, not `echo | grep -q`: grep -q exits at the first match, and under pipefail the
+  # resulting SIGPIPE in echo would turn a match into a failure once the output is large.
+  if grep -qE "Auto-detected stack.*(from project files|from CLAUDE\.md): $expected_stack" <<< "$DETECTION_OUTPUT"; then
     echo -e "${GREEN}PASS${NC} $name → detected '$expected_stack'"
     PASS=$((PASS + 1))
-  elif echo "$DETECTION_OUTPUT" | grep -qE "stack.*$expected_stack|$expected_stack.*stack"; then
+  elif grep -qE "stack.*$expected_stack|$expected_stack.*stack" <<< "$DETECTION_OUTPUT"; then
     echo -e "${GREEN}PASS${NC} $name → detected '$expected_stack' (label match)"
     PASS=$((PASS + 1))
   else
     echo -e "${RED}FAIL${NC} $name → expected '$expected_stack', got:"
-    echo "$DETECTION_OUTPUT" | grep -iE "stack|detect" | head -5 | sed 's/^/       /'
+    { grep -iE "stack|detect" <<< "$DETECTION_OUTPUT" | head -5 | sed 's/^/       /'; } || true
     FAIL=$((FAIL + 1))
   fi
 
@@ -69,12 +73,12 @@ assert_library_injected() {
 
   run_detection "$project_dir"
 
-  if echo "$DETECTION_OUTPUT" | grep -q "Would inject @.claude/libraries/${library}"; then
+  if grep -q "Would inject @.claude/libraries/${library}" <<< "$DETECTION_OUTPUT"; then
     echo -e "${GREEN}PASS${NC} $name → would inject '$library'"
     PASS=$((PASS + 1))
   else
     echo -e "${RED}FAIL${NC} $name → expected library injection of '$library', got:"
-    echo "$DETECTION_OUTPUT" | grep -i "inject\|library" | head -5 | sed 's/^/       /'
+    { grep -i "inject\|library" <<< "$DETECTION_OUTPUT" | head -5 | sed 's/^/       /'; } || true
     FAIL=$((FAIL + 1))
   fi
 

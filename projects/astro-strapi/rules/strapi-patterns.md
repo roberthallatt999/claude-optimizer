@@ -1,3 +1,9 @@
+---
+paths:
+  - "backend/**"
+  - "**/*.{ts,js,astro}"
+---
+
 # Strapi Patterns and Best Practices
 
 These rules MUST be followed when developing with Strapi.

@@ -1,3 +1,8 @@
+---
+paths:
+  - "system/user/templates/**"
+---
+
 # ExpressionEngine Template Rules
 
 These rules MUST be followed when writing or modifying ExpressionEngine templates.

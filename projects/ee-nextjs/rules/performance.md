@@ -1,3 +1,11 @@
+---
+paths:
+  - "**/*.{html,htm,twig,php,vue,svelte,astro,jsx,tsx,mdx}"
+  - "**/*.{css,scss,js,mjs,ts}"
+  - "**/{vite,webpack,next,nuxt,astro,svelte,tailwind,postcss}.config.*"
+  - "**/.htaccess"
+---
+
 # Performance Optimization (EE Backend + Next.js Frontend)
 
 These rules MUST be followed for optimal performance across both the ExpressionEngine/Coilpack backend and Next.js frontend.

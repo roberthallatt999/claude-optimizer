@@ -70,6 +70,7 @@ echo ""
 echo -e "${CYAN}Making scripts executable...${NC}"
 chmod +x "$SCRIPT_DIR/setup-project.sh"
 chmod +x "$SCRIPT_DIR/serve-docs.sh"
+chmod +x "$SCRIPT_DIR/ai-config-fleet.sh"
 [[ -f "$SCRIPT_DIR/install-vscode-extensions.sh" ]] && chmod +x "$SCRIPT_DIR/install-vscode-extensions.sh"
 echo -e "  ${GREEN}✓${NC} Scripts are executable"
 echo ""
@@ -86,11 +87,13 @@ if grep -q "alias ai-config=" "$SHELL_RC" 2>/dev/null; then
       sed -i '' '/# AI Config/d' "$SHELL_RC"
       sed -i '' '/alias ai-config=/d' "$SHELL_RC"
       sed -i '' '/alias ai-config-docs=/d' "$SHELL_RC"
+      sed -i '' '/alias ai-config-fleet=/d' "$SHELL_RC"
       sed -i '' '/export AI_CONFIG_REPO=/d' "$SHELL_RC"
     else
       sed -i '/# AI Config/d' "$SHELL_RC"
       sed -i '/alias ai-config=/d' "$SHELL_RC"
       sed -i '/alias ai-config-docs=/d' "$SHELL_RC"
+      sed -i '/alias ai-config-fleet=/d' "$SHELL_RC"
       sed -i '/export AI_CONFIG_REPO=/d' "$SHELL_RC"
     fi
     echo -e "  ${GREEN}✓${NC} Removed old aliases"
@@ -103,6 +106,7 @@ if grep -q "alias ai-config=" "$SHELL_RC" 2>/dev/null; then
     echo "  export AI_CONFIG_REPO=\"$SCRIPT_DIR\""
     echo "  alias ai-config=\"\$AI_CONFIG_REPO/setup-project.sh\""
     echo "  alias ai-config-docs=\"\$AI_CONFIG_REPO/serve-docs.sh\""
+    echo "  alias ai-config-fleet=\"\$AI_CONFIG_REPO/ai-config-fleet.sh\""
     echo ""
     exit 0
   fi
@@ -119,6 +123,7 @@ if [[ "$SHELL_NAME" == "fish" ]]; then
 set -gx AI_CONFIG_REPO "$SCRIPT_DIR"
 alias ai-config "\$AI_CONFIG_REPO/setup-project.sh"
 alias ai-config-docs "\$AI_CONFIG_REPO/serve-docs.sh"
+alias ai-config-fleet "\$AI_CONFIG_REPO/ai-config-fleet.sh"
 EOF
 else
   # Bash/Zsh syntax
@@ -128,6 +133,7 @@ else
 export AI_CONFIG_REPO="$SCRIPT_DIR"
 alias ai-config="\$AI_CONFIG_REPO/setup-project.sh"
 alias ai-config-docs="\$AI_CONFIG_REPO/serve-docs.sh"
+alias ai-config-fleet="\$AI_CONFIG_REPO/ai-config-fleet.sh"
 EOF
 fi
 
@@ -147,7 +153,7 @@ if [[ -d "$SCRIPT_DIR/stacks" ]] || [[ -f "$SCRIPT_DIR/global/CLAUDE.md" ]]; the
     for file in "$SCRIPT_DIR/stacks"/*.md; do
       if [[ -f "$file" ]]; then
         cp "$file" "$CLAUDE_DIR/stacks/"
-        ((STACK_COUNT++))
+        STACK_COUNT=$((STACK_COUNT + 1))
       fi
     done
     [[ $STACK_COUNT -gt 0 ]] && echo -e "  ${GREEN}✓${NC} Installed $STACK_COUNT stack knowledge files"
@@ -180,6 +186,7 @@ echo -e "${CYAN}Quick examples:${NC}"
 echo "  ai-config --project=. --with-all          # Current directory"
 echo "  ai-config --refresh --project=.           # Update existing"
 echo "  ai-config --project=. --with-all --dry-run  # Preview changes"
+echo "  ai-config-fleet --root=~/sites            # Health-check every project"
 echo ""
 echo -e "${CYAN}Documentation:${NC}"
 echo "  ai-config-docs                            # Start docs server"

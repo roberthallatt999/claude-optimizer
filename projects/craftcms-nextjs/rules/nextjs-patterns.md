@@ -1,3 +1,9 @@
+---
+paths:
+  - "**/*.{ts,tsx,js,jsx,mjs}"
+  - "**/next.config.*"
+---
+
 # Next.js Patterns and Best Practices
 
 These rules MUST be followed when developing with Next.js App Router (14+).

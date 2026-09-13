@@ -23,9 +23,16 @@ ai-config --project=/path/to/project
 ```
 
 **What gets deployed:**
-- `.claude/skills/superpowers/` - 15 workflow skills
+- `.claude/skills/<skill>/` - 16 workflow skills (Claude Code only discovers skills one folder deep)
 - `.claude/commands/` - Slash commands (brainstorm, write-plan, execute-plan)
-- `.claude/hooks/` - Session hooks for auto-bootstrap
+- `.claude/hooks/session-start` - Loads the using-superpowers skill at session start (registered with
+  `CLAUDE_PLUGIN_ROOT` so it emits Claude Code's `hookSpecificOutput` format)
+
+If the superpowers plugin is already enabled in `~/.claude/settings.json`, the project copy is
+skipped so the bootstrap isn't loaded twice; pass a `--superpowers-*` flag to deploy it anyway.
+Projects deployed before this layout had skills in `.claude/skills/superpowers/`, where Claude Code
+never found them (and the hook injected a read error instead of the skill). `--refresh` moves them up
+a level, edits included, and `--doctor` flags any left behind.
 
 ### Disable Superpowers
 
@@ -189,7 +196,7 @@ These thoughts mean STOP - you're rationalizing skipping the process:
 
 ## Customizing Skills
 
-Skills are markdown files in `.claude/skills/superpowers/`. Each has:
+Skills are markdown files in `.claude/skills/<skill>/SKILL.md`. Each has:
 
 ```markdown
 ---
@@ -280,7 +287,8 @@ and on a conflict it aborts the merge to leave the tree clean.
    of deployed skills. If upstream adds or removes skills, update those references
    (`CLAUDE.md`, this guide, `docs/reference/commands.md`).
 3. **Verify deployment** — run a `--dry-run` against a test project to confirm the
-   skills still copy into `.claude/skills/superpowers/` as expected:
+   skills still copy into `.claude/skills/<skill>/` as expected, then `--doctor` on a real deploy
+   to confirm the session-start hook loads the bootstrap skill:
    ```bash
    ai-config --dry-run --project=/path/to/test-project
    ```

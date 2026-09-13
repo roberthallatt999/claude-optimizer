@@ -1,3 +1,9 @@
+---
+paths:
+  - "**/*.{astro,ts,tsx,js,md,mdx}"
+  - "**/astro.config.*"
+---
+
 # Astro Patterns and Best Practices
 
 These rules MUST be followed when developing with Astro 4.x in this project.

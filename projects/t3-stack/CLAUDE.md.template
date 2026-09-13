@@ -264,5 +264,5 @@ model Post {
 | `test-driven-development` | All implementation |
 | `systematic-debugging` | API / type errors |
 
-See `.claude/skills/superpowers/using-superpowers/SKILL.md` for the full guide.
+See `.claude/skills/using-superpowers/SKILL.md` for the full guide.
 {{/SUPERPOWERS}}

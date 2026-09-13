@@ -1,3 +1,8 @@
+---
+paths:
+  - "**/*.php"
+---
+
 # WordPress Coding Standards
 
 Follow these coding standards for all WordPress development.

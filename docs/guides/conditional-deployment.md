@@ -95,14 +95,20 @@ The script will:
 
 ### Alpine.js
 - ✅ Detected if:
-  - `alpinejs` found in `package.json`, OR
-  - `x-data` or `@click` found in templates
+  - `alpinejs` in any `package.json` (theme folders included), OR
+  - an Alpine script file or CDN tag, OR
+  - `x-data` attributes in templates
 - → Deploys: `alpinejs.md`
 
 ### Vanilla JS/HTML
-- ✅ Detected if: No Tailwind, Foundation, or Alpine.js detected
-- → Indicates project uses vanilla JavaScript and HTML without frameworks
-- → Deploys: `vanilla-js.md` (if rule exists)
+- ✅ Detected if the project has its own JavaScript files **and** no JS framework, JS library, or UI
+  component library was detected (jQuery counts as a library)
+- → Reported as "custom JavaScript, no framework detected (N file(s), mainly in <folder>/)"
+- → Adds the `vanilla-js.md` library reference
+
+All front-end detection (Tailwind, Foundation, SCSS, Alpine, and 50+ other frameworks, libraries, and
+build tools) comes from `projects/common/detect-frontend.sh` — see
+[Setup Script → Front-End Stack](setup-script.md#front-end-stack).
 
 ### Bilingual Content
 - ✅ Detected if patterns found in templates:

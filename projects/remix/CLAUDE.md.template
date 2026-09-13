@@ -240,5 +240,5 @@ export async function loader() {
 | `test-driven-development` | All implementation |
 | `systematic-debugging` | Bug investigation |
 
-See `.claude/skills/superpowers/using-superpowers/SKILL.md` for the full guide.
+See `.claude/skills/using-superpowers/SKILL.md` for the full guide.
 {{/SUPERPOWERS}}

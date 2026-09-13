@@ -1,3 +1,10 @@
+---
+paths:
+  - "**/*.php"
+  - "routes/**"
+  - "config/**"
+---
+
 # Laravel API Patterns for Headless ExpressionEngine
 
 These rules MUST be followed when building Laravel API routes that serve as the integration layer between ExpressionEngine (Coilpack) and the Next.js frontend.

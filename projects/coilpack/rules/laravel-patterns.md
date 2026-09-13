@@ -1,3 +1,10 @@
+---
+paths:
+  - "**/*.php"
+  - "routes/**"
+  - "config/**"
+---
+
 # Laravel + Coilpack Patterns
 
 These rules MUST be followed when developing with Laravel and Coilpack.

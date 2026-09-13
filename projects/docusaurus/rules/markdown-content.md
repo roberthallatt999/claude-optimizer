@@ -1,3 +1,10 @@
+---
+paths:
+  - "docs/**/*.{md,mdx}"
+  - "blog/**/*.{md,mdx}"
+  - "src/pages/**/*.{md,mdx}"
+---
+
 # Markdown Content Rules (Docusaurus)
 
 These rules MUST be followed when writing Markdown content for Docusaurus.

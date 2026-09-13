@@ -1,3 +1,9 @@
+---
+paths:
+  - "**/*.{ts,tsx,js,astro,groq}"
+  - "**/sanity.config.*"
+---
+
 # Sanity Patterns and Best Practices
 
 These rules MUST be followed when working with Sanity Studio v3 and the Sanity Content Lake.

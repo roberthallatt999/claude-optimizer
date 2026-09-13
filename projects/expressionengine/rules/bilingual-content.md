@@ -1,3 +1,9 @@
+---
+paths:
+  - "**/*.{html,htm,twig,php}"
+  - "**/{translations,lang,languages,i18n,locales}/**"
+---
+
 # Bilingual Content Rules (English/French)
 
 These rules MUST be followed to ensure proper bilingual support for English and French content.

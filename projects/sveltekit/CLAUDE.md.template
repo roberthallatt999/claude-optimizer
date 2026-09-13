@@ -265,5 +265,5 @@ This project uses structured workflow skills for disciplined AI-assisted develop
 | `systematic-debugging` | Bug investigation and root cause analysis |
 | `verification-before-completion` | Ensure changes actually work |
 
-See `.claude/skills/superpowers/using-superpowers/SKILL.md` for the full skill usage guide.
+See `.claude/skills/using-superpowers/SKILL.md` for the full skill usage guide.
 {{/SUPERPOWERS}}

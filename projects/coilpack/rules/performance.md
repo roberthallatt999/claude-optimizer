@@ -1,3 +1,11 @@
+---
+paths:
+  - "**/*.{html,htm,twig,php,vue,svelte,astro,jsx,tsx,mdx}"
+  - "**/*.{css,scss,js,mjs,ts}"
+  - "**/{vite,webpack,next,nuxt,astro,svelte,tailwind,postcss}.config.*"
+  - "**/.htaccess"
+---
+
 # Laravel Performance Optimization
 
 ## Caching

@@ -74,6 +74,27 @@ ai-config --project=. --skip-vscode
 ai-config --project=. --install-extensions
 ```
 
+### Check a Project
+
+```bash
+ai-config --doctor --project=.
+```
+
+Read-only: verifies settings, runs a live safety-hook test, and lists anything to fix.
+
+### Install Missing Tools
+
+```bash
+ai-config --project=. --install-deps
+```
+
+### All Your Projects at Once
+
+```bash
+ai-config-fleet --root=~/sites            # health check every ai-config project
+ai-config-fleet --root=~/sites --refresh  # refresh them all
+```
+
 ---
 
 ## Deployed Files
@@ -82,6 +103,8 @@ ai-config --project=. --install-extensions
 |-----------|-------|
 | Claude Code | `CLAUDE.md`, `MEMORY.md`, `.claude/` |
 | Permissions | `.claude/settings.local.json` |
+| Safety | `.claude/hooks/safety-guard.sh` + deny/ask rules in `settings.local.json` |
+| Update state | `.claude/ai-config/` (manifest, backups, staged updates, version) |
 | VSCode | `.vscode/settings.json`, `launch.json`, `tasks.json` |
 
 ---
@@ -104,10 +127,9 @@ ai-config --project=. --install-extensions
 
 | Technology | Result |
 |------------|--------|
-| Tailwind CSS | Adds rules + VSCode Tailwind support |
-| Alpine.js | Adds Alpine.js rules |
-| Foundation | Adds Foundation patterns |
-| SCSS/Sass | Adds SCSS best practices |
+| Front-end stack (50+ CSS/JS frameworks, UI kits, libraries, build tools) | Scan summary + Front-End Stack block in `CLAUDE.md`; "custom JS/CSS, no framework" when none is found |
+| Tailwind CSS / Alpine.js | Adds rules + library references (+ VSCode Tailwind support) |
+| Bootstrap, Foundation, Bulma, jQuery, Material UI, SCSS | Adds library references |
 | Bilingual (EN/FR) | Adds bilingual content rules |
 | DDEV | Extracts project config |
 

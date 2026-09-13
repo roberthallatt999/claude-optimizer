@@ -1,3 +1,8 @@
+---
+paths:
+  - "**/*.{html,htm,twig,php,astro,js}"
+---
+
 # Alpine.js Rules
 
 These rules MUST be followed when writing Alpine.js components for interactive features.

@@ -1,3 +1,9 @@
+---
+paths:
+  - "**/*.{ts,tsx,js,jsx,mjs}"
+  - "**/next.config.*"
+---
+
 # Next.js App Router Patterns (Headless CMS)
 
 These rules MUST be followed when developing the Next.js frontend for headless ExpressionEngine.

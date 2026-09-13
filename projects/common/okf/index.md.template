@@ -1,0 +1,23 @@
+---
+okf_version: "0.2"
+---
+
+# {{PROJECT_NAME}} Knowledge
+
+Project memory in [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md).
+Read this index first, then open only the concepts the task needs.
+
+## Session
+
+- [Session Handoff](/handoff.md) — unfinished work, temporary state, and next steps
+- [Log](/log.md) — dated record of meaningful changes
+
+## Decisions
+
+## Architecture
+
+## Integrations
+
+## Conventions
+
+## Known Issues

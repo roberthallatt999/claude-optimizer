@@ -52,7 +52,7 @@ Every deployment includes:
 | Token Rules | `.claude/rules/token-optimization.md` | Efficiency guidelines |
 | Sensitive Files | `.claude/rules/sensitive-files.md` | Prevents reading credentials |
 | Permissions | `.claude/settings.local.json` | Stack-appropriate CLI permissions |
-| Memory Skill | `.claude/skills/superpowers/memory-management/` | Automated behaviors |
+| Memory Protocol | `CLAUDE.md` managed block | Always-on read/update instructions |
 
 ### Memory Bank Sections
 
@@ -267,10 +267,10 @@ Templates support these auto-detected variables:
 - `projects/common/MEMORY.md.template` - Memory bank template
 - `projects/common/rules/memory-management.md` - Memory protocols
 - `projects/common/rules/token-optimization.md` - Token efficiency
-- `superpowers/skills/memory-management/` - Memory skill
+- `projects/common/memory-protocol.md` - Always-on memory protocol block
 
 ### Superpowers Skills Integration
-- 15 workflow skills deployed by default
+- 16 workflow skills (skipped when the superpowers plugin is enabled globally)
 - Session hooks for auto-activation
 - Slash commands (`/brainstorm`, `/write-plan`, `/execute-plan`)
 
@@ -314,6 +314,6 @@ All 13 technology stacks have complete Claude Code configurations with:
 - **Sensitive file protection** preventing credential exposure
 - **Memory bank** for persistent context
 - **Token optimization** rules
-- **15 Superpowers** workflow skills
+- **16 Superpowers** workflow skills
 - **Cross-platform** macOS/Linux compatibility
 - **VSCode integration** with optional extension installation

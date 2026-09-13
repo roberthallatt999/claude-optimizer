@@ -147,8 +147,16 @@ rm -rf ~/.claude/stacks
 |-------------|-------|
 | **Bash** | macOS, Linux, or WSL |
 | **Git** | To clone the repository |
+| **jq, perl, awk, sed, find, cmp, mktemp, shasum/sha256sum** | Required; every run checks for them first and stops before changing anything if one is missing |
+| **Intelephense** | Optional, PHP stacks: enables the `php-lsp` plugin |
+| **codegraph** | Optional, JS stacks: local code index (install it yourself, then `codegraph init`) |
 | **VSCode** | Optional, for IDE integration |
 | **VSCode CLI** | Optional, for `--install-extensions` flag |
+
+Missing tools can be installed for you: `ai-config --project=/path/to/project --install-deps`
+uses Homebrew on macOS or apt-get/dnf/yum/pacman/zypper/apk on Linux (and npm for Intelephense),
+shows the commands, and asks before installing unless `--force`. Check a machine and project any
+time with `ai-config --doctor --project=/path/to/project`.
 
 ---
 
