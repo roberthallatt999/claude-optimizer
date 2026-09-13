@@ -491,11 +491,40 @@ The script automatically detects:
 - **Pinia** — `pinia` in `package.json`
 - **Tina CMS** — `tina/config.ts/js` or `tinacms` in `package.json`
 
-### CSS / Styling
-- **Tailwind CSS** — `tailwind.config.*` or `tailwindcss` in `package.json`
-- **Foundation** — `foundation-sites` in `package.json`
-- **SCSS/Sass** — `sass` or `node-sass` in `package.json`, or `.scss` files
-- **Alpine.js** — `alpinejs` in `package.json` or `x-data`/`@click` in templates
+### Front-End Stack
+
+`projects/common/detect-frontend.sh` looks for every front-end technology it knows, in four places:
+
+1. **Every `package.json`**, including theme folders (`wp-content/themes/*`, `web/app/themes/*`) and
+   `frontend/` — not just the project root
+2. **Vendored asset files**, e.g. `assets/js/jquery-3.7.1.min.js` or `bootstrap.bundle.min.js`
+3. **Template references**: CDN `<script>` / `<link>` tags and `wp_enqueue_script` /
+   `wp_enqueue_style` calls, including dependencies such as `array('jquery')`
+4. **Markup attributes**: `x-data` (Alpine.js), `hx-get` / `hx-post` (htmx)
+
+| Category | Detected |
+|---|---|
+| CSS frameworks | Tailwind CSS, Bootstrap, Foundation, Bulma, UIkit, daisyUI, Pure.css, Materialize, Fomantic/Semantic UI, UnoCSS |
+| CSS tooling | Sass/SCSS, Less, PostCSS, Stylus, styled-components, Emotion |
+| UI components | Material UI, Chakra UI, Mantine, Ant Design, Radix UI, Headless UI, Vuetify, PrimeVue/PrimeReact |
+| JS frameworks | React, Vue, Svelte, Angular, Preact, SolidJS, Lit, Alpine.js, htmx, Stimulus, Turbo |
+| JS libraries | jQuery, GSAP, Swiper, Slick, Splide, Chart.js, Three.js, AOS |
+| Build tools | Vite, webpack, Laravel Mix, Bud, Parcel, esbuild, Rollup, Gulp, Grunt |
+| Language | TypeScript |
+
+Versions come from `package.json` or the file/CDN name. Libraries bundled by CMS core or third-party
+code are ignored: `node_modules`, `vendor`, EE `system/ee` / `themes/ee` / `themes/user` / add-ons,
+Craft `cpresources`, WordPress core and plugins, build output, uploads, and caches.
+
+When no framework is found, the script says so instead of guessing — for example *"custom
+JavaScript, no framework detected (12 file(s), mainly in public/assets/js/)"*. First-party counts
+skip minified, vendored, and build-config files.
+
+The result appears in the scan summary and in a short **Front-End Stack** managed block in
+`CLAUDE.md` (and `AGENTS.md`), so Claude works within the project's real stack. The block only
+changes when the detected stack changes. Detected Tailwind CSS, Alpine.js, Foundation, SCSS,
+Bootstrap, Bulma, jQuery, Material UI, and custom-JS projects also get the matching
+`.claude/libraries/` references and conditional rules.
 
 ### CMS / Template Engines
 - **ExpressionEngine** — `system/ee/` directory

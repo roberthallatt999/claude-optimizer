@@ -127,10 +127,9 @@ ai-config-fleet --root=~/sites --refresh  # refresh them all
 
 | Technology | Result |
 |------------|--------|
-| Tailwind CSS | Adds rules + VSCode Tailwind support |
-| Alpine.js | Adds Alpine.js rules |
-| Foundation | Adds Foundation patterns |
-| SCSS/Sass | Adds SCSS best practices |
+| Front-end stack (50+ CSS/JS frameworks, UI kits, libraries, build tools) | Scan summary + Front-End Stack block in `CLAUDE.md`; "custom JS/CSS, no framework" when none is found |
+| Tailwind CSS / Alpine.js | Adds rules + library references (+ VSCode Tailwind support) |
+| Bootstrap, Foundation, Bulma, jQuery, Material UI, SCSS | Adds library references |
 | Bilingual (EN/FR) | Adds bilingual content rules |
 | DDEV | Extracts project config |
 

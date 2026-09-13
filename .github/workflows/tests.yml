@@ -41,12 +41,14 @@ jobs:
           update-superpowers.sh
           test-cms-intelligence.sh
           test-fleet.sh
+          test-frontend-detection.sh
           test-install-deps.sh
           test-lifecycle.sh
           test-okf-memory.sh
           test-refresh-additive.sh
           test-safety-guard.sh
           test-security-policy.sh
+          projects/common/detect-frontend.sh
           projects/common/hooks/safety-guard.sh
           projects/common/okf/okf-check.sh
           projects/common/okf/template-map.sh

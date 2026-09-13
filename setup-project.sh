@@ -109,6 +109,14 @@ HAS_SHADCN=false
 HAS_ZOD=false
 HAS_PINIA=false
 HAS_TINA=false
+# Front-end libraries with reference docs in libraries/ (set from detect-frontend.sh)
+HAS_BOOTSTRAP=false
+HAS_BULMA=false
+HAS_JQUERY=false
+HAS_MUI=false
+FRONTEND_RECORDS=""      # detect-frontend.sh output (lib / custom records)
+FRONTEND_BLOCK_FILE=""   # generated Front-End Stack block for CLAUDE.md / AGENTS.md
+FRONTEND_TMP_DIR=""
 
 # Brand colors (set manually; unset ones render as readable "not set" text)
 # shellcheck disable=SC2034  # read indirectly by render_template via ${!var}
@@ -558,39 +566,93 @@ detect_template_group() {
   return 0
 }
 
+# frontend_has <id> — true when detect-frontend.sh found that library.
+frontend_has() {
+  printf '%s\n' "$FRONTEND_RECORDS" | awk -F'\t' -v id="$1" '$1 == "lib" && $2 == id { found = 1 } END { exit !found }'
+}
+
+# frontend_has_category <category-regex> — true when any detected library is in those categories.
+frontend_has_category() {
+  printf '%s\n' "$FRONTEND_RECORDS" | awk -F'\t' -v re="$1" '$1 == "lib" && $4 ~ re { found = 1 } END { exit !found }'
+}
+
+# frontend_group <category-regex> — "Label 1.2 (evidence); Label (evidence)" for one group.
+frontend_group() {
+  printf '%s\n' "$FRONTEND_RECORDS" | awk -F'\t' -v re="$1" '
+    $1 == "lib" && $4 ~ re { out = out (out == "" ? "" : "; ") $3 ($5 != "" ? " " $5 : "") " (" $6 ")" }
+    END { print out }'
+}
+
+# frontend_custom <js|css> <framework-category-regex> <noun> — first-party code phrase, or nothing.
+frontend_custom() {
+  local line count folder
+  line=$(printf '%s\n' "$FRONTEND_RECORDS" | awk -F'\t' -v k="$1" '$1 == "custom" && $2 == k { print $3 "\t" $4; exit }')
+  [[ -n "$line" ]] || return 0
+  count="${line%%$'\t'*}"
+  folder="${line#*$'\t'}"
+  if frontend_has_category "$2"; then
+    printf 'plus %s first-party %s file(s), mainly in %s/' "$count" "$3" "$folder"
+  else
+    printf 'custom %s, no framework detected (%s file(s), mainly in %s/)' "$3" "$count" "$folder"
+  fi
+}
+
+# frontend_report — "Heading<TAB>text" lines: CSS, UI components, JavaScript, Build, Language.
+frontend_report() {
+  local css ui js build lang custom_css custom_js
+  css=$(frontend_group '^(css|css-tool)$')
+  custom_css=$(frontend_custom css '^css$' CSS)
+  ui=$(frontend_group '^ui$')
+  js=$(frontend_group '^(js-framework|js-lib)$')
+  custom_js=$(frontend_custom js '^(js-framework|js-lib|ui)$' JavaScript)
+  build=$(frontend_group '^build$')
+  lang=$(frontend_group '^lang$')
+  if [[ -n "$css" && -n "$custom_css" ]]; then css="$css; $custom_css"; else css="$css$custom_css"; fi
+  if [[ -n "$js" && -n "$custom_js" ]]; then js="$js; $custom_js"; else js="$js$custom_js"; fi
+  if [[ -n "$css" ]]; then printf 'CSS\t%s\n' "$css"; fi
+  if [[ -n "$ui" ]]; then printf 'UI components\t%s\n' "$ui"; fi
+  if [[ -n "$js" ]]; then printf 'JavaScript\t%s\n' "$js"; fi
+  if [[ -n "$build" ]]; then printf 'Build\t%s\n' "$build"; fi
+  if [[ -n "$lang" ]]; then printf 'Language\t%s\n' "$lang"; fi
+  return 0
+}
+
+# Front-End Stack block for CLAUDE.md / AGENTS.md, so Claude follows the project's actual stack
+# instead of assuming one. Deterministic: it only changes when the detected stack changes.
+write_frontend_block() {
+  local lines heading text
+  FRONTEND_BLOCK_FILE=""
+  lines=$(frontend_report)
+  [[ -n "$lines" ]] || return 0
+  FRONTEND_TMP_DIR=$(mktemp -d)
+  trap 'rm -rf "$FRONTEND_TMP_DIR"' EXIT
+  FRONTEND_BLOCK_FILE="$FRONTEND_TMP_DIR/frontend-stack.md"
+  {
+    echo "<!-- BEGIN FRONTEND STACK (managed by ai-config; regenerated on refresh) -->"
+    echo "## Front-End Stack (detected)"
+    echo ""
+    while IFS=$'\t' read -r heading text; do
+      echo "- **$heading:** $text"
+    done <<< "$lines"
+    echo ""
+    echo "Detected from package.json files, template tags, and asset files. Work within this stack;"
+    echo "ask before introducing another CSS or JavaScript framework."
+    echo "<!-- END FRONTEND STACK -->"
+  } > "$FRONTEND_BLOCK_FILE"
+}
+
 detect_frontend_tools() {
-  # Check for Tailwind (root, docroot, or nested in themes - common in WordPress Roots/Sage)
-  if [[ -f "$PROJECT_DIR/tailwind.config.js" ]] || [[ -f "$PROJECT_DIR/$DDEV_DOCROOT/tailwind.config.js" ]]; then
-    HAS_TAILWIND=true
-  elif [[ -f "$PROJECT_DIR/package.json" ]] && grep -q "tailwindcss" "$PROJECT_DIR/package.json" 2>/dev/null; then
-    HAS_TAILWIND=true
-  elif find "$PROJECT_DIR" -path "*/node_modules" -prune -o -name "tailwind.config.*" -print 2>/dev/null | head -1 | grep -q .; then
-    HAS_TAILWIND=true
-  fi
-
-  # Check for Foundation
-  if [[ -f "$PROJECT_DIR/package.json" ]] && grep -q "foundation-sites" "$PROJECT_DIR/package.json" 2>/dev/null; then
-    HAS_FOUNDATION=true
-  elif find "$PROJECT_DIR" -name "foundation.min.css" -o -name "foundation.css" 2>/dev/null | head -1 | grep -q .; then
-    HAS_FOUNDATION=true
-  fi
-
-  # Check for SCSS/Sass
-  if [[ -f "$PROJECT_DIR/package.json" ]] && grep -q '"sass"\|"node-sass"' "$PROJECT_DIR/package.json" 2>/dev/null; then
-    HAS_SCSS=true
-  elif find "$PROJECT_DIR" -name "*.scss" -o -name "*.sass" 2>/dev/null | head -1 | grep -q .; then
-    HAS_SCSS=true
-  fi
-
-  # Check for Alpine.js (in package.json at root or docroot, or in templates)
-  local docroot="${DDEV_DOCROOT:-public}"
-  if [[ -f "$PROJECT_DIR/package.json" ]] && grep -q "alpinejs" "$PROJECT_DIR/package.json" 2>/dev/null; then
-    HAS_ALPINE=true
-  elif [[ -f "$PROJECT_DIR/$docroot/package.json" ]] && grep -q "alpinejs" "$PROJECT_DIR/$docroot/package.json" 2>/dev/null; then
-    HAS_ALPINE=true
-  elif grep -rq --include="*.html" --include="*.twig" --include="*.blade.php" "x-data\|x-bind\|x-on:" "$PROJECT_DIR" 2>/dev/null; then
-    HAS_ALPINE=true
-  fi
+  # Front-end stack from every package.json (theme folders included), vendored asset names,
+  # template CDN/enqueue references, and markup attributes — see projects/common/detect-frontend.sh.
+  FRONTEND_RECORDS=$(bash "$SCRIPT_DIR/projects/common/detect-frontend.sh" "$PROJECT_DIR" 2>/dev/null || true)
+  if frontend_has tailwind; then HAS_TAILWIND=true; fi
+  if frontend_has foundation; then HAS_FOUNDATION=true; fi
+  if frontend_has scss; then HAS_SCSS=true; fi
+  if frontend_has alpine; then HAS_ALPINE=true; fi
+  if frontend_has bootstrap; then HAS_BOOTSTRAP=true; fi
+  if frontend_has bulma; then HAS_BULMA=true; fi
+  if frontend_has jquery; then HAS_JQUERY=true; fi
+  if frontend_has mui; then HAS_MUI=true; fi
 
   # Check for bilingual content patterns (EE user_language, Twig lang, Blade @lang)
   if grep -rq --include="*.html" "user_language" "$PROJECT_DIR/system/user/templates" 2>/dev/null; then
@@ -599,9 +661,8 @@ detect_frontend_tools() {
     HAS_BILINGUAL=true
   fi
 
-  # Detect vanilla JS/HTML (no major framework detected)
-  # If no Tailwind, Foundation, or Alpine, assume vanilla JS/HTML is being used
-  if [[ "$HAS_TAILWIND" == false ]] && [[ "$HAS_FOUNDATION" == false ]] && [[ "$HAS_ALPINE" == false ]]; then
+  # Vanilla JS: the project has its own scripts and no JS framework, library, or UI kit.
+  if printf '%s\n' "$FRONTEND_RECORDS" | grep -q "^custom	js	" && ! frontend_has_category '^(js-framework|js-lib|ui)$'; then
     HAS_VANILLA_JS=true
   fi
 
@@ -763,6 +824,12 @@ detect_all_technologies() {
   # Database indicators
   [[ -f "$PROJECT_DIR/prisma/schema.prisma" ]] && DETECTED_TECHNOLOGIES+=("Prisma ORM")
   [[ -d "$PROJECT_DIR/migrations" ]] || [[ -d "$PROJECT_DIR/database/migrations" ]] && DETECTED_TECHNOLOGIES+=("Database Migrations")
+
+  # Front-end stack found by detect-frontend.sh (theme package.json files, CDN tags, vendored assets)
+  local label
+  while IFS= read -r label; do
+    if [[ -n "$label" ]]; then DETECTED_TECHNOLOGIES+=("$label"); fi
+  done < <(printf '%s\n' "$FRONTEND_RECORDS" | awk -F'\t' '$1 == "lib" { print $3 }')
 
   # Remove duplicates (line-based, so names with spaces like "Tailwind CSS" stay whole)
   local deduped=() tech
@@ -1596,6 +1663,15 @@ append_memory_policy() {
   fi
 }
 
+# Front-End Stack block (what detection found); removed when nothing front-end is detected.
+append_frontend_policy() {
+  if [[ -n "$FRONTEND_BLOCK_FILE" && -f "$FRONTEND_BLOCK_FILE" ]]; then
+    append_managed_block "$1" "$FRONTEND_BLOCK_FILE" "FRONTEND STACK" "Front-End Stack"
+  elif [[ "$DRY_RUN" != true && -f "$1" ]]; then
+    remove_managed_block "$1" "FRONTEND STACK"
+  fi
+}
+
 # Points Claude at the codegraph MCP tools when this project has a registered code index.
 append_code_index_policy() {
   if [[ "$CODE_INDEX" == true ]]; then
@@ -1620,6 +1696,7 @@ append_managed_policies() {
   append_safety_policy "$1"
   append_memory_policy "$1"
   append_response_style_policy "$1"
+  append_frontend_policy "$1"
   append_code_index_policy "$1"
 }
 
@@ -2302,7 +2379,7 @@ install_dependencies() {
 # Uninstall (--uninstall)
 # ============================================================================
 
-MANAGED_BLOCK_MARKERS=("SAFETY GUARDRAILS" "MEMORY PROTOCOL" "OKF MEMORY PROTOCOL" "RESPONSE STYLE" "CODE INDEX" "ORCHESTRATOR POLICY")
+MANAGED_BLOCK_MARKERS=("SAFETY GUARDRAILS" "MEMORY PROTOCOL" "OKF MEMORY PROTOCOL" "RESPONSE STYLE" "FRONTEND STACK" "CODE INDEX" "ORCHESTRATOR POLICY")
 
 # --uninstall removes ai-config from a project without losing work. Everything deleted or changed
 # is backed up to .claude/ai-config/backups/<run>/ first.
@@ -2463,6 +2540,11 @@ library_is_detected() {
     prisma.md)         [[ "$HAS_PRISMA" == true ]] ;;
     shadcn-ui.md)      [[ "$HAS_SHADCN" == true ]] ;;
     tinacms.md)        [[ "$HAS_TINA" == true ]] ;;
+    bootstrap.md)      [[ "$HAS_BOOTSTRAP" == true ]] ;;
+    bulma.md)          [[ "$HAS_BULMA" == true ]] ;;
+    jquery.md)         [[ "$HAS_JQUERY" == true ]] ;;
+    material-ui.md)    [[ "$HAS_MUI" == true ]] ;;
+    vanilla-js.md)     [[ "$HAS_VANILLA_JS" == true ]] ;;
     *) return 1 ;;
   esac
 }
@@ -2490,6 +2572,12 @@ inject_detected_library_imports() {
     "alpinejs.md"
     "scss.md"
     "tinacms.md"
+    "foundation.md"
+    "bootstrap.md"
+    "bulma.md"
+    "jquery.md"
+    "material-ui.md"
+    "vanilla-js.md"
   )
 
   local injected=0
@@ -2984,11 +3072,14 @@ else
   echo -e "  ${YELLOW}○${NC} No template group detected"
 fi
 detect_frontend_tools
-[[ "$HAS_TAILWIND" == true ]] && echo -e "  ${GREEN}✓${NC} Tailwind CSS detected" || echo -e "  ${YELLOW}○${NC} No Tailwind detected"
-[[ "$HAS_FOUNDATION" == true ]] && echo -e "  ${GREEN}✓${NC} Foundation framework detected" || echo -e "  ${YELLOW}○${NC} No Foundation detected"
-[[ "$HAS_SCSS" == true ]] && echo -e "  ${GREEN}✓${NC} SCSS/Sass detected" || echo -e "  ${YELLOW}○${NC} No SCSS/Sass detected"
-[[ "$HAS_ALPINE" == true ]] && echo -e "  ${GREEN}✓${NC} Alpine.js detected" || echo -e "  ${YELLOW}○${NC} No Alpine.js detected"
-[[ "$HAS_VANILLA_JS" == true ]] && echo -e "  ${GREEN}✓${NC} Vanilla JS/HTML detected (no frameworks)" || true
+write_frontend_block
+if [[ -z "$(frontend_report)" ]]; then
+  echo -e "  ${YELLOW}○${NC} No front-end CSS or JavaScript found"
+else
+  while IFS=$'\t' read -r fe_heading fe_text; do
+    echo -e "  ${GREEN}✓${NC} ${fe_heading}: ${fe_text}"
+  done < <(frontend_report)
+fi
 [[ "$HAS_BILINGUAL" == true ]] && echo -e "  ${GREEN}✓${NC} Bilingual content detected" || echo -e "  ${YELLOW}○${NC} No bilingual patterns detected"
 detect_addons
 [[ "$HAS_STASH" == true ]] && echo -e "  ${GREEN}✓${NC} Stash add-on detected" || true

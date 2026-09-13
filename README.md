@@ -140,10 +140,9 @@ This detects 50+ technologies (React, Vue, Laravel, Django, etc.), deploys base 
 
 | Technology | Detection | Result |
 |------------|-----------|--------|
-| Tailwind CSS | `tailwind.config.*` or package.json | Adds Tailwind rules + VSCode support |
-| Alpine.js | `x-data` attributes or package.json | Adds Alpine.js rules |
-| Foundation | `foundation-sites` in package.json | Adds Foundation patterns |
-| SCSS/Sass | `.scss` files or package.json | Adds SCSS best practices |
+| Front-end stack (50+ CSS/JS frameworks, UI kits, libraries, build tools) | Every `package.json` (incl. theme folders), vendored asset files, CDN/enqueue references, `x-data` / `hx-*` markup | Scan summary + Front-End Stack block in `CLAUDE.md`; reports "custom JS/CSS, no framework" when none is found |
+| Tailwind CSS / Alpine.js | As above | Adds Tailwind / Alpine rules + library references |
+| Bootstrap, Foundation, Bulma, jQuery, Material UI, SCSS | As above | Adds library references |
 | Bilingual (EN/FR) | Language patterns in templates | Adds bilingual content rules |
 | Stash (EE) | `exp:stash` tags | Adds Stash optimization tools |
 
