@@ -1,3 +1,8 @@
+---
+paths:
+  - "**/*.{html,htm,twig,php,vue,svelte,astro,jsx,tsx,mdx}"
+---
+
 # Accessibility Rules (WCAG 2.1 AA Compliance)
 
 These rules MUST be followed to ensure Astro + Sanity sites are accessible to all users.

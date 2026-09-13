@@ -1,3 +1,8 @@
+---
+paths:
+  - "**/*.{html,htm,twig,php,vue,svelte,astro,jsx,tsx,mdx}"
+---
+
 # Accessibility Rules
 
 These rules MUST be followed for all frontend development.

@@ -1,3 +1,8 @@
+---
+paths:
+  - "**/*.blade.php"
+---
+
 # Blade Template Rules (Sage/Roots)
 
 These rules MUST be followed when writing Blade templates in WordPress Sage theme.

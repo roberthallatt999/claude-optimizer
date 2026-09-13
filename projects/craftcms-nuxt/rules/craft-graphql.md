@@ -1,3 +1,9 @@
+---
+paths:
+  - "**/*.{graphql,gql,ts,tsx,js,vue}"
+  - "config/graphql.php"
+---
+
 # Craft CMS GraphQL API Rules
 
 These rules MUST be followed when working with Craft CMS's GraphQL API in headless mode.

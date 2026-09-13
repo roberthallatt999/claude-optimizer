@@ -1,3 +1,9 @@
+---
+paths:
+  - "**/*.{html,htm,twig,php,vue,svelte,astro,jsx,tsx,mdx,css,scss}"
+  - "**/tailwind.config.*"
+---
+
 # Tailwind CSS Rules
 
 These rules MUST be followed when writing Tailwind CSS classes in Astro + Sanity projects.

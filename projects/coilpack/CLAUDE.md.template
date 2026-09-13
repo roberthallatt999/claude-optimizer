@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-{{PROJECT_NAME}} is an ExpressionEngine site running on **Coilpack** (Laravel + EE integration) with Twig templates. Managed by the Canadian Paediatric Society.
+{{PROJECT_NAME}} is an ExpressionEngine site running on **Coilpack** (Laravel + EE integration) with Twig templates.
 
 - **CMS**: ExpressionEngine 7.x + Coilpack
 - **Framework**: Laravel 10.x
@@ -283,5 +283,5 @@ Skills activate automatically based on task type, or can be invoked explicitly v
 
 **Key Principle**: If a skill might apply (even 1% chance), invoke it. Skills tell you HOW to approach tasks.
 
-See `.claude/skills/superpowers/using-superpowers/SKILL.md` for the full skill usage guide.
+See `.claude/skills/using-superpowers/SKILL.md` for the full skill usage guide.
 {{/SUPERPOWERS}}

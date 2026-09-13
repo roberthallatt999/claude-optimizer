@@ -1,3 +1,9 @@
+---
+paths:
+  - "**/*.{svelte,ts,js}"
+  - "**/svelte.config.*"
+---
+
 # SvelteKit Patterns
 
 ## File-Based Routing

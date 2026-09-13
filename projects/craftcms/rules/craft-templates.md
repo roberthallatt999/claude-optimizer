@@ -1,3 +1,9 @@
+---
+paths:
+  - "templates/**"
+  - "**/*.twig"
+---
+
 # Craft CMS Twig Template Rules
 
 These rules MUST be followed when writing Twig templates for Craft CMS projects.

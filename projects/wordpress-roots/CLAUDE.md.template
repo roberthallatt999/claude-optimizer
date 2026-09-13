@@ -205,5 +205,5 @@ Skills activate automatically based on task type, or can be invoked explicitly v
 
 **Key Principle**: If a skill might apply (even 1% chance), invoke it. Skills tell you HOW to approach tasks.
 
-See `.claude/skills/superpowers/using-superpowers/SKILL.md` for the full skill usage guide.
+See `.claude/skills/using-superpowers/SKILL.md` for the full skill usage guide.
 {{/SUPERPOWERS}}

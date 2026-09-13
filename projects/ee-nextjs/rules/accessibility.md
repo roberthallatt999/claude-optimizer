@@ -1,3 +1,8 @@
+---
+paths:
+  - "**/*.{html,htm,twig,php,vue,svelte,astro,jsx,tsx,mdx}"
+---
+
 # Accessibility Rules (WCAG 2.1 AA Compliance)
 
 These rules MUST be followed to ensure the site is accessible to all users.

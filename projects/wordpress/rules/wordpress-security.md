@@ -1,3 +1,8 @@
+---
+paths:
+  - "**/*.{php,js}"
+---
+
 # WordPress Security Rules
 
 ## Mandatory Security Practices
