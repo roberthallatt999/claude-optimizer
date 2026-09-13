@@ -1,56 +1,49 @@
+---
+paths:
+  - "**/.github/**"
+  - "**/.gitlab-ci.yml"
+  - "**/.ddev/**"
+  - "**/{Dockerfile,Envoy.blade.php,Procfile,deploy.php}"
+  - "**/{docker-compose,fly,vercel,netlify,wrangler,firebase,railway}*.{yml,yaml,json,toml,jsonc}"
+  - "**/{deploy,scripts,bin,infra,terraform,ansible,k8s,helm}/**"
+  - "**/*.{tf,sql,sql.gz}"
+  - "**/{migrations,database/migrations,seeders}/**"
+  - "**/config/project/**"
+---
+
 # Deployment & Production Safety
 
-These are **hard guardrails**. They override convenience, momentum, and any
-inferred intent. When in doubt, stop and ask the developer. There is no penalty
-for asking; there is real cost in an unauthorized push or a production change.
+Detail for guardrails #2 and #3 in `CLAUDE.md`. The harness asks before pushes,
+publishes, deploys, remote shells, cloud/infra CLIs, destructive git, and destructive
+SQL (`.claude/hooks/safety-guard.sh` plus `ask` rules). Approval is per action.
 
-## 1. Never push to GitHub without explicit authorization
+## Publishing (guardrail #2)
 
-Under **no circumstances** push commits, branches, or tags to any remote
-(`git push`, `git push --force`, creating/merging a PR, etc.) unless the
-developer has **explicitly authorized that specific push in the current
-session**.
+- **Fine without asking:** `git add`, `git commit`, `git status`, `git diff`,
+  `git log`, creating local branches.
+- **Needs explicit approval each time:** `git push` (any form, including tags and
+  `--force`), `gh pr create|merge|edit|comment`, releases, `npm publish`,
+  `docker push`.
+- Don't set up hooks, aliases, or CI steps that push or deploy as a side effect.
 
-- Committing locally is fine. **Publishing is not** — pushing sends code to a
-  shared, often public, remote that may be cached or indexed even if later
-  deleted.
-- "Commit and push" earlier in the conversation does **not** authorize later
-  pushes. Approval is per-action, not standing.
-- Opening, updating, or merging a pull request counts as pushing — same rule.
-- Never enable auto-push hooks, CI triggers, or aliases that push as a side
-  effect of another command.
+## Production & remote environments (guardrail #3)
 
-**Always allowed without asking:** `git add`, `git commit`, `git status`,
-`git diff`, `git log`, local branches.
-**Requires explicit per-action approval:** `git push` (any form), `gh pr create`,
-`gh pr merge`, tag pushes, release publishing.
+Needs explicit approval for the specific action:
 
-## 2. Never change a production environment without explicit permission
+- Deploys and releases (Vercel `--prod`, Netlify, Wrangler, Forge, Envoy, rsync/scp
+  to servers, `ddev push`).
+- Database writes on any non-local DB: migrations, `UPDATE`/`DELETE`/`DROP`/
+  `TRUNCATE`, seeding, backfills, imports (`ddev import-db`, `ddev pull` also
+  overwrite the local DB — confirm first).
+- Config, secrets, DNS, feature flags, or infrastructure (`terraform`, `kubectl`,
+  `helm`, cloud CLIs).
 
-Do **not** make changes against a production environment — application, database,
-infrastructure, or third-party service — unless the developer has **explicitly
-granted permission for that specific action** in the current session.
+Treat a target as production unless confirmed otherwise: hostnames without
+`local`/`dev`/`staging`/`test`/`ddev.site`, `.env.production`, `--prod` flags, or
+live customer data.
 
-This includes, but is not limited to:
+## Asking for permission
 
-- **Production databases:** migrations, schema changes, `UPDATE`/`DELETE`/`DROP`,
-  seeding, backfills, or running any write query against a production DB.
-- **Deploys/releases** to a production host, server, or platform.
-- **Production config / secrets / DNS / feature flags** that affect live users.
-- **Destructive or irreversible commands** against production data or backups.
-
-Safe by default: read-only inspection of local/dev environments, work against
-local or staging databases the developer controls.
-
-### How to recognize "production"
-
-Treat an environment as production unless you have confirmed otherwise. Signals:
-hostnames/URLs without `local`/`dev`/`staging`/`test`; `.env.production` or
-production credentials; `--prod`/`production` flags; live customer data. If you
-cannot tell whether a target is production, **assume it is and ask first**.
-
-## When permission is required
-
-State plainly what you intend to do, against which target, and why — then wait
-for an explicit "yes." A one-time approval covers only that one action; it does
-not extend to the next push or the next environment.
+State what you intend to run, against which target, and why — then wait for an
+explicit yes. Prefer dry-run or preview modes (`--pretend`, `--dry-run`,
+`terraform plan`, `project-config/diff`) to show impact first.
