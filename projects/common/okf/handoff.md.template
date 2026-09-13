@@ -1,0 +1,19 @@
+---
+type: Session Handoff
+title: Session Handoff
+description: Unfinished work, temporary state, and next steps from the most recent session.
+status: draft
+generated: { by: "process:ai-config", at: "{{NOW}}" }
+---
+
+# Last Session
+
+_Nothing recorded yet._
+
+# Next Steps
+
+# Temporary State
+
+Debug code, hardcoded values, or feature flags that must be reverted.
+
+# Open Questions
