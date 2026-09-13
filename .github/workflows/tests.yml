@@ -1,0 +1,57 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install jq and shellcheck (macOS)
+        if: runner.os == 'macOS'
+        run: brew install jq shellcheck
+
+      - name: Install jq and shellcheck (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq shellcheck
+
+      - name: Lint (shellcheck -S warning)
+        # Only the scripts that are warning-clean today. Not yet listed because of
+        # pre-existing warnings: install.sh, test-stack-detection.sh.
+        run: >-
+          shellcheck -S warning
+          setup-project.sh
+          ai-config-fleet.sh
+          run-tests.sh
+          serve-docs.sh
+          update-superpowers.sh
+          test-cms-intelligence.sh
+          test-fleet.sh
+          test-install-deps.sh
+          test-lifecycle.sh
+          test-okf-memory.sh
+          test-refresh-additive.sh
+          test-safety-guard.sh
+          test-security-policy.sh
+          projects/common/hooks/safety-guard.sh
+          projects/common/okf/okf-check.sh
+          projects/common/okf/template-map.sh
+
+      - name: Run test suites
+        # /bin/bash: on macOS this is the stock bash 3.2 the scripts must support;
+        # run-tests.sh runs every suite with the same interpreter.
+        run: /bin/bash ./run-tests.sh
