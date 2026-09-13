@@ -153,7 +153,7 @@ if [[ -d "$SCRIPT_DIR/stacks" ]] || [[ -f "$SCRIPT_DIR/global/CLAUDE.md" ]]; the
     for file in "$SCRIPT_DIR/stacks"/*.md; do
       if [[ -f "$file" ]]; then
         cp "$file" "$CLAUDE_DIR/stacks/"
-        ((STACK_COUNT++))
+        STACK_COUNT=$((STACK_COUNT + 1))
       fi
     done
     [[ $STACK_COUNT -gt 0 ]] && echo -e "  ${GREEN}✓${NC} Installed $STACK_COUNT stack knowledge files"

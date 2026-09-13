@@ -921,8 +921,8 @@ is_unedited_copy() {
   local abs="$1" src="${2:-}" recorded blob
   recorded=$(manifest_get "$(rel_path "$abs")")
   if [[ -n "$recorded" ]]; then
-    [[ "$recorded" == "$(file_sha "$abs")" ]]
-    return
+    if [[ "$recorded" == "$(file_sha "$abs")" ]]; then return 0; fi
+    return 1
   fi
   # No manifest entry (deployed by an older ai-config): accept any committed version of the source.
   [[ -n "$src" ]] || return 1
@@ -2662,7 +2662,7 @@ merge_gitignore_template() {
       echo "$line" >> "$gitignore_path"
     fi
 
-    ((total_added++))
+    total_added=$((total_added + 1))   # not ((x++)): it returns 1 at 0, which aborts under set -e in bash 4.1+
   done < "$template_file"
 
   if [[ "$DRY_RUN" == true ]]; then
