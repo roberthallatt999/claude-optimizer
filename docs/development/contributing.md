@@ -59,12 +59,27 @@ mkdir -p ~/test-projects/{ee,craft,nextjs}
 
 ### Test Changes
 
+Run the automated suites (the same command CI runs on macOS and Ubuntu via
+`.github/workflows/tests.yml`):
+
+```bash
+./run-tests.sh                      # every test-*.sh
+./run-tests.sh lifecycle safety-guard   # selected suites ("test-" and ".sh" optional)
+./run-tests.sh --list
+```
+
+Then try a change against a scratch project:
+
 ```bash
 ai-config \
   --dry-run \
   --stack=expressionengine \
   --project=~/test-projects/ee
+ai-config --doctor --project=~/test-projects/ee
 ```
+
+New behavior needs a test in the matching `test-*.sh` suite; shell scripts must pass
+`shellcheck -S warning`.
 
 ## Code Style
 

@@ -143,15 +143,16 @@ Located at `<project>/.claude/settings.local.json`:
 
 ### Context7 (Documentation)
 
-Already configured in this template system. Context7 gives Claude current library docs (React, Next.js, Tailwind, etc.):
+Context7 gives Claude current library docs (React, Next.js, Tailwind, etc.). Install it once as a
+plugin — it then works in every project:
 
-```json
-{
-  "enabledMcpjsonServers": ["context7"]
-}
+```bash
+/plugin install context7@claude-plugins-official
 ```
 
-Usage: Claude will automatically fetch current docs when working with supported libraries.
+Stack templates no longer list `"enabledMcpjsonServers": ["context7"]`: that setting only enables a
+server defined in the project's `.mcp.json`, and none was shipped, so it did nothing. `--doctor`
+notes any `enabledMcpjsonServers` entry with no matching `.mcp.json` server.
 
 ---
 
@@ -222,8 +223,8 @@ When adding a new MCP server to a project template:
       }
     }
   },
-  "enableAllProjectMcpServers": true,
-  "enabledMcpjsonServers": ["context7"]
+  "enableAllProjectMcpServers": false,
+  "enabledMcpjsonServers": ["supabase"]
 }
 ```
 
@@ -256,6 +257,24 @@ Enables connection to Slack, Notion, Airtable, Google Sheets, Salesforce, HubSpo
 Once an MCP server is connected, Claude can use `ToolSearch` to discover its capabilities. You can also tell Claude: "What tools are available from the [server-name] MCP server?"
 
 ---
+
+## Code Index (codegraph)
+
+For JavaScript-framework stacks (Next.js, Nuxt, Astro, SvelteKit, Remix, T3, Docusaurus, and
+the headless Craft/EE frontends), a local [codegraph](https://github.com/colbymchenry/codegraph)
+index lets Claude answer "where is / what calls / what breaks" in one MCP call instead of grep
+plus file reads.
+
+ai-config only **detects and registers** it — it never installs codegraph or builds the index:
+
+1. Install codegraph yourself and run `codegraph init` in the project.
+2. Run `ai-config --refresh --project=.`. It registers the server with
+   `claude mcp add --scope local codegraph -- codegraph serve --mcp` (this machine only),
+   adds a **Code Index** block to `CLAUDE.md`, and gitignores `.codegraph/`.
+
+Monolithic PHP CMS stacks (ExpressionEngine, Craft, WordPress) are skipped because codegraph
+doesn't parse Twig, Blade, or EE templates. They get the `php-lsp` plugin (PHP code) and, with
+`--okf-memory`, a generated template map instead — see [Setup Script](setup-script.md).
 
 ## Security Checklist
 

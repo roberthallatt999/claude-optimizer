@@ -89,18 +89,103 @@ Every deployment creates:
 - `MEMORY.md` - Persistent memory bank
 - `.claude/` directory with rules, agents, commands, skills, hooks
 - `.claude/libraries/` - Project-local library references
-- `.claude/settings.local.json` - Stack-appropriate permissions
+- `.claude/settings.local.json` - Stack-appropriate permissions plus the shared
+  safety policy (deny/ask rules, safety-guard hook registration)
+- `.claude/hooks/safety-guard.sh` - PreToolUse hook enforcing the safety guardrails
 - `.vscode/` - Editor settings (unless `--skip-vscode`)
 
 ## Memory & Token Optimization
 
-Every deployment includes the memory system:
+Every deployment includes the memory system and token-saving defaults:
 
 - `MEMORY.md` - Persistent memory bank (preserved on refresh)
-- `.claude/rules/memory-management.md` - Memory update protocols
-- `.claude/rules/token-optimization.md` - Token efficiency rules
-- `.claude/rules/sensitive-files.md` - Prevents reading credentials and secrets
-- `.claude/skills/superpowers/memory-management/` - Memory skill
+- **Response Style block** in `CLAUDE.md` - concise-output defaults: lead with the
+  answer, no narration or recaps, `path:line` references instead of pasted code.
+  Output tokens are the most expensive, so this is on by default.
+- **On-demand library references** - `@.claude/libraries/*.md` imports are rewritten
+  to plain path references. `@imports` expand into context in every session; a path
+  reference is read only when the task involves that library.
+- **Path-scoped rules** - stack rules carry `paths:` frontmatter and load only when
+  Claude works with matching files (`memory-management.md` loads with `MEMORY.md`,
+  `sensitive-files.md` / `deployment-safety.md` with config and deploy files).
+- `.claude/rules/token-optimization.md` - Compact context-efficiency habits (always loaded)
+- **Superpowers de-duplication** - when the superpowers plugin is enabled in
+  `~/.claude/settings.json`, the project copy is skipped because it would inject the
+  same bootstrap and skill list a second time. An explicit `--superpowers-*` flag
+  deploys it anyway.
+
+### Token & cost options
+
+| Flag | Effect |
+|------|--------|
+| `--no-response-style` | Omit the Response Style block (removes it on `--refresh`) |
+| `--eager-libraries` | Keep `@.claude/libraries/*.md` imports (loaded every session) |
+| `--effort=<level>` | Set `effortLevel` (`low`, `medium`, `high`, `xhigh`, `max`) in `settings.local.json` |
+| `--okf-memory` | Store project memory as an OKF bundle in `.okf/` instead of `MEMORY.md` (see [Memory System Guide](memory-system.md)) |
+
+For JavaScript-framework stacks, an installed [codegraph](https://github.com/colbymchenry/codegraph)
+with an existing `.codegraph/` index is registered automatically at local MCP scope; nothing is
+installed (see [MCP Integration](mcp-integration.md#code-index-codegraph)).
+
+For PHP stacks (ExpressionEngine, Coilpack, Craft, WordPress, Bedrock/Sage, and the headless
+Craft/EE backends), when [Intelephense](https://intelephense.com/) is on PATH the official
+`php-lsp` plugin is enabled for the project with
+`claude plugin install php-lsp@claude-plugins-official --scope local` (writes only the
+gitignored `settings.local.json`). Claude then gets go-to-definition, references, and
+diagnostics for themes, plugins, modules, and add-ons. An explicit `true`/`false` for the plugin
+in project or user settings is always respected. Install Intelephense with
+`npm install -g intelephense`, then `--refresh`. Templates (EE tags, Twig, Blade) are covered by
+the template map in `--okf-memory` projects (see [Memory System Guide](memory-system.md)).
+
+## Prerequisites and Health Check
+
+Every deploy and refresh first checks for the tools it relies on — `jq`, `perl`, `awk`, `sed`,
+`find`, `cmp`, `mktemp`, and `shasum`/`sha256sum`. If one is missing the run stops before
+changing anything, because the safety policy merge and the additive update rules depend on them.
+
+### --install-deps
+
+Install what the project needs before the run starts:
+
+```bash
+ai-config --project=/path/to/project --install-deps
+```
+
+| Installs | When | How |
+|---|---|---|
+| `jq`, `perl`, `awk`, `sed`, `find`, `cmp`, `mktemp`, `shasum`/`sha256sum` | missing | System package manager |
+| `git` | missing | System package manager |
+| Node.js + npm | PHP stack and npm missing | System package manager |
+| Intelephense (for `php-lsp`) | PHP stack | `npm install -g intelephense` |
+
+- **Package managers:** Homebrew on macOS; `apt-get` (runs `apt-get update` and retries if
+  the first install fails), `dnf`, `yum`, `pacman`, `zypper`, or `apk` on Linux. System
+  managers run through `sudo` when you aren't root. Override detection with
+  `AI_CONFIG_PKG_MANAGER=<manager>` (or `none`).
+- **Confirmation:** the exact commands are shown first; on a terminal you're asked before
+  anything installs, unless `--force`. `--dry-run` shows the plan and installs nothing.
+- **Never done:** installing a package manager, piping a remote install script (so codegraph
+  and Claude Code itself stay manual — the run names them), or running npm with `sudo` (for an
+  npm permissions error, use a user-owned prefix).
+
+If a required tool still can't be installed, the preflight stops the run as usual.
+
+After writing, a health check verifies the result works, printing only problems:
+
+- `settings.local.json` is valid JSON and contains every shared deny/ask rule
+- `safety-guard.sh` is registered, executable, and **actually blocks** a test `cat .env` call
+- the SessionStart hook script exists when it's registered
+- `CLAUDE.md` has the Safety Guardrails and memory protocol blocks; the safety rules exist
+- the OKF bundle is conformant (`--okf-memory` projects)
+- codegraph (JS stacks) and php-lsp/Intelephense (PHP stacks) are consistent with what's configured
+- `.claude/ai-config/` is gitignored
+
+A failing check (✗) makes the run exit 1. Run the same checks any time, read-only and with
+passing checks listed too:
+
+```bash
+ai-config --doctor --project=/path/to/project
+```
 
 See [Memory System Guide](memory-system.md) for details.
 
@@ -148,11 +233,18 @@ Update configuration files while preserving customizations.
 
 **Behavior:**
 - Re-scans project for technology changes
-- Regenerates `CLAUDE.md` (re-applying the managed safety-guardrails and
-  memory-protocol blocks in place)
-- **Preserves `MEMORY.md`** (never overwritten)
-- Preserves `.claude/` customizations (rules, agents, and skills are **not**
-  re-copied on refresh)
+- **Additive only.** A file you edited is kept and its new version staged in
+  `.claude/ai-config/pending/`; an unedited file is updated; anything modified is backed
+  up to `.claude/ai-config/backups/<run>/` first (see
+  [Updating Projects](updating-projects.md#how-refresh-decides-additive-updates))
+- Regenerates `CLAUDE.md` if unedited; otherwise refreshes only its managed blocks
+  (safety guardrails, memory protocol, response style)
+- Adds the shared safety policy to `settings.local.json` (nothing removed) and the
+  `.claude/hooks/safety-guard.sh` hook
+- **Preserves `MEMORY.md`** (never modified)
+- Stack rules, agents, and skills are not re-copied on refresh; shared
+  `token-optimization.md` / `memory-management.md` update if present and unedited, and the
+  two safety rules are restored if missing
 - Updates the vendored Superpowers subtree (best-effort) before deploying skills
 
 **Library references respect your curation.** On refresh, `.claude/libraries/` is
@@ -182,20 +274,48 @@ ai-config --refresh --project=/path/to/project
 
 ### --force
 
-Overwrite existing files without prompting.
+Skip the confirmation prompts. Updates stay additive: files you edited are kept (new
+versions staged in `.claude/ai-config/pending/`), unedited files are updated with a backup,
+and `MEMORY.md` is never modified.
 
-**Warning:** This will replace config files, but still preserves `MEMORY.md`.
+### --apply-pending
+
+Adopt the staged new versions in `.claude/ai-config/pending/`, backing up each file it
+replaces. Review first with `diff <file> .claude/ai-config/pending/<file>`.
 
 ### --clean
 
-Remove all existing AI configuration before deploying.
+Start from a fresh configuration without deleting anything: `CLAUDE.md` and `.claude/` are
+moved to `.claude/ai-config/backups/<run>/` before deploying. `MEMORY.md` stays in place.
 
-Deletes:
-- `CLAUDE.md`, `.claude/`
+### --uninstall
 
-**Note:** `MEMORY.md` is NOT deleted by `--clean` to preserve project memory.
+Remove ai-config from a project without losing work:
 
-Use this for a complete fresh start.
+```bash
+ai-config --uninstall --project=/path/to/project     # add --dry-run to preview
+```
+
+- **Removed:** shipped files still identical to what ai-config wrote (per the manifest), an unedited
+  generated `CLAUDE.md` / `AGENTS.md`, the shared deny/ask rules, and the safety-guard and
+  session-start hook registrations (in `settings.local.json` and a shared `settings.json`).
+- **Stripped:** the managed blocks from an edited `CLAUDE.md` / `AGENTS.md`; your own text stays.
+- **Kept:** files you edited, `MEMORY.md`, the `.okf/` bundle, `.gitignore` entries, other settings
+  (model, env, enabledPlugins, effortLevel), and plugin/MCP registrations — the commands to remove
+  codegraph or php-lsp are printed.
+
+Everything removed or changed is backed up to `.claude/ai-config/backups/<run>/` first. A deny rule
+of your own that exactly matches a shared policy rule is removed with it; the backup has it.
+
+### --shared-policy
+
+By default everything ai-config writes is gitignored, so teammates on the same repo get no
+guardrails. `--shared-policy` also merges the deny/ask rules and the safety-guard hook into the
+committed `.claude/settings.json`, and adjusts `.gitignore` so `.claude/settings.json` and
+`.claude/hooks/safety-guard.sh` can be committed while the rest of `.claude/` stays ignored (an exact
+`.claude/` line becomes `.claude/*`, backed up first). Commit those two files yourself. The mode is
+sticky once `.claude/settings.json` carries the hook, and `--doctor` checks both files are
+committable.
 
 ## VSCode Options
 
@@ -314,14 +434,40 @@ The block instructs the AI assistant to:
 3. **Never change a production environment without explicit permission** — no
    migrations, writes, deploys, or destructive commands against production.
 
-These are reinforced at two layers:
+These are reinforced at three layers:
 
 - **Awareness:** the always-loaded `CLAUDE.md` block (source:
-  `projects/common/safety-guardrails.md`).
-- **Reference rules:** `.claude/rules/deployment-safety.md` and
-  `.claude/rules/sensitive-files.md`.
-- **Enforcement:** the `deny` list in `.claude/settings.local.json` blocks reads of
-  `.env`, keys, certs, and other secret files at the permission layer.
+  `projects/common/safety-guardrails.md`), which also tells Claude not to route
+  around a blocked call. Detail lives in the path-scoped
+  `.claude/rules/deployment-safety.md` and `.claude/rules/sensitive-files.md`.
+- **Permission rules:** `projects/common/security.settings.local.json` is merged into
+  every project's `settings.local.json` on deploy and `--refresh`:
+  - `deny` — reads of `.env`, keys, certs, credentials, DB configs and snapshots
+    (Claude Code also applies these to Grep/Glob and common Bash file commands).
+  - `ask` — `git push`, PR create/merge, package publishing, `vercel --prod`,
+    `ddev push`, `terraform apply`, `git reset --hard`, `rm`, and similar. `ask`
+    beats `allow` and still prompts in bypass-permissions mode.
+  - Nothing is removed: an existing `allow` entry that overlaps (e.g. a legacy
+    `Bash(git push:*)`) stays, `ask`/`deny` take precedence, and refresh reports it.
+  - `enableAllProjectMcpServers` defaults to `false` (only servers listed in
+    `enabledMcpjsonServers` start automatically); an existing value is kept, with a
+    warning when it is `true`.
+- **Hook:** `.claude/hooks/safety-guard.sh` (PreToolUse on Bash and file tools) catches
+  what prefix-based rules can't — `bash -c "git push"`, `source .env`,
+  `base64 < key.pem`, `rsync` to a remote host, cloud/infra CLIs, destructive SQL and
+  git, and edits to `.claude/settings*.json` or `.claude/hooks/`. Secret access and
+  catastrophic deletes are denied; publishing, production, and irreversible operations
+  prompt. Hooks run in every permission mode and inside subagents. Tests: `test-safety-guard.sh`.
+- **MCP tools:** the same hook covers `mcp__*` tools. A tool whose name signals an outward or
+  destructive action (push, merge, deploy, send, buy, delete, create, write, …) prompts, as does a
+  SQL tool running a write query; read tools (`get_pull_request`, `list_deployments`, SELECT queries)
+  and local browser automation pass. On refresh, the managed hook entry's matcher is updated to
+  include MCP tools.
+- **Secrets in written code:** Write/Edit/MultiEdit/NotebookEdit content containing a real-looking
+  credential (private keys, AWS/GitHub/Stripe/Slack/Google/Anthropic/OpenAI tokens) prompts, with a
+  reminder to reference an environment variable instead.
+
+Requires `jq`; the script reports an error when it is missing.
 
 ## Project Detection
 

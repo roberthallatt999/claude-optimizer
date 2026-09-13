@@ -70,7 +70,7 @@ Every stack deployment includes:
 | Design System | `.claude/rules/design-system.md` |
 | API Design | `.claude/rules/api-design.md` |
 | Permissions | `.claude/settings.local.json` |
-| Superpowers Skills | `.claude/skills/superpowers/` |
+| Superpowers Skills | `.claude/skills/<skill>/` |
 | Session Hooks | `.claude/hooks/` |
 
 > The three rules marked in bold above (`typescript-patterns`, `design-system`, `api-design`) are

@@ -59,6 +59,15 @@ claude-optimizer/
     │   │   ├── typescript-patterns.md  # Strict TS, discriminated unions
     │   │   ├── design-system.md        # Token-first design, cva variants
     │   │   └── api-design.md           # Zod validation, response envelopes
+    │   ├── hooks/
+    │   │   └── safety-guard.sh   # PreToolUse safety hook (installed in every project)
+    │   ├── security.settings.local.json  # Shared deny/ask rules + hook registration (merged, never copied)
+    │   ├── safety-guardrails.md  # Managed CLAUDE.md block: safety guardrails
+    │   ├── okf-memory-protocol.md  # Managed CLAUDE.md block: OKF memory protocol (--okf-memory)
+    │   ├── code-index.md         # Managed CLAUDE.md block: codegraph code index
+    │   ├── okf/                  # OKF bundle seeds (index/log/handoff), okf-check.sh, template-map.sh
+    │   ├── memory-protocol.md    # Managed CLAUDE.md block: memory protocol
+    │   ├── response-style.md     # Managed CLAUDE.md block: concise output defaults
     │   └── MEMORY.md.template    # Memory bank template (with Design System, Integrations, API inventory)
     ├── sveltekit/                # SvelteKit 2 + Svelte 5 Runes
     ├── remix/                    # Remix / React Router v7
