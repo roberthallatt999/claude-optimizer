@@ -1,15 +1,59 @@
 # Claude Optimizer
 
-**One command to configure Claude Code for any project.**
+**One command gives Claude Code everything it needs to know about your project, plus guardrails so it can't do real damage.**
 
 ```bash
 ai-config --project=/path/to/your/project
 ```
 
-Auto-detects your framework, deploys optimized Claude Code configuration, and sets up VSCode.
-
 [![Production Ready](https://img.shields.io/badge/status-production%20ready-success)]()
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue)]()
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
+---
+
+## What is this?
+
+Claude Optimizer is a setup script for [Claude Code](https://claude.com/claude-code). Point it at a project and it
+works out what the project is built with (WordPress, Craft CMS, ExpressionEngine, Next.js, Astro, SvelteKit, and more).
+Then it writes a project-specific Claude configuration: context, coding rules, library references, workflow skills,
+permissions, safety hooks, persistent memory and VS Code settings.
+
+It's plain Bash. You don't need a service, an account or a runtime.
+
+## Why use it?
+
+If you code with an AI agent, you've probably seen these problems:
+
+- **Every session starts cold.** You explain the stack, the conventions and last week's decisions again.
+- **The agent writes generic code.** You get React habits in a Twig template, or Tailwind v3 syntax in a v4 project.
+- **Setup is hand-copied and drifts.** Each repo ends up with a slightly different `CLAUDE.md` and settings file.
+  None of them get updated.
+- **The agent can do too much.** It can read your `.env`, run `git push` or touch production when you only wanted a refactor.
+- **Tokens get wasted.** Big instruction files load on every turn whether they're relevant or not.
+
+Claude Optimizer fixes each of these once, and you can reuse the fix on every project you have.
+
+## Key features
+
+- 🔍 **Auto-detection:** Recognizes 19 stacks and 50+ front-end technologies from `package.json`, vendored assets and
+  template markup. It configures the project for what it finds, and reports honestly when it finds only custom JS/CSS.
+- 🛡️ **Enforced safety, not just advice:** A `PreToolUse` hook and a deny/ask permission policy block reads of secrets
+  and credentials. Every `git push`, deploy or destructive command needs your approval, including through MCP tools.
+  `--doctor` runs a live test to confirm the hook works.
+- 🧠 **Persistent project memory:** A managed `MEMORY.md` (or an [OKF](https://github.com/GoogleCloudPlatform/knowledge-catalog)
+  knowledge bundle) records decisions and changes, so the next session starts with that context.
+- 📚 **Stack-aware knowledge:** Includes 29 library references (Tailwind, Alpine, React, Vue, Prisma, Zod, and others) plus
+  rules for each stack. References load on demand, so they don't cost tokens every turn.
+- ⚡ **Workflow skills:** Comes with a bundled fork of [Superpowers](https://github.com/obra/superpowers) for brainstorming,
+  planning, TDD, systematic debugging, code review and parallel subagents.
+- 🔄 **Safe updates:** `--refresh` never overwrites your edits. New versions are staged for review and every change
+  is backed up. `--uninstall` removes everything cleanly.
+- 🚢 **Fleet mode:** `ai-config-fleet --root=~/sites` health-checks or refreshes every project in a folder and prints one
+  summary.
+- 💸 **Cost controls:** Includes a concise response style, an effort-level setting and an optional Opus-orchestrator /
+  Sonnet-implementer split (`--orchestrator`).
+- 🧩 **Editor setup:** Configures VS Code formatters, Xdebug, DDEV tasks and extensions for each stack. It can also generate
+  `AGENTS.md` for OpenAI Codex.
 
 ---
 
@@ -17,7 +61,7 @@ Auto-detects your framework, deploys optimized Claude Code configuration, and se
 
 ```bash
 # Clone and install (one command)
-git clone https://github.com/roberthallatt/claude-optimizer.git ~/.ai-config && \
+git clone https://github.com/roberthallatt999/claude-optimizer.git ~/.ai-config && \
 ~/.ai-config/install.sh
 ```
 
@@ -28,7 +72,7 @@ Now use `ai-config` from anywhere on your system.
 
 ```bash
 # Clone to your preferred location
-git clone https://github.com/roberthallatt/claude-optimizer.git ~/path/to/ai-config
+git clone https://github.com/roberthallatt999/claude-optimizer.git ~/path/to/ai-config
 
 # Make scripts executable
 chmod +x ~/path/to/ai-config/setup-project.sh
@@ -364,12 +408,15 @@ To update Superpowers to the latest upstream version, run `./update-superpowers.
 
 ## License
 
-MIT License - See [LICENSE](LICENSE) file.
+MIT License. See the [LICENSE](LICENSE) file.
+
+The bundled Superpowers skills in `superpowers/` are separately MIT-licensed by Jesse Vincent; see
+[superpowers/LICENSE](superpowers/LICENSE).
 
 ---
 
 ## Support
 
 - **Documentation:** Run `ai-config-docs` or browse [docs/](docs/)
-- **Issues:** [GitHub Issues](https://github.com/roberthallatt/claude-optimizer/issues)
+- **Issues:** [GitHub Issues](https://github.com/roberthallatt999/claude-optimizer/issues)
 - **Status:** [Project Status](docs/development/project-status.md)
