@@ -1,3 +1,8 @@
+---
+paths:
+  - "**/*.{ts,tsx,mts,cts}"
+---
+
 # TypeScript Patterns Rule
 
 ## Purpose

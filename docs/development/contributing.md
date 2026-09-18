@@ -42,6 +42,26 @@ Enhance technology detection:
 3. Update documentation
 4. Submit pull request
 
+### Extend Front-End Detection
+
+`projects/common/detect-frontend.sh` holds the catalog (50+ entries) of CSS/JS frameworks, UI kits, and build tools it scans for in `package.json`, vendored assets, CDN/enqueue references, and markup (`x-data`, `hx-*`).
+
+1. Add the detection signal (package name, file, or pattern) to the catalog
+2. Add a matching test case in `test-frontend-detection.sh`
+3. If the technology warrants a rule or library reference, add it under `projects/common/rules/` or `libraries/`
+
+### Change the Safety Hook
+
+`.claude/hooks/safety-guard.sh` is deployed from `projects/common/hooks/safety-guard.sh` — the PreToolUse hook that denies secret reads and catastrophic deletes, and asks before pushes, PRs, deploys, and other destructive or outward-acting actions (including MCP tools). Any change needs a matching case in `test-safety-guard.sh`, and must keep passing `shellcheck -S warning`.
+
+### Add or Change a Managed CLAUDE.md Block
+
+Blocks such as SAFETY GUARDRAILS, MEMORY PROTOCOL, RESPONSE STYLE, FRONTEND STACK, CODE INDEX, and ORCHESTRATOR POLICY are sourced from `projects/common/*.md` files (e.g. `safety-guardrails.md`, `memory-protocol.md`, `response-style.md`) wrapped in `<!-- BEGIN <NAME> -->` / `<!-- END <NAME> -->` markers, and inserted/refreshed in place by `append_managed_block()` in `setup-project.sh`. Keep the marker name identical between the source file and every place in `setup-project.sh` that references it (block detection, `--doctor` checks, `--uninstall`).
+
+### Ship Files the Additive Way
+
+Never `cp` a file directly over a project's deployed config — that breaks `--refresh`'s guarantee that edited files are preserved. Ship new or updated stack files through `install_file` / `install_rendered` (they check `.claude/ai-config/manifest.tsv`, back up changed files, and stage edited ones in `pending/` instead of overwriting them); use `do_copy` for simpler copies that don't need that tracking. See `test-refresh-additive.sh` for the behavior these functions must preserve.
+
 ## Development Setup
 
 ### Clone Repository

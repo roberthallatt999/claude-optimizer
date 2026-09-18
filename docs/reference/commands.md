@@ -1,6 +1,13 @@
 # Commands Reference
 
-Available commands and skills for each stack.
+Available commands and skills for each stack. For `ai-config` / `setup-project.sh` CLI flags
+(`--stack`, `--refresh`, `--okf-memory`, etc.), see the [Setup Script Guide](../guides/setup-script.md)
+— this page is about slash commands used *inside* a deployed project.
+
+Superpowers also deploys `/brainstorm`, `/write-plan`, and `/execute-plan` to every project, but
+they are currently deprecated stubs — each just tells Claude to use the equivalent skill
+(`superpowers:brainstorming`, `superpowers:writing-plans`, `superpowers:executing-plans`)
+instead. See [Superpowers → Slash Commands](../guides/superpowers.md#slash-commands).
 
 ## Universal Commands
 

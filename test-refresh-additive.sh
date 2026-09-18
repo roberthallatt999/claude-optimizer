@@ -201,6 +201,68 @@ run "$p" --refresh --orchestrator
 assert_eq "explicit --orchestrator re-pins opus" "opus" "$(jq -r '.model' "$p/.claude/settings.local.json")"
 
 # ============================================================================
+echo -e "\n${CYAN}=== Every rule a stack ships is deployed ===${NC}\n"
+# ============================================================================
+
+missing=""
+for stack_dir in "$SCRIPT_DIR"/projects/*/; do
+  stack=$(basename "$stack_dir")
+  if [[ "$stack" == common || ! -d "$stack_dir/rules" ]]; then continue; fi
+  d=$(mktemp -d); PROJECTS+=("$d")
+  run "$d" --stack="$stack" --force
+  for f in "$stack_dir"rules/*.md; do
+    name=$(basename "$f")
+    case "$name" in tailwind-css.md|alpinejs.md|bilingual-content.md) continue ;; esac
+    [[ -f "$d/.claude/rules/$name" ]] || missing="$missing $stack/$name"
+  done
+done
+assert_eq "every non-detection-gated stack rule deployed" "" "$missing"
+
+p=$(make_next_project)
+echo '{}' > "$p/tsconfig.json"
+run "$p" --force
+for r in typescript-patterns.md design-system.md api-design.md; do
+  assert_true "nextjs + TypeScript gets shared $r" test -f "$p/.claude/rules/$r"
+done
+assert_true "shared rules deploy path-scoped" grep -q '^paths:' "$p/.claude/rules/api-design.md"
+
+w=$(mktemp -d); PROJECTS+=("$w")
+touch "$w/wp-config.php"
+run "$w" --stack=wordpress --force
+for r in typescript-patterns.md design-system.md api-design.md; do
+  assert_false "wordpress (PHP, no TypeScript) skips shared $r" test -f "$w/.claude/rules/$r"
+done
+
+# ============================================================================
+echo -e "\n${CYAN}=== --refresh adds rules older versions skipped, respects deletions ===${NC}\n"
+# ============================================================================
+
+s=$(mktemp -d); PROJECTS+=("$s")
+touch "$s/svelte.config.js"
+echo '{"name":"t","devDependencies":{"@sveltejs/kit":"2.0.0"}}' > "$s/package.json"
+echo '{}' > "$s/tsconfig.json"
+run "$s" --stack=sveltekit --force
+# Simulate a project deployed before the fix: the rules were never written or recorded.
+rm "$s/.claude/rules/sveltekit-patterns.md" "$s/.claude/rules/typescript-patterns.md"
+grep -v -e 'rules/sveltekit-patterns.md' -e 'rules/typescript-patterns.md' "$s/.claude/ai-config/manifest.tsv" > "$s/m.tsv"
+mv "$s/m.tsv" "$s/.claude/ai-config/manifest.tsv"
+run "$s" --stack=sveltekit --refresh
+assert_true "refresh adds a never-deployed stack rule" test -f "$s/.claude/rules/sveltekit-patterns.md"
+assert_true "refresh adds a never-deployed shared TypeScript rule" test -f "$s/.claude/rules/typescript-patterns.md"
+
+rm "$s/.claude/rules/design-system.md"
+echo "KEEP-RULE-EDIT" >> "$s/.claude/rules/api-design.md"
+run "$s" --stack=sveltekit --refresh
+assert_false "refresh respects a deliberately deleted rule" test -f "$s/.claude/rules/design-system.md"
+assert_true "refresh keeps an edited rule" grep -q KEEP-RULE-EDIT "$s/.claude/rules/api-design.md"
+
+p=$(make_next_project)
+run "$p" --force
+rm "$p/.claude/rules/nextjs-patterns.md"
+run "$p" --refresh
+assert_false "refresh does not restore a deleted legacy stack rule" test -f "$p/.claude/rules/nextjs-patterns.md"
+
+# ============================================================================
 echo ""
 echo -e "${CYAN}================================${NC}"
 echo -e "  ${GREEN}PASS${NC}: $PASS"

@@ -15,7 +15,9 @@ The memory system consists of three components:
 
 ## MEMORY.md Structure
 
-The memory bank template includes these sections:
+The memory bank template (`projects/common/MEMORY.md.template`) includes these core
+sections, plus Design System, Third-Party Integrations, and Knowledge Base for web
+projects:
 
 ### Project Identity
 ```markdown
@@ -94,49 +96,52 @@ Implemented login endpoint, started logout.
 
 ## Memory Behaviors
 
-### Session Start
+This is the always-on **Project Memory Protocol** block ai-config appends to
+`CLAUDE.md` (source: `projects/common/memory-protocol.md`), kept in sync with
+`.claude/rules/memory-management.md` for formats:
 
-When Claude starts a session, it should:
+### Before Substantive Work
 
-1. Check if `MEMORY.md` exists
-2. Read and internalize the context
-3. Check "Session Handoff" for incomplete work
-4. Acknowledge loaded context
+Read `MEMORY.md` before design decisions, core changes, or architecture questions.
+Quick, self-contained questions don't need it.
 
-### During Work
+### After a Meaningful Change
 
-Update memory after:
-- Completing significant features
-- Making architectural decisions
-- Discovering important patterns
-- Encountering notable issues
+Not trivial edits — a feature, fix, refactor, or config change gets one row in
+**Recent Changes**: `Date | Change | Files`.
 
-### Session End
+### After an Architectural Decision
 
-Before ending with incomplete work:
-1. Update "Active Context" with current state
-2. Document blockers or pending decisions
-3. List next steps in priority order
-4. Note any temporary workarounds
+Add a short **Decision Log** entry: context, decision, rationale.
+
+### When the Developer Signals They're Done
+
+Update **Session Handoff** with unfinished work and next steps.
+
+Entries stay terse and never record secret values (variable names only). Past ~500
+lines, archive completed sections to `MEMORY-ARCHIVE.md`.
 
 ## Token Optimization
 
-The `token-optimization.md` rule provides guidelines for efficient context usage:
+`.claude/rules/token-optimization.md` is always loaded (unlike the path-scoped rules)
+and kept compact for that reason:
 
-### Reading Strategy
-- Prefer targeted line ranges over full files
-- Use search → read pattern
-- Reference memory instead of re-reading
+### Context (input tokens)
+- Grep/Glob before reading; read targeted ranges of large files, not whole files
+- Don't re-read a file already read this session unless it changed
+- Skip generated/vendored content (lockfiles, `node_modules/`, build output, logs)
+- Filter noisy command output instead of dumping it in full
+- Read a `.claude/libraries/*.md` reference only when the task involves that library
+- Hand broad exploration or large-output triage to a subagent
+- `/compact` at natural breakpoints in long sessions
 
-### Response Efficiency
-- Lead with the answer
-- Summarize before detail
-- Reference previous context
+### Output tokens
+- Follow the **Response Style** block in `CLAUDE.md`
+- Prefer small targeted edits over full-file rewrites
+- Batch independent tool calls into a single turn
 
-### Tool Usage
-- Batch independent operations
-- Use scoped searches
-- Filter by file type
+### Memory
+- Check `MEMORY.md` before rediscovering context; keep new entries to one line
 
 ## Memory Compression
 
@@ -164,23 +169,35 @@ Memory files are deployed automatically with every stack:
 # Full deployment includes memory
 ai-config --project=. 
 
-# Memory is preserved on refresh
+# MEMORY.md is never modified once it exists
 ai-config --refresh --project=.
-
-# Force recreate memory (loses existing)
 ai-config --clean --force --project=.
 ```
 
+`MEMORY.md` is created only if it doesn't already exist. No flag combination
+overwrites, recreates, or deletes it: `--refresh` leaves it untouched, and `--clean`
+moves aside `CLAUDE.md` and `.claude/` (to a timestamped backup under
+`.claude/ai-config/backups/`) without touching `MEMORY.md` at all. The only way to
+reset it is to delete or edit the file yourself. `--uninstall` also leaves it in place.
+
 ## Files in .gitignore
 
-Add these to your `.gitignore`:
+`ai-config` maintains these entries automatically; add them yourself if you manage
+`.gitignore` differently:
 
 ```
+CLAUDE.md
 MEMORY.md
 MEMORY-ARCHIVE.md
+.claude/
 ```
 
-Memory is personal/local context and should not be committed.
+`.claude/` already covers `.claude/ai-config/` (manifest, backups, staged updates) and,
+with `--okf-memory`, `.okf/` is added as its own entry since it lives at the project
+root. Memory and update-state files are personal/local context and shouldn't be
+committed — the exception is `--shared-policy`, which carves `.claude/settings.json`
+and `.claude/hooks/safety-guard.sh` back out of `.claude/` so teammates get the safety
+policy too (see [Setup Script → --shared-policy](setup-script.md#--shared-policy)).
 
 ## OKF Memory Bundle (`--okf-memory`)
 
@@ -242,4 +259,5 @@ would spend tokens on every commit and send source code to an API from a git hoo
 | `CLAUDE.md` | Static | Commands, structure, rules |
 | `MEMORY.md` | Dynamic | Decisions, progress, state |
 
-Read both at session start. Update only `MEMORY.md` during work.
+`CLAUDE.md` is always loaded; `MEMORY.md` is read before substantive work (see
+[Memory Behaviors](#memory-behaviors) above). Update only `MEMORY.md` during work.

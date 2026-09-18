@@ -1,3 +1,14 @@
+---
+paths:
+  - "**/api/**"
+  - "**/server/**"
+  - "**/trpc/**"
+  - "**/actions/**"
+  - "**/*.server.{ts,js}"
+  - "**/+server.{ts,js}"
+  - "**/middleware.{ts,js}"
+---
+
 # API Design Rules
 
 ## Purpose

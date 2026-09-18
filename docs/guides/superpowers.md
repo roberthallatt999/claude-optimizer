@@ -24,7 +24,8 @@ ai-config --project=/path/to/project
 
 **What gets deployed:**
 - `.claude/skills/<skill>/` - 16 workflow skills (Claude Code only discovers skills one folder deep)
-- `.claude/commands/` - Slash commands (brainstorm, write-plan, execute-plan)
+- `.claude/commands/` - Three deprecated stub commands (brainstorm, write-plan, execute-plan) —
+  see [Slash Commands](#slash-commands)
 - `.claude/hooks/session-start` - Loads the using-superpowers skill at session start (registered with
   `CLAUDE_PLUGIN_ROOT` so it emits Claude Code's `hookSpecificOutput` format)
 
@@ -82,53 +83,39 @@ ai-config --project=/path/to/project --no-superpowers
 |-------|---------|-------------|
 | `using-superpowers` | Skill system guide | Understanding how to use skills |
 | `writing-skills` | Create custom skills | Building new skills |
-| `memory-management` | Persistent context | Managing project memory |
+
+> `memory-management` is **not** a Superpowers skill (`ls superpowers/skills` doesn't list it).
+> Persistent memory is handled separately by `.claude/rules/memory-management.md` and the
+> always-on Memory Protocol block in `CLAUDE.md` — see the [Memory System guide](memory-system.md).
+
+### Frontend & Design System
+
+| Skill | Purpose | When to Use |
+|-------|---------|-------------|
+| `component-scaffolder` | Typed React/Vue/Svelte component + test generation | Creating a new component |
+| `design-system-builder` | Token audit, component inventory, shadcn/ui + cva build | Establishing or extending a design system |
 
 ## Slash Commands
 
-Three commands are deployed for quick access:
+Three commands are deployed to `.claude/commands/`, but as of the current upstream, all three
+are **deprecated stubs**: each just tells Claude the command is deprecated and to use the
+equivalent skill instead. They do none of the work described in older versions of this guide.
 
-### /brainstorm
+| Command | Deprecated in favor of |
+|---------|------------------------|
+| `/brainstorm` | `superpowers:brainstorming` skill |
+| `/write-plan` | `superpowers:writing-plans` skill |
+| `/execute-plan` | `superpowers:executing-plans` skill |
 
-**Use before any creative work** - creating features, building components, adding functionality.
-
-```
-/brainstorm Add user authentication to the app
-```
-
-**What it does:**
-1. Explores requirements through questions (one at a time)
-2. Proposes 2-3 approaches with trade-offs
-3. Presents design in small sections for validation
-4. Documents validated design to `docs/plans/`
-
-### /write-plan
-
-**Use after design is validated** - creates detailed implementation plan.
+In practice you don't need to invoke either form directly — per the Iron Rules below, Claude
+invokes the matching skill on its own whenever it applies. Just describe what you want:
 
 ```
-/write-plan
+Add user authentication to the app
 ```
 
-**What it does:**
-1. Breaks design into bite-sized tasks
-2. Identifies dependencies and order
-3. Creates test-first approach
-4. Outputs plan for review
-
-### /execute-plan
-
-**Use when ready to implement** - executes plan with checkpoints.
-
-```
-/execute-plan
-```
-
-**What it does:**
-1. Works through tasks in batches
-2. Pauses at review checkpoints
-3. Handles blockers systematically
-4. Verifies completion
+...and Claude invokes `brainstorming` (then `writing-plans`, then `executing-plans`) as the work
+progresses, the same workflow the deprecated commands used to kick off explicitly.
 
 ## The Iron Rules
 

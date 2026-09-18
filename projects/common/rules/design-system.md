@@ -1,3 +1,9 @@
+---
+paths:
+  - "**/*.{tsx,jsx,vue,svelte,astro,css,scss}"
+  - "**/tailwind.config.*"
+---
+
 # Design System Rules
 
 ## Purpose

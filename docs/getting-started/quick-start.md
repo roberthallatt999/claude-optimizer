@@ -24,12 +24,18 @@ That's it! The script auto-detects your framework and technologies.
 
 When you run `ai-config --project=.`:
 
-1. **Framework Detection** - Identifies ExpressionEngine, Craft CMS, WordPress, Next.js, etc.
-2. **Technology Detection** - Finds Tailwind, Alpine.js, SCSS, bilingual content, etc.
-3. **Claude Configuration** - Deploys optimized Claude Code config with rules, agents, skills
-4. **Memory System** - Sets up persistent context (`MEMORY.md`)
-5. **Permissions** - Deploys `settings.local.json` with stack-appropriate permissions
+1. **Framework Detection** - Identifies ExpressionEngine, Craft CMS, WordPress, Next.js, etc.,
+   plus the full front-end stack (50+ CSS/JS frameworks and libraries) and bilingual content
+2. **Claude Configuration** - Deploys optimized Claude Code config with rules, agents, skills,
+   and managed `CLAUDE.md` blocks (Safety Guardrails, Memory Protocol, Response Style, Front-End
+   Stack)
+3. **Memory System** - Sets up persistent context (`MEMORY.md`, or `.okf/` with `--okf-memory`)
+4. **Safety Policy** - Merges shared deny/ask rules and the `safety-guard.sh` PreToolUse hook
+   into `settings.local.json`, on top of stack-appropriate permissions
+5. **Update State** - Records a manifest in `.claude/ai-config/` so future `--refresh` runs know
+   what's unedited vs. yours to keep
 6. **VSCode Setup** - Configures syntax highlighting, debugging, tasks
+7. **Health Check** - Verifies the deployment actually works, printing only problems
 
 ---
 
@@ -53,6 +59,34 @@ ai-config --project=. --dry-run
 ```bash
 ai-config --refresh --project=.
 ```
+
+Additive: a file you edited is kept and its new version staged in
+`.claude/ai-config/pending/`; an unedited file is updated with a backup. Review and adopt
+staged updates with:
+
+```bash
+ai-config --apply-pending --project=.
+```
+
+See [Updating Projects](../guides/updating-projects.md) for the full decision logic.
+
+### OKF Memory (Alternative to MEMORY.md)
+
+```bash
+ai-config --project=. --okf-memory
+```
+
+Stores project memory as a `.okf/` bundle instead of `MEMORY.md`. See
+[Memory System](../guides/memory-system.md#okf-memory-bundle---okf-memory).
+
+### Remove ai-config From a Project
+
+```bash
+ai-config --uninstall --project=.
+```
+
+Keeps files you edited, `MEMORY.md`/`.okf/`, and backs up everything it removes. See
+[Setup Script → --uninstall](../guides/setup-script.md#--uninstall).
 
 ### Discovery Mode (Unknown Framework)
 

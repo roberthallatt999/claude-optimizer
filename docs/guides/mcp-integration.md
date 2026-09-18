@@ -51,9 +51,17 @@ Located at `<project>/.claude/settings.local.json`:
       }
     }
   },
-  "enableAllProjectMcpServers": true
+  "enableAllProjectMcpServers": false,
+  "enabledMcpjsonServers": ["supabase"]
 }
 ```
+
+Every stack template ships `enableAllProjectMcpServers: false`. ai-config's safety
+policy merge sets it to `false` only when the key is absent — an existing value,
+including `true`, is left as you set it, with a warning on `--refresh`/`--doctor` if
+it's `true`. With it `false`, name each server you want auto-approved in
+`enabledMcpjsonServers`, as above — otherwise Claude Code will prompt to approve it the
+first time it's used.
 
 ---
 
@@ -285,3 +293,14 @@ Before deploying MCP in a project:
 - [ ] Database MCP uses `--read-only` during exploration/dev; write access requires approval
 - [ ] Service role keys are never committed
 - [ ] Each service uses the minimum required permissions/scopes
+
+Also deployed automatically, on top of your own checklist:
+
+- **`.claude/hooks/safety-guard.sh`** prompts before an MCP tool call that pushes,
+  deploys, sends, publishes, buys, deletes, or otherwise acts outward or
+  destructively (`mcp__<server>__<tool>`, verb matched from the tool name and its
+  arguments); read-only lookups and browser automation pass through. See
+  [Setup Script → Safety Guardrails](setup-script.md#safety-guardrails-always-deployed).
+- **`ai-config --doctor`** flags any `enabledMcpjsonServers` entry that names a server
+  missing from the project's `.mcp.json` — a stale entry does nothing silently
+  otherwise (this is how the old `context7` entry was caught).

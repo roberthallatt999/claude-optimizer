@@ -5,13 +5,13 @@ Complete reference for all supported technology stacks.
 ## Quick Navigation
 
 **Modern JS / Full-Stack**
-[SvelteKit](#sveltekit) · [Remix](#remix-react-router-v7) · [T3 Stack](#t3-stack) · [Nuxt 3](#nuxt-3-standalone) · [Next.js](#nextjs) · [Docusaurus](#docusaurus) · [Custom](#custom-discovery-mode)
+[SvelteKit](#sveltekit) · [Remix](#remix--react-router-v7) · [T3 Stack](#t3-stack) · [Nuxt 3](#nuxt-3-standalone) · [Next.js](#nextjs) · [Docusaurus](#docusaurus) · [Custom](#custom-discovery-mode)
 
 **Monolithic CMS**
 [ExpressionEngine](#expressionengine) · [Coilpack](#coilpack) · [Craft CMS](#craft-cms) · [WordPress/Roots](#wordpressroots) · [WordPress](#wordpress-standard)
 
 **Headless CMS**
-[Craft + Nuxt](#craft-cms-nuxt) · [Craft + Next.js](#craft-cms-nextjs) · [EE + Next.js](#ee-coilpack-nextjs) · [Astro + Strapi](#astro-strapi) · [Astro + Sanity](#astro-sanity) · [Astro + Tina CMS](#astro-tina-cms)
+[Craft + Nuxt](#craft-cms--nuxt) · [Craft + Next.js](#craft-cms--nextjs) · [EE + Next.js](#ee-coilpack--nextjs) · [Astro + Strapi](#astro--strapi) · [Astro + Sanity](#astro--sanity) · [Astro + Tina CMS](#astro--tina-cms)
 
 **Reference**
 [Detection Logic](#detection-logic)
@@ -54,28 +54,90 @@ Complete reference for all supported technology stacks.
 | **astro-tina** | Tina CMS (Git-based) | Astro (Islands) | Git-committed MDX content + visual editor |
 | **astro** | — | Astro (Islands) | Static/island sites (no CMS) |
 
-## Common Features (All Stacks)
+## Deployed to Every Stack
 
-Every stack deployment includes:
+Regardless of `--stack`, every deploy and `--refresh` includes:
 
 | Feature | Files |
 |---------|-------|
-| Memory Bank | `MEMORY.md` |
-| Memory Rules | `.claude/rules/memory-management.md` |
-| Token Optimization | `.claude/rules/token-optimization.md` |
-| Sensitive File Protection | `.claude/rules/sensitive-files.md` |
-| Deployment Safety | `.claude/rules/deployment-safety.md` |
-| Accessibility | `.claude/rules/accessibility.md` |
-| TypeScript Patterns | `.claude/rules/typescript-patterns.md` |
-| Design System | `.claude/rules/design-system.md` |
-| API Design | `.claude/rules/api-design.md` |
-| Permissions | `.claude/settings.local.json` |
-| Superpowers Skills | `.claude/skills/<skill>/` |
-| Session Hooks | `.claude/hooks/` |
+| Memory Bank | `MEMORY.md` (or `.okf/` bundle with `--okf-memory`) |
+| Safety policy | Deny/ask rules + `safety-guard.sh` PreToolUse hook merged into `.claude/settings.local.json` |
+| Common rules | `.claude/rules/memory-management.md`, `token-optimization.md`, `sensitive-files.md`, `deployment-safety.md` |
+| Managed `CLAUDE.md` blocks | Safety Guardrails, Memory Protocol (or OKF Memory Protocol), Response Style, Front-End Stack (when front-end code is found), Code Index (when codegraph is registered) |
+| Library references | All files in `libraries/` copied to `.claude/libraries/`; a path reference is added to `CLAUDE.md` only for what's actually detected (see below) |
+| Superpowers skills | `.claude/skills/<skill>/` (16 skills by default) |
+| Session hook | `.claude/hooks/session-start` (registered in `settings.local.json`) |
+| Update tracking | `.claude/ai-config/` — `manifest.tsv`, `backups/`, `pending/`, `version` |
+| Health check | Runs after every deploy/refresh; re-run anytime with `--doctor` |
+| Permissions | `.claude/settings.local.json` (plus `.claude/settings.json` with `--shared-policy`) |
 
-> The three rules marked in bold above (`typescript-patterns`, `design-system`, `api-design`) are
-> deployed from `projects/common/rules/` to modern JS stacks (SvelteKit, Remix, T3, Nuxt, Next.js).
-> PHP/CMS stacks (WordPress, Craft, EE) continue to receive the original 6-rule set.
+**Rules:** every `.md` file in a stack's own `projects/{stack}/rules/` is deployed, except
+`tailwind-css.md` / `alpinejs.md` / `bilingual-content.md`, which need their technology detected
+first. `accessibility.md` and `performance.md` are copied only when the stack ships its own copy
+(no common fallback for these two) — see each stack's section below for exactly which rules it
+ships. Three rules from `projects/common/rules/` are added on top, when the stack doesn't already
+have its own file of the same name:
+- `typescript-patterns.md` — **any** stack, when `tsconfig.json` exists
+- `design-system.md` and `api-design.md` — the JS-framework stacks (`nextjs`, `nuxt`, `astro`,
+  `astro-sanity`, `astro-strapi`, `astro-tina`, `sveltekit`, `remix`, `t3-stack`, `docusaurus`,
+  `craftcms-nextjs`, `craftcms-nuxt`, `ee-nextjs`)
+
+Most rules carry `paths:` frontmatter and load only for matching files, including the three
+shared rules above — `typescript-patterns.md` for `*.{ts,tsx,mts,cts}`, `design-system.md` for
+`*.{tsx,jsx,vue,svelte,astro,css,scss}` + `tailwind.config.*`, and `api-design.md` for
+`**/api/**` + `**/server/**` + similar server-side paths. `token-optimization.md` and `custom`'s
+`coding-standards.md` are the exceptions: always loaded, no path scoping. See
+[Conditional Deployment](../guides/conditional-deployment.md).
+
+**On `--refresh`:** the four common rules update when present (and the two safety rules are
+restored if missing), and any rule a fresh deploy would add — the stack's own rules, plus
+`typescript-patterns.md` / `design-system.md` / `api-design.md` — is added if it's missing and
+was never recorded as deployed (so intentionally deleting one keeps it gone). The original
+six stack-pattern rules (`expressionengine-templates.md`, `craft-templates.md`,
+`blade-templates.md`, `nextjs-patterns.md`, `laravel-patterns.md`, `markdown-content.md`) and the
+detection-gated rules are the exception: refresh never re-copies or re-checks these, so adding
+Tailwind to an existing project still doesn't add `tailwind-css.md` on `--refresh` alone.
+
+**Library references, on demand:** all ~30 files in `libraries/` land in every project's
+`.claude/libraries/`, but `CLAUDE.md` only points at the ones actually detected — 22 are
+signal-backed (auto-injected when found): `typescript`, `zod`, `zustand`, `tanstack-query`,
+`trpc`, `prisma`, `supabase`, `vitest`, `playwright`, `framer-motion`, `shadcn-ui`, `pinia`,
+`tailwind`, `alpinejs`, `scss`, `tinacms`, `foundation`, `bootstrap`, `bulma`, `jquery`,
+`material-ui`, `vanilla-js`. Framework libraries (`react`, `vue`, `nextjs`, `nuxt`, …) are
+`@`-imported directly by the stack's own `CLAUDE.md.template` instead, since they're implied by
+the stack itself.
+
+**Front-end detection:** every deploy runs `projects/common/detect-frontend.sh` against the
+whole project (theme folders included), regardless of stack, and reports CSS/JS frameworks,
+UI kits, build tools, and the project's own first-party code. See
+[Setup Script → Front-End Stack](../guides/setup-script.md#front-end-stack).
+
+### Code Intelligence and Template Map by Stack
+
+Two optional, detect-and-register-only integrations, plus the OKF template map, apply to a
+subset of stacks:
+
+| Stack | codegraph (JS tree-sitter index) | php-lsp (Intelephense) | OKF template map |
+|---|---|---|---|
+| expressionengine | — | Yes | Yes |
+| coilpack | — | Yes | — |
+| craftcms | — | Yes | Yes |
+| craftcms-nuxt | Yes | Yes | Yes |
+| craftcms-nextjs | Yes | Yes | Yes |
+| ee-nextjs | Yes | Yes | Yes |
+| wordpress | — | Yes | — |
+| wordpress-roots | — | Yes | Yes |
+| nextjs, nuxt, astro, astro-sanity, astro-strapi, astro-tina, sveltekit, remix, t3-stack, docusaurus | Yes | — | — |
+| custom | — | — | — |
+
+- **codegraph:** registered as a local-scope MCP server only when `codegraph` is already
+  installed and the project has a `.codegraph/` index — ai-config never installs it or builds
+  the index. Twig/Blade/EE templates aren't tree-sitter-parseable, so monolithic PHP CMS stacks
+  are excluded.
+- **php-lsp:** the official `php-lsp@claude-plugins-official` plugin is enabled at local scope
+  only when Intelephense is already on PATH.
+- **OKF template map:** with `--okf-memory`, `.okf/architecture/templates.md` is kept in sync
+  for stacks whose templates a code index can't parse (EE, Craft, and Sage/Blade).
 
 ## ExpressionEngine
 
@@ -90,18 +152,20 @@ Every stack deployment includes:
 
 ### Rules Included
 
-**Always:**
+**Always (7):**
 - `accessibility.md` - WCAG compliance
 - `expressionengine-templates.md` - EE template best practices
 - `performance.md` - Performance optimization
 - `sensitive-files.md` - Credential protection
 - `memory-management.md` - Memory protocols
 - `token-optimization.md` - Token efficiency
+- `deployment-safety.md` - No unauthorized pushes or production changes
 
 **Conditional:**
 - `tailwind-css.md` - If Tailwind detected
 - `alpinejs.md` - If Alpine.js detected
 - `bilingual-content.md` - If language/bilingual patterns detected
+- `typescript-patterns.md` - If `tsconfig.json` exists
 
 ### Skills Included
 
@@ -134,18 +198,20 @@ Every stack deployment includes:
 
 ### Rules Included
 
-**Always:**
+**Always (7):**
 - `accessibility.md`
 - `laravel-patterns.md` - Laravel best practices
 - `performance.md`
 - `sensitive-files.md`
 - `memory-management.md`
 - `token-optimization.md`
+- `deployment-safety.md`
 
 **Conditional:**
 - `tailwind-css.md`
 - `alpinejs.md`
 - `bilingual-content.md`
+- `typescript-patterns.md` - If `tsconfig.json` exists
 
 ### File Associations
 
@@ -172,18 +238,20 @@ Every stack deployment includes:
 
 ### Rules Included
 
-**Always:**
+**Always (7):**
 - `accessibility.md`
 - `craft-templates.md` - Craft/Twig best practices
 - `performance.md`
 - `sensitive-files.md`
 - `memory-management.md`
 - `token-optimization.md`
+- `deployment-safety.md`
 
 **Conditional:**
 - `tailwind-css.md`
 - `alpinejs.md`
 - `bilingual-content.md`
+- `typescript-patterns.md` - If `tsconfig.json` exists
 
 ### File Associations
 
@@ -208,18 +276,20 @@ Every stack deployment includes:
 
 ### Rules Included
 
-**Always:**
+**Always (7):**
 - `accessibility.md`
-- `wordpress-patterns.md` - WordPress/Roots best practices
+- `blade-templates.md` - WordPress/Roots (Sage) Blade template best practices
 - `performance.md`
 - `sensitive-files.md`
 - `memory-management.md`
 - `token-optimization.md`
+- `deployment-safety.md`
 
 **Conditional:**
 - `tailwind-css.md`
 - `alpinejs.md`
 - `bilingual-content.md`
+- `typescript-patterns.md` - If `tsconfig.json` exists
 
 ### File Associations
 
@@ -244,17 +314,21 @@ Every stack deployment includes:
 
 ### Rules Included
 
-**Always:**
+**Always (8):**
 - `accessibility.md`
-- `wordpress-patterns.md`
 - `performance.md`
+- `wordpress-coding-standards.md`
+- `wordpress-security.md`
 - `sensitive-files.md`
 - `memory-management.md`
 - `token-optimization.md`
+- `deployment-safety.md`
 
 **Conditional:**
-- `tailwind-css.md`
-- `alpinejs.md`
+- `typescript-patterns.md` - If `tsconfig.json` exists
+
+This stack ships no `tailwind-css.md` / `alpinejs.md`, so Tailwind/Alpine detection has no rule
+to add here even when either is found (only the library reference).
 
 ## Next.js
 
@@ -269,16 +343,20 @@ Every stack deployment includes:
 
 ### Rules Included
 
-**Always:**
+**Always (9):**
 - `accessibility.md`
 - `nextjs-patterns.md` - Next.js best practices
 - `performance.md`
+- `design-system.md` - Token-first design, cva variants (shared JS-framework rule)
+- `api-design.md` - Zod at boundaries, response envelopes (shared JS-framework rule)
 - `sensitive-files.md`
 - `memory-management.md`
 - `token-optimization.md`
+- `deployment-safety.md`
 
 **Conditional:**
 - `tailwind-css.md`
+- `typescript-patterns.md` - If `tsconfig.json` exists
 
 ### Special Settings
 
@@ -304,16 +382,20 @@ For `cva()` and `cn()` utility functions.
 
 ### Rules Included
 
-**Always:**
+**Always (9):**
 - `accessibility.md`
 - `markdown-content.md` - MDX best practices
 - `performance.md`
+- `design-system.md` - Token-first design, cva variants (shared JS-framework rule)
+- `api-design.md` - Zod at boundaries, response envelopes (shared JS-framework rule)
 - `sensitive-files.md`
 - `memory-management.md`
 - `token-optimization.md`
+- `deployment-safety.md`
 
 **Conditional:**
 - `tailwind-css.md`
+- `typescript-patterns.md` - If `tsconfig.json` exists
 
 ### Special Settings
 
@@ -337,15 +419,21 @@ For `cva()` and `cn()` utility functions.
 
 ### Rules Included
 
-**Always:**
+**Always (10):**
 - `accessibility.md`
-- `craft-patterns.md` - Craft CMS backend best practices
+- `craft-graphql.md` - Craft CMS backend (GraphQL) patterns
 - `nuxt-patterns.md` - Nuxt 3 frontend patterns
 - `performance.md`
-- `tailwind-css.md`
+- `design-system.md` - Token-first design, cva variants (shared JS-framework rule)
+- `api-design.md` - Zod at boundaries, response envelopes (shared JS-framework rule)
 - `sensitive-files.md`
 - `memory-management.md`
 - `token-optimization.md`
+- `deployment-safety.md`
+
+**Conditional:**
+- `tailwind-css.md` - If Tailwind detected
+- `typescript-patterns.md` - If `tsconfig.json` exists
 
 ### Detection
 
@@ -366,15 +454,21 @@ Craft CMS detected + `frontend/nuxt.config.ts` exists.
 
 ### Rules Included
 
-**Always:**
+**Always (10):**
 - `accessibility.md`
-- `craft-patterns.md` - Craft CMS backend best practices
+- `craft-graphql.md` - Craft CMS backend (GraphQL) patterns
 - `nextjs-patterns.md` - Next.js frontend patterns
 - `performance.md`
-- `tailwind-css.md`
+- `design-system.md` - Token-first design, cva variants (shared JS-framework rule)
+- `api-design.md` - Zod at boundaries, response envelopes (shared JS-framework rule)
 - `sensitive-files.md`
 - `memory-management.md`
 - `token-optimization.md`
+- `deployment-safety.md`
+
+**Conditional:**
+- `tailwind-css.md` - If Tailwind detected
+- `typescript-patterns.md` - If `tsconfig.json` exists
 
 ### Detection
 
@@ -395,15 +489,21 @@ Craft CMS detected + `frontend/next.config.js` or `frontend/next.config.mjs` exi
 
 ### Rules Included
 
-**Always:**
+**Always (10):**
 - `accessibility.md`
-- `laravel-patterns.md` - Laravel API patterns
+- `laravel-api.md` - Laravel REST API patterns
 - `nextjs-patterns.md` - Next.js frontend patterns
 - `performance.md`
-- `tailwind-css.md`
+- `design-system.md` - Token-first design, cva variants (shared JS-framework rule)
+- `api-design.md` - Zod at boundaries, response envelopes (shared JS-framework rule)
 - `sensitive-files.md`
 - `memory-management.md`
 - `token-optimization.md`
+- `deployment-safety.md`
+
+**Conditional:**
+- `tailwind-css.md` - If Tailwind detected
+- `typescript-patterns.md` - If `tsconfig.json` exists
 
 ### Detection
 
@@ -424,15 +524,21 @@ Coilpack detected + `frontend/next.config.js` or `frontend/next.config.mjs` exis
 
 ### Rules Included
 
-**Always:**
+**Always (10):**
 - `accessibility.md`
 - `astro-patterns.md` - Astro component patterns
 - `strapi-patterns.md` - Strapi content modeling
 - `performance.md`
-- `tailwind-css.md`
+- `design-system.md` - Token-first design, cva variants (shared JS-framework rule)
+- `api-design.md` - Zod at boundaries, response envelopes (shared JS-framework rule)
 - `sensitive-files.md`
 - `memory-management.md`
 - `token-optimization.md`
+- `deployment-safety.md`
+
+**Conditional:**
+- `tailwind-css.md` - If Tailwind detected
+- `typescript-patterns.md` - If `tsconfig.json` exists
 
 ### Detection
 
@@ -453,15 +559,21 @@ Coilpack detected + `frontend/next.config.js` or `frontend/next.config.mjs` exis
 
 ### Rules Included
 
-**Always:**
+**Always (10):**
 - `accessibility.md`
 - `astro-patterns.md` - Astro component patterns
 - `sanity-patterns.md` - Sanity schema and GROQ
 - `performance.md`
-- `tailwind-css.md`
+- `design-system.md` - Token-first design, cva variants (shared JS-framework rule)
+- `api-design.md` - Zod at boundaries, response envelopes (shared JS-framework rule)
 - `sensitive-files.md`
 - `memory-management.md`
 - `token-optimization.md`
+- `deployment-safety.md`
+
+**Conditional:**
+- `tailwind-css.md` - If Tailwind detected
+- `typescript-patterns.md` - If `tsconfig.json` exists
 
 ### Detection
 
@@ -481,11 +593,16 @@ Coilpack detected + `frontend/next.config.js` or `frontend/next.config.mjs` exis
 
 ### Rules Included
 
-**Always:**
+**Always (6):**
 - `accessibility.md`
+- `coding-standards.md` - Baseline standards (unscoped; refine with `/project-discover`)
 - `sensitive-files.md`
 - `memory-management.md`
 - `token-optimization.md`
+- `deployment-safety.md`
+
+**Conditional:**
+- `typescript-patterns.md` - If `tsconfig.json` exists
 
 ### Usage
 
@@ -508,13 +625,20 @@ Then run `/project-discover` in Claude Code to generate custom rules.
 
 ### Rules Included
 
-**Always:**
-- `accessibility.md`, `performance.md`, `sensitive-files.md`, `deployment-safety.md`
-- `memory-management.md`, `token-optimization.md`
+**Always (7):**
 - `sveltekit-patterns.md` — routing files, Runes, load functions, form actions
+- `design-system.md` - Token-first design, cva variants (shared JS-framework rule)
+- `api-design.md` - Zod at boundaries, response envelopes (shared JS-framework rule)
+- `memory-management.md`, `token-optimization.md`, `sensitive-files.md`, `deployment-safety.md`
 
-**Conditional (auto-injected via library detection):**
+**Conditional:**
+- `typescript-patterns.md` - If `tsconfig.json` exists
+
+**Library references (auto-injected via detection, not rules):**
 - `typescript.md`, `tailwind.md`, `vitest.md`, `playwright.md`, `zod.md`
+
+This stack has no `accessibility.md` / `performance.md` of its own, and there's no common
+fallback for those two names, so they aren't part of its rule set.
 
 ### Detection
 
@@ -535,12 +659,20 @@ Then run `/project-discover` in Claude Code to generate custom rules.
 
 ### Rules Included
 
-**Always:**
-- `accessibility.md`, `performance.md`, `sensitive-files.md`, `deployment-safety.md`
-- `memory-management.md`, `token-optimization.md`
+**Always (6):**
+- `design-system.md` - Token-first design, cva variants (shared JS-framework rule)
+- `api-design.md` - Zod at boundaries, response envelopes (shared JS-framework rule)
+- `memory-management.md`, `token-optimization.md`, `sensitive-files.md`, `deployment-safety.md`
 
-**Conditional (auto-injected):**
+**Conditional:**
+- `typescript-patterns.md` - If `tsconfig.json` exists
+
+**Library references (auto-injected):**
 - `typescript.md`, `tailwind.md`, `zod.md`, `vitest.md`, `playwright.md`, `shadcn-ui.md`
+
+This stack ships no `rules/` directory of its own, so there's no `accessibility.md` /
+`performance.md` / framework-pattern rule — just the two shared JS-framework rules plus the four
+common ones.
 
 ### Key Patterns
 
@@ -572,11 +704,15 @@ Then run `/project-discover` in Claude Code to generate custom rules.
 
 ### Rules Included
 
-**Always:**
-- `accessibility.md`, `performance.md`, `sensitive-files.md`, `deployment-safety.md`
-- `memory-management.md`, `token-optimization.md`
+**Always (6):**
+- `design-system.md` - Token-first design, cva variants (shared JS-framework rule)
+- `api-design.md` - Zod at boundaries, response envelopes (shared JS-framework rule)
+- `memory-management.md`, `token-optimization.md`, `sensitive-files.md`, `deployment-safety.md`
 
-**Auto-injected (all detected by default in T3):**
+**Conditional:**
+- `typescript-patterns.md` - If `tsconfig.json` exists (true for essentially every T3 project)
+
+**Library references (auto-injected, all detected by default in T3):**
 - `typescript.md`, `trpc.md`, `prisma.md`, `zod.md`, `tailwind.md`, `shadcn-ui.md`
 
 ### Detection
@@ -599,12 +735,20 @@ Then run `/project-discover` in Claude Code to generate custom rules.
 
 ### Rules Included
 
-**Always:**
-- `accessibility.md`, `performance.md`, `sensitive-files.md`, `deployment-safety.md`
-- `memory-management.md`, `token-optimization.md`
+**Always (6):**
+- `design-system.md` - Token-first design, cva variants (shared JS-framework rule)
+- `api-design.md` - Zod at boundaries, response envelopes (shared JS-framework rule)
+- `memory-management.md`, `token-optimization.md`, `sensitive-files.md`, `deployment-safety.md`
 
-**Conditional (auto-injected):**
+**Conditional:**
+- `typescript-patterns.md` - If `tsconfig.json` exists
+
+**Library references (auto-injected):**
 - `typescript.md`, `tailwind.md`, `pinia.md`, `zod.md`, `vitest.md`, `playwright.md`
+
+This stack ships no `rules/` directory of its own, so there's no `accessibility.md` /
+`performance.md` / framework-pattern rule — just the two shared JS-framework rules plus the four
+common ones.
 
 ### Key Patterns
 
@@ -637,13 +781,21 @@ Tina is a Git-backed CMS — content is stored as `.mdx` / `.md` files committed
 
 ### Rules Included
 
-**Always:**
-- `accessibility.md`, `performance.md`, `sensitive-files.md`, `deployment-safety.md`
-- `memory-management.md`, `token-optimization.md`
+**Always (6):**
+- `design-system.md` - Token-first design, cva variants (shared JS-framework rule)
+- `api-design.md` - Zod at boundaries, response envelopes (shared JS-framework rule)
+- `memory-management.md`, `token-optimization.md`, `sensitive-files.md`, `deployment-safety.md`
 
-**Auto-injected on detection:**
+**Conditional:**
+- `typescript-patterns.md` - If `tsconfig.json` exists
+
+**Library references (auto-injected on detection):**
 - `tinacms.md` — schema definition, collections, Astro data fetching, live editing
 - `typescript.md`, `tailwind.md`, `vitest.md`, `playwright.md`, `zod.md` (if detected)
+
+This stack ships no `rules/` directory of its own, so there's no `accessibility.md` /
+`performance.md` / framework-pattern rule — just the two shared JS-framework rules plus the four
+common ones.
 
 ### Key Patterns
 
@@ -709,6 +861,10 @@ The script checks in this order (first match wins):
 - shadcn/ui: `components/ui/` directory (root, `src/`, or `app/`)
 - Pinia: `pinia` in `package.json`
 - Tina CMS: `tina/config.ts/js` file OR `tinacms` in `package.json`
+
+Bootstrap, Bulma, jQuery, Material UI, and "vanilla JS, no framework" are detected the same way
+(auto-inject a library reference), via `projects/common/detect-frontend.sh` rather than a
+dedicated check — see [Setup Script → Front-End Stack](../guides/setup-script.md#front-end-stack).
 
 **CMS / PHP:**
 - Bilingual: `user_language` in EE templates, `@lang` in Blade, `{%.*lang` in Twig

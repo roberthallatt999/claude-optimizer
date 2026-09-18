@@ -30,8 +30,10 @@ ai-config --project=/path/to/project
 3. **Adds aliases** to your shell config:
    - `ai-config` → Main deployment command
    - `ai-config-docs` → Documentation server
-4. **Installs global Claude config** (if present)
-   - Includes stack metadata and global base guidance.
+   - `ai-config-fleet` → Health-check or refresh every ai-config project under a folder
+4. **Installs global Claude config**
+   - Copies `stacks/*.md` (stack knowledge files) to `~/.claude/stacks/`.
+   - Installs `~/.claude/CLAUDE.md` only if a global one is shipped and none exists yet.
    - Project-specific library references are deployed during each `ai-config` run.
 
 ---
@@ -52,6 +54,7 @@ cd ~/path/to/ai-config
 ```bash
 chmod +x setup-project.sh
 chmod +x serve-docs.sh
+chmod +x ai-config-fleet.sh
 ```
 
 ### 3. Add Shell Aliases
@@ -71,6 +74,7 @@ Edit your shell configuration file:
 export AI_CONFIG_REPO="$HOME/path/to/ai-config"
 alias ai-config="$AI_CONFIG_REPO/setup-project.sh"
 alias ai-config-docs="$AI_CONFIG_REPO/serve-docs.sh"
+alias ai-config-fleet="$AI_CONFIG_REPO/ai-config-fleet.sh"
 ```
 
 **For Fish:**
@@ -80,6 +84,7 @@ alias ai-config-docs="$AI_CONFIG_REPO/serve-docs.sh"
 set -gx AI_CONFIG_REPO "$HOME/path/to/ai-config"
 alias ai-config "$AI_CONFIG_REPO/setup-project.sh"
 alias ai-config-docs "$AI_CONFIG_REPO/serve-docs.sh"
+alias ai-config-fleet "$AI_CONFIG_REPO/ai-config-fleet.sh"
 ```
 
 ### 4. Reload Shell
@@ -94,28 +99,67 @@ source ~/.zshrc  # or your shell's config file
 
 ```bash
 ai-config --help
+type ai-config-fleet
 ```
 
-You should see the usage documentation.
+You should see the usage documentation and the `ai-config-fleet` alias resolving.
+
+Check an actual project (existing or new) end-to-end:
+
+```bash
+ai-config --doctor --project=/path/to/project
+```
+
+This is read-only — it checks prerequisites, the deployed safety policy, and CLAUDE.md
+without changing anything.
 
 ---
 
 ## Updating
 
-To update to the latest version:
+To update the tool itself:
 
 ```bash
 cd ~/.ai-config  # or your install location
 git pull
+./install.sh     # re-run to refresh aliases and ~/.claude/stacks/
 ```
 
-Your aliases will continue to work.
+Your aliases will continue to work; re-running `install.sh` picks up any new alias (like
+`ai-config-fleet`) and asks before overwriting existing ones.
+
+To update projects that were already configured, re-run `ai-config --refresh` per project,
+or refresh every project at once:
+
+```bash
+ai-config-fleet --root=~/sites --refresh
+```
+
+See [Updating Projects](../guides/updating-projects.md) for what `--refresh` changes.
 
 ---
 
 ## Uninstalling
 
-### 1. Remove Aliases
+There are two different things you might want to undo: ai-config's own configuration
+in a project, or the ai-config tool itself.
+
+### Remove ai-config From a Project
+
+Use the script's own uninstaller — it keeps anything you edited and backs up everything
+it removes:
+
+```bash
+ai-config --uninstall --project=/path/to/project     # add --dry-run to preview first
+```
+
+See [Setup Script → --uninstall](../guides/setup-script.md#--uninstall) for exactly
+what's removed, stripped, and kept (`MEMORY.md`, the `.okf/` bundle, and files you
+edited are always kept).
+
+### Remove the Tool Itself
+
+#### 1. Remove Aliases
 
 Edit your shell config file and remove the AI Config section:
 
@@ -125,19 +169,23 @@ Edit your shell config file and remove the AI Config section:
 export AI_CONFIG_REPO="..."
 alias ai-config="..."
 alias ai-config-docs="..."
+alias ai-config-fleet="..."
 ```
 
-### 2. Remove Repository
+#### 2. Remove Repository
 
 ```bash
 rm -rf ~/.ai-config  # or your install location
 ```
 
-### 3. Remove Global Config (Optional)
+#### 3. Remove Global Config (Optional)
 
 ```bash
 rm -rf ~/.claude/stacks
 ```
+
+This does not touch any project you already deployed to — use `ai-config --uninstall`
+per project first if you want those cleaned up too.
 
 ---
 
@@ -189,6 +237,7 @@ Make scripts executable:
 ```bash
 chmod +x ~/.ai-config/setup-project.sh
 chmod +x ~/.ai-config/serve-docs.sh
+chmod +x ~/.ai-config/ai-config-fleet.sh
 ```
 
 ---
