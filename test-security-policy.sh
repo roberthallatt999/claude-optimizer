@@ -86,8 +86,15 @@ assert_false() {
   fi
 }
 
-EXPECTED_DENY=$(jq '.permissions.deny | length' "$POLICY_FILE")
 EXPECTED_ASK=$(jq '.permissions.ask | length' "$POLICY_FILE")
+
+# The deployed deny list is the shared policy plus the stack's protected paths, so assert
+# on coverage rather than a fixed count (test-protected-paths.sh covers the stack layer).
+# Prints how many shared policy deny rules are missing from the project's settings.
+missing_policy_deny() {
+  jq -n --slurpfile s "$(settings "$1")" --slurpfile p "$POLICY_FILE" \
+    '[($p[0].permissions.deny // [])[] | select(. as $r | (($s[0].permissions.deny // []) | index([$r])) == null)] | length'
+}
 
 # ============================================================================
 echo -e "\n${CYAN}=== Fresh deploy (stack with no deny rules of its own) ===${NC}\n"
@@ -95,7 +102,7 @@ echo -e "\n${CYAN}=== Fresh deploy (stack with no deny rules of its own) ===${NC
 
 p=$(make_nuxt_project)
 deploy "$p"
-assert_eq "deny-list applied" "$EXPECTED_DENY" "$(jqs "$p" '.permissions.deny | length')"
+assert_eq "every shared deny rule applied" "0" "$(missing_policy_deny "$p")"
 assert_eq "ask rules applied" "$EXPECTED_ASK" "$(jqs "$p" '.permissions.ask | length')"
 assert_eq "git push is not auto-allowed" "false" "$(jqs "$p" '.permissions.allow | index("Bash(git push:*)") != null')"
 assert_eq "safety-guard hook registered once" "1" "$(jqs "$p" '[.hooks.PreToolUse[]?.hooks[]? | select(.command | test("safety-guard.sh"))] | length')"
@@ -116,9 +123,10 @@ assert_eq "no SessionStart hook without superpowers" "null" "$(jqs "$p" '.hooks.
 echo -e "\n${CYAN}=== Idempotency ===${NC}\n"
 # ============================================================================
 
+deny_before=$(jqs "$p" '.permissions.deny | length')
 deploy "$p"
 deploy "$p" --refresh
-assert_eq "deny count stable after redeploy + refresh" "$EXPECTED_DENY" "$(jqs "$p" '.permissions.deny | length')"
+assert_eq "deny count stable after redeploy + refresh" "$deny_before" "$(jqs "$p" '.permissions.deny | length')"
 assert_eq "hook still registered once" "1" "$(jqs "$p" '.hooks.PreToolUse | length')"
 assert_eq "Safety block still once" "1" "$(block_count "$p" "SAFETY GUARDRAILS")"
 assert_eq "Response Style block still once" "1" "$(block_count "$p" "RESPONSE STYLE")"
@@ -149,7 +157,9 @@ assert_eq "rm ask rule added (ask beats allow)" "true" "$(jqs "$p" '.permissions
 assert_eq "project allow rule kept" "true" "$(jqs "$p" '.permissions.allow | index("Bash(my-custom-command:*)") != null')"
 assert_eq "project allow rules keep their order" '["Bash(git push:*)","Bash(rm:*)","Bash(my-custom-command:*)"]' \
   "$(jqs "$p" '[.permissions.allow[] | select(. == "Bash(git push:*)" or . == "Bash(rm:*)" or . == "Bash(my-custom-command:*)")] | tojson')"
-assert_eq "project deny rule kept beside shared rules" "$((EXPECTED_DENY + 1))" "$(jqs "$p" '.permissions.deny | length')"
+assert_eq "shared deny rules all present beside the project's own" "0" "$(missing_policy_deny "$p")"
+assert_eq "project deny rule kept beside shared rules" "true" \
+  "$(jqs "$p" '.permissions.deny | index("Read(**/super-secret-project-file.txt)") != null')"
 assert_eq "existing SessionStart hook preserved" "1" "$(jqs "$p" '.hooks.SessionStart | length')"
 assert_eq "existing PostToolUse hook preserved" "npx prettier --write" "$(jqs "$p" '.hooks.PostToolUse[0].hooks[0].command')"
 assert_eq "safety-guard hook added" "1" "$(jqs "$p" '.hooks.PreToolUse | length')"
@@ -208,7 +218,7 @@ assert_eq "stack settings carry no deny list, hooks, or git push allow" "" "$bad
 
 unscoped=""
 for f in "$SCRIPT_DIR"/projects/*/rules/*.md; do
-  case "$f" in */common/rules/token-optimization.md|*/common/rules/api-design.md|*/common/rules/design-system.md|*/common/rules/typescript-patterns.md|*/custom/rules/coding-standards.md) continue ;; esac
+  case "$f" in */common/rules/token-optimization.md|*/custom/rules/coding-standards.md) continue ;; esac
   head -1 "$f" | grep -q '^---$' || unscoped="$unscoped ${f#"$SCRIPT_DIR"/projects/}"
 done
 assert_eq "stack rules are path-scoped" "" "$unscoped"

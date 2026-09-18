@@ -38,6 +38,7 @@ jobs:
           ai-config-fleet.sh
           run-tests.sh
           serve-docs.sh
+          projects/common/hooks/safety-guard.sh
           update-superpowers.sh
           test-cms-intelligence.sh
           test-fleet.sh

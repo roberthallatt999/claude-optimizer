@@ -4,19 +4,24 @@ Complete documentation for Claude Optimizer.
 
 ## Overview
 
-This repository provides automated Claude Code configuration deployment across **13 technology stacks** with:
+This repository provides automated Claude Code configuration deployment across **19 technology stacks** with:
 
-- Automatic stack detection
-- Memory bank for persistent context
+- Automatic stack detection (frameworks, front-end tooling, template engines)
+- Memory bank for persistent context, or an OKF `.okf/` bundle with `--okf-memory`
+- A shared safety policy (deny/ask rules + a PreToolUse hook) merged into every project
+- Stack-aware protected paths: secrets and dumps blocked, build noise kept out of context
+- Additive, non-destructive `--refresh` — edits are kept, backed up, and staged for review
 - Token optimization and sensitive file protection rules
-- Superpowers workflow skills
+- 16 Superpowers workflow skills
+- Optional code intelligence (codegraph, php-lsp) and a fleet runner for many projects
 
 ## Deployed Configuration
 
 | Component | Files |
 |-----------|-------|
-| Claude Code | `CLAUDE.md`, `MEMORY.md`, `.claude/` |
-| Permissions | `.claude/settings.local.json` |
+| Claude Code | `CLAUDE.md`, `MEMORY.md` (or `.okf/`), `.claude/` |
+| Permissions & safety | `.claude/settings.local.json` (stack permissions + shared safety policy), `.claude/hooks/safety-guard.sh`, `.claude/hooks/protected-paths.conf` |
+| Update state | `.claude/ai-config/` (manifest, backups, pending, version) |
 | VSCode | `.vscode/settings.json`, `launch.json`, `tasks.json` |
 
 ## Getting Started
@@ -32,6 +37,7 @@ This repository provides automated Claude Code configuration deployment across *
 - **[Superpowers](guides/superpowers.md)** - Workflow skills for systematic development
 - **[Conditional Deployment](guides/conditional-deployment.md)** - Technology detection and smart deployment
 - **[Updating Projects](guides/updating-projects.md)** - Refresh and update existing configurations
+- **[MCP Integration](guides/mcp-integration.md)** - Connecting Supabase, GitHub, Cloudflare, and other MCP servers
 
 ## Reference
 

@@ -147,17 +147,19 @@ This detects 50+ technologies (React, Vue, Laravel, Django, etc.), deploys base 
 | **Library References** | `.claude/libraries/` - Framework/CSS/JS reference docs |
 | **Hooks** | `.claude/hooks/` - Safety guard (PreToolUse) and session hooks |
 | **Permissions** | `.claude/settings.local.json` - Stack permissions + shared deny/ask safety policy |
+| **Protected paths** | `.claude/hooks/protected-paths.conf` - Stack-aware blocked paths; `.claudeignore` (advisory) |
 | **Update state** | `.claude/ai-config/` - Manifest, backups, staged updates, version stamp |
 
 ### Additional Features
 
 - **Enforced safety guardrails** - No secret reads; approval for each push, deploy, or destructive action (Bash and MCP tools)
+- **Stack-aware protected paths** - Secrets, credentials and database dumps blocked per stack; build noise kept out of context
 - **Additive updates** - `--refresh` never overwrites your edits; every change is backed up
 - **Token-lean defaults** - Concise response style, on-demand library references, path-scoped rules
 - **Superpowers Skills** - Workflow automation (planning, debugging, TDD)
 - **Optional code intelligence** - OKF knowledge bundle (`--okf-memory`), codegraph, php-lsp, template maps for EE/Craft/Sage
 - **VSCode Settings** - Syntax highlighting, Xdebug, DDEV tasks
-- **MCP Server Support** - Supabase, Playwright, and more
+- **MCP Server Guide** - Manual setup for Supabase, GitHub, Cloudflare, Zapier, and more (`docs/guides/mcp-integration.md`); `codegraph` is auto-registered at local scope when it's installed and the project has an index
 
 ---
 
@@ -175,9 +177,15 @@ This detects 50+ technologies (React, Vue, Laravel, Django, etc.), deploys base 
 | WordPress (Roots/Bedrock) | `web/app/themes/` structure |
 | WordPress | `wp-config.php` |
 | Next.js 14+ | `next.config.js` or `.mjs` |
+| T3 Stack | `next.config.*` + `prisma/schema.prisma` + `@trpc/server` (checked before generic Next.js) |
+| SvelteKit | `svelte.config.js`/`.ts` |
+| Nuxt 3 | `nuxt.config.ts`/`.js` (no CMS backend) |
+| Remix / React Router v7 | `remix.config.js`/`.ts`, or `app/root.tsx` + `@remix-run/react`/`react-router` |
 | Docusaurus 3+ | `docusaurus.config.js` |
+| Astro (standalone) | `astro.config.mjs`/`.ts` with no CMS integration detected |
 | Astro + Sanity | `astro.config.mjs` + `sanity.config.ts` |
 | Astro + Strapi | `astro.config.mjs` + Strapi in `backend/` |
+| Astro + Tina | `astro.config.mjs` + `tina/config.ts` or `tinacms` in `package.json` |
 | Coilpack (Laravel + EE) | Laravel + ExpressionEngine structure |
 
 ### Technologies
@@ -209,8 +217,11 @@ ai-config --project=<path> [options]
 | Option | Description |
 |--------|-------------|
 | `--no-superpowers` | Disable Superpowers skills |
+| `--superpowers-all` | Deploy all skills (default when enabled) |
 | `--superpowers-core` | Deploy core skills only |
 | `--superpowers-minimal` | Deploy minimal bootstrap skill |
+| `--superpowers-skill=X` | Deploy specific skills (comma-separated) |
+| `--skip-superpowers-update` | Don't pull the latest superpowers subtree before deploying |
 
 ### Stack Options
 
@@ -235,6 +246,7 @@ ai-config --project=<path> [options]
 | Option | Description |
 |--------|-------------|
 | `--shared-policy` | Also put the safety policy in committed `.claude/settings.json` for teammates |
+| `--no-claudeignore` | Skip the advisory `.claudeignore` (the stack's deny rules still apply) |
 | `--okf-memory` | Project memory as an OKF knowledge bundle in `.okf/` instead of `MEMORY.md` |
 | `--no-response-style` | Skip the concise Response Style block |
 | `--eager-libraries` | Keep `@imports` of library references (loaded every session) |
@@ -251,6 +263,8 @@ ai-config --project=<path> [options]
 | `--skip-vscode` | Skip VSCode settings deployment |
 | `--install-extensions` | Auto-install VSCode extensions |
 | `--name=<name>` | Set project name (auto-detected from directory) |
+| `--slug=<slug>` | Set project slug used in templates (derived from name if omitted) |
+| `--analyze` | Generate an analysis prompt for Claude |
 
 ### Many Projects
 
@@ -302,17 +316,15 @@ ai-config --project=. --install-extensions
 
 ### Extensions by Stack
 
-| Stack | Extensions |
-|-------|------------|
-| ExpressionEngine | EE syntax, Tailwind, Intelephense, Xdebug |
-| Craft CMS | Twig, Tailwind, Intelephense |
-| Craft CMS + Nuxt | Volar, Tailwind, Intelephense, Xdebug |
-| Craft CMS + Next.js | Tailwind, ESLint, Intelephense, Xdebug |
-| EE Coilpack + Next.js | Tailwind, ESLint, Intelephense, Xdebug |
-| WordPress | Blade, Tailwind, WordPress Toolbox |
-| Next.js | Tailwind, ESLint, Prettier |
-| Astro + Strapi | Astro, Tailwind, ESLint, Prettier |
-| Astro + Sanity | Astro, Tailwind, ESLint, Prettier |
+`--install-extensions` installs Prettier and EditorConfig everywhere, then adds:
+
+| Stack(s) | Extra Extensions |
+|----------|-------------------|
+| `expressionengine`, `coilpack`, `craftcms`, `wordpress`, `wordpress-roots` | Intelephense, Xdebug |
+| `nextjs`, `docusaurus` | ESLint |
+| Any stack, when Tailwind CSS is detected | Tailwind CSS IntelliSense |
+
+Headless and other JS stacks (`craftcms-nuxt`, `craftcms-nextjs`, `ee-nextjs`, `nuxt`, `remix`, `sveltekit`, `t3-stack`, `astro`, `astro-strapi`, `astro-sanity`, `astro-tina`) currently get only the common extensions above (plus Tailwind when detected).
 
 ---
 
@@ -386,6 +398,18 @@ ai-config-docs  # Opens http://localhost:8000
 - **Git** - To clone the repository
 - **VSCode** (optional) - For IDE integration
 - **VSCode CLI** (optional) - For automatic extension installation (`code` command)
+
+---
+
+## Testing
+
+```bash
+./run-tests.sh                        # every test-*.sh suite (10 suites)
+./run-tests.sh lifecycle safety-guard  # selected suites ("test-" and ".sh" optional)
+./run-tests.sh --list
+```
+
+CI (`.github/workflows/tests.yml`) runs the same suites on macOS and Ubuntu, plus `shellcheck -S warning`. See [Contributing Guide](docs/development/contributing.md) for details.
 
 ---
 

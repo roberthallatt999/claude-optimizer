@@ -4,12 +4,15 @@ Automated Claude Code configuration for modern web development stacks with VS Co
 
 ## Project Overview
 
-This repository provides automated Claude Code configuration deployment across **14 technology stacks** with:
+This repository provides automated Claude Code configuration deployment across **19 technology stacks** with:
 - Automatic stack detection
-- Memory bank for persistent context
+- Memory bank for persistent context (or an OKF `.okf/` bundle with `--okf-memory`)
+- A shared safety policy (deny/ask rules + a PreToolUse hook) merged into every project
+- Stack-aware protected paths (`protected-paths.conf` → deny rules, hook patterns, `.claudeignore`)
+- Additive, non-destructive `--refresh` (edits are kept, backed up, and staged in `pending/`)
 - Token optimization and sensitive file protection rules
 - VSCode settings (formatters, Xdebug, tasks)
-- 15 Superpowers workflow skills
+- 16 Superpowers workflow skills
 - `settings.local.json` with stack-appropriate permissions
 
 **Repository Path:** `/Users/robert/data/business/_tools/claude-optimizer`
@@ -34,6 +37,10 @@ This repository provides automated Claude Code configuration deployment across *
 | Stack ID | Framework | Notes |
 |----------|-----------|-------|
 | `astro` | Astro 4.x | Standalone Astro (Content Collections, MDX) |
+| `nuxt` | Nuxt 3 | Vue 3, Pinia, server API routes |
+| `remix` | Remix / React Router v7 | Loaders/actions, Zod validation |
+| `sveltekit` | SvelteKit 2 | Svelte 5 Runes, load functions, form actions |
+| `t3-stack` | Next.js + tRPC + Prisma | NextAuth, shadcn/ui, Zod (detected before generic `nextjs`) |
 
 ### Headless CMS Stacks
 
@@ -44,6 +51,7 @@ This repository provides automated Claude Code configuration deployment across *
 | `ee-nextjs` | EE Coilpack (Laravel REST API) | Next.js 14+ (React SSR/SSG) |
 | `astro-strapi` | Strapi (REST/GraphQL) | Astro (Islands) |
 | `astro-sanity` | Sanity.io (GROQ) | Astro (Islands) |
+| `astro-tina` | Tina CMS (Git-based, MDX/Markdown) | Astro (Islands) |
 
 ## Key Files
 
@@ -56,33 +64,48 @@ This repository provides automated Claude Code configuration deployment across *
 ### Template Structure
 ```
 projects/
-├── common/                    # Global templates
-│   ├── rules/                # Memory, token & sensitive file rules
-│   └── MEMORY.md.template    # Memory bank template
-├── expressionengine/         # Full Claude config
-├── coilpack/                 # Full Claude config
-├── craftcms/                 # Full Claude config
-├── wordpress-roots/          # Full Claude config
-├── wordpress/                # Full Claude config
-├── nextjs/                   # Full Claude config
-├── docusaurus/               # Full Claude config
-├── craftcms-nuxt/            # Headless Craft CMS + Nuxt
-├── craftcms-nextjs/          # Headless Craft CMS + Next.js
-├── ee-nextjs/                # Headless EE Coilpack + Next.js
-├── astro/                    # Astro standalone (Content Collections, MDX)
-├── astro-strapi/             # Astro + Strapi
-├── astro-sanity/             # Astro + Sanity Studio
-└── custom/                   # Discovery mode base
+├── common/                    # Global/shared templates
+│   ├── rules/                 # Shared memory, token, safety & design rules
+│   ├── hooks/                 # safety-guard.sh (PreToolUse hook source)
+│   ├── okf/                   # OKF bundle templates + template-map.sh (--okf-memory)
+│   ├── orchestrator/          # --orchestrator templates (CLAUDE block + implementer agent)
+│   ├── detect-frontend.sh     # Front-end stack detection (50+ frameworks/tools)
+│   ├── security.settings.local.json   # Shared safety policy merged into every project
+│   ├── protected-paths.conf   # Universal [deny]/[ignore] paths; each stack adds its own
+│   ├── memory-protocol.md, safety-guardrails.md, response-style.md,
+│   │   code-index.md, okf-memory-protocol.md   # Managed CLAUDE.md/AGENTS.md block sources
+│   └── MEMORY.md.template     # Memory bank template
+├── expressionengine/          # Full Claude config
+├── coilpack/                  # Full Claude config
+├── craftcms/                  # Full Claude config
+├── wordpress-roots/           # Full Claude config
+├── wordpress/                 # Full Claude config
+├── nextjs/                    # Full Claude config
+├── nuxt/, remix/, sveltekit/, t3-stack/   # Standalone JS framework stacks
+├── docusaurus/                # Full Claude config
+├── craftcms-nuxt/             # Headless Craft CMS + Nuxt
+├── craftcms-nextjs/           # Headless Craft CMS + Next.js
+├── ee-nextjs/                 # Headless EE Coilpack + Next.js
+├── astro/                     # Astro standalone (Content Collections, MDX)
+├── astro-strapi/              # Astro + Strapi
+├── astro-sanity/              # Astro + Sanity Studio
+├── astro-tina/                # Astro + Tina CMS (Git-based)
+└── custom/                    # Discovery mode base
 
 superpowers/
-├── skills/                   # 15 workflow skills
-│   ├── memory-management/
+├── skills/                   # 16 workflow skills
 │   ├── brainstorming/
 │   ├── writing-plans/
 │   ├── systematic-debugging/
+│   ├── test-driven-development/
 │   └── ...
 ├── commands/                 # Slash commands
 └── hooks/                    # Session hooks
+
+test-*.sh                     # 11 test suites, each independently runnable
+run-tests.sh                  # Runs every test-*.sh suite, or a selected subset
+ai-config-fleet.sh            # --doctor / --refresh / --list across many projects
+.github/workflows/tests.yml   # CI: runs the suites on macOS + Ubuntu, plus shellcheck
 ```
 
 ## Memory System
@@ -92,10 +115,11 @@ Every deployment includes persistent memory:
 | Component | Purpose |
 |-----------|---------|
 | `MEMORY.md` | Project memory bank (preserved on refresh) |
-| `memory-management.md` | Memory update protocols |
+| Memory Protocol block | Managed `<!-- BEGIN/END MEMORY PROTOCOL -->` block in `CLAUDE.md`/`AGENTS.md` — read MEMORY.md before substantive work, log meaningful changes |
+| `memory-management.md` | Memory update protocols (`.claude/rules/`) |
 | `token-optimization.md` | Token efficiency rules |
 | `sensitive-files.md` | Prevents reading credentials/secrets |
-| `memory-management/` | Memory skill in Superpowers |
+| `--okf-memory` | Records project memory as an OKF bundle in `.okf/` instead of `MEMORY.md` |
 
 See `docs/guides/memory-system.md` for full documentation.
 
@@ -115,7 +139,8 @@ ai-config --discover --project=/path/to/project
 
 ### Update Existing Project
 ```bash
-ai-config --refresh --stack=custom --project=/path/to/project
+# --refresh auto-detects the stack from the deployed CLAUDE.md; additive (see Recent Changes)
+ai-config --refresh --project=/path/to/project
 ```
 
 ### View Documentation
@@ -129,7 +154,8 @@ Each stack includes:
 
 - `CLAUDE.md.template` - Main project context
 - `settings.local.json` - Claude Code permissions and MCP config
-- `rules/` - Stack-specific coding standards
+- `protected-paths.conf` - Paths this stack blocks (`[deny]`) or keeps out of context (`[ignore]`)
+- `rules/` - Stack-specific coding standards (every file deploys; `tailwind-css`, `alpinejs`, `bilingual-content` only when detected)
 - `agents/` - Specialized agent personas (optional)
 - `commands/` - Stack-specific slash commands (optional)
 - `skills/` - Stack-specific skills (optional)
@@ -137,16 +163,16 @@ Each stack includes:
 
 ## Superpowers Skills
 
-15 workflow skills deployed by default:
+16 workflow skills deployed by default (see `docs/guides/superpowers.md` for the full list):
 
 | Skill | Purpose |
 |-------|---------|
-| `memory-management` | Persistent context |
 | `brainstorming` | Idea generation |
 | `writing-plans` | Implementation planning |
 | `executing-plans` | Step-by-step execution |
 | `systematic-debugging` | Root cause analysis |
 | `test-driven-development` | TDD workflow |
+| `using-git-worktrees` | Isolated workspace per feature |
 
 Disable with `--no-superpowers`. Skipped automatically when the superpowers plugin is already enabled globally (avoids loading it twice).
 
@@ -194,12 +220,29 @@ readable text such as `(brand green: not set)` rather than a fake value.
 ## Documentation
 
 - `docs/getting-started/` - Installation, quick start, configuration
-- `docs/guides/` - Setup script, memory system
+- `docs/guides/` - Setup script, memory system, MCP integration, Superpowers, conditional deployment, updating projects
 - `docs/reference/` - Stacks, file structure, commands
 - `docs/development/` - Project status, contributing
 
 ## Recent Changes
 
+- **Stack-aware protected paths** — `projects/common/protected-paths.conf` plus a
+  `protected-paths.conf` in each of the 19 stacks, in two tiers. `[deny]` (secrets, credentials,
+  `.git/`, database dumps) becomes a `Read()` rule in `settings.local.json` *and* a pattern in the
+  generated `.claude/hooks/protected-paths.conf`, which `safety-guard.sh` now reads and enforces for
+  file tools and Bash alike — closing real gaps in the shared list (`*.sqlite`/`*.db`/`*dump*.sql`,
+  `.git/`, `credentials*`/`secrets*`). `[ignore]` (dependencies, build output, lockfiles, media) is
+  written only to `.claudeignore`; denying `node_modules/` or `dist/` would break ordinary debugging.
+  A stack may promote an `[ignore]` pattern to `[deny]` — the CMS stacks do this with `*.sql`, where a
+  loose `.sql` file is a dump, while Prisma/Drizzle migrations on JS stacks stay readable.
+  **`.claudeignore` is advisory:** Claude Code does not read it
+  ([anthropics/claude-code#29455](https://github.com/anthropics/claude-code/issues/29455) is still
+  open); it documents the project's boundaries and serves gitignore-syntax tools, and its header says
+  so. `--no-claudeignore` skips the file and keeps the deny rules. Both generated files go through
+  `install_file`, so edits are kept and staged; `--doctor` checks the conf is current and runs the
+  hook against a test dump; `--uninstall` withdraws the rules using the conf the project was actually
+  deployed with. Tests: `test-protected-paths.sh`.
+- **Every stack rule now deploys** — the rule copy step only knew a fixed list of file names, so 12 shipped stack rules never reached a project (`sveltekit-patterns`, `nuxt-patterns`, `astro-patterns` ×2, `sanity-patterns`, `strapi-patterns`, `craft-graphql` ×2, `laravel-api`, `wordpress-coding-standards`, `wordpress-security`, custom's `coding-standards`). `stack_rule_sources()` now copies every file in a stack's `rules/` except the detection-gated `tailwind-css`/`alpinejs`/`bilingual-content`, plus the shared, now path-scoped `typescript-patterns.md` (when `tsconfig.json` exists), `design-system.md` and `api-design.md` (JS-framework stacks). `--refresh` adds rules older versions never deployed when they're missing and absent from the manifest; rules deleted on purpose stay deleted. Tests: `test-refresh-additive.sh`.
 - **Front-end stack detection** — `projects/common/detect-frontend.sh` replaces the Tailwind/Foundation/SCSS/Alpine-only checks with a 50+ entry catalog (CSS frameworks and tooling, UI kits, JS frameworks and libraries, build tools, TypeScript), read from every `package.json` (theme folders included), vendored asset names, CDN/`wp_enqueue` references, and `x-data`/`hx-*` markup, with versions and evidence. CMS core and third-party folders are skipped. Projects without a framework are reported as "custom JavaScript/CSS, no framework detected" with file counts; vanilla JS is no longer assumed whenever Tailwind/Foundation/Alpine are absent. Results go to the scan summary, a deterministic **Front-End Stack** managed block in `CLAUDE.md`/`AGENTS.md`, discovery mode, and new Bootstrap/Bulma/jQuery/Material UI/Foundation/vanilla-JS library references. Tests: `test-frontend-detection.sh`.
 - **Gap fixes: superpowers, MCP guard, placeholders, lifecycle** — Superpowers skills deploy to `.claude/skills/<skill>/` (the nested `.claude/skills/superpowers/` layout was never discovered, and the session-start hook injected a read error instead of the skill); refresh moves nested copies up and re-registers the hook with `CLAUDE_PLUGIN_ROOT`. `safety-guard.sh` covers MCP tools (push/merge/deploy/send/buy/delete/write, SQL writes) and credential-shaped content in Write/Edit; the managed hook matcher is updated on refresh. Copied stack files render `{{VARIABLES}}` (unset ones become readable text; brand colors are no longer faked as `#000000`). New `--shared-policy`, `--uninstall`, `.claude/ai-config/version` stamps, `ai-config-fleet.sh`, `run-tests.sh` + CI workflow; `--doctor` flags missing/stale `@~/.claude/stacks` imports and undefined `enabledMcpjsonServers`; the dead `context7` entry was dropped from stack templates. Tests: `test-lifecycle.sh`, `test-fleet.sh`.
 - **`--install-deps`** — installs missing required tools (`jq`, `perl`, `shasum`, …) and `git` through the system package manager (Homebrew; `apt-get` with update-and-retry, `dnf`, `yum`, `pacman`, `zypper`, `apk`; `sudo` only for system managers when not root), and for PHP stacks Intelephense via `npm install -g` (Node.js/npm from the package manager first if needed). Shows the commands, asks on a terminal unless `--force`, and `--dry-run` only prints the plan. Never installs a package manager, never pipes remote install scripts (codegraph and Claude Code stay manual and are named), never runs npm with `sudo`. `AI_CONFIG_PKG_MANAGER` overrides detection. Tests: `test-install-deps.sh`.
@@ -259,6 +302,9 @@ ai-config --project=. --install-deps
 
 # Share the safety policy with teammates (committed .claude/settings.json)
 ai-config --project=. --shared-policy
+
+# Apply the stack's protected paths but skip the advisory .claudeignore
+ai-config --project=. --no-claudeignore
 
 # Remove ai-config from a project (unedited files only; everything backed up)
 ai-config --uninstall --project=.

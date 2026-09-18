@@ -58,6 +58,52 @@ decide() {
 
 lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
+# --- Deployed protected paths -----------------------------------------------
+# ai-config writes the [deny] tier of projects/common/protected-paths.conf plus the
+# detected stack's own file to .claude/hooks/protected-paths.conf. Absent (a legacy
+# deployment, or the hook run standalone) → only the hardcoded list below applies.
+PROTECTED_PATTERNS=()
+for _conf in "${BASH_SOURCE[0]%/*}/protected-paths.conf" "${CLAUDE_PROJECT_DIR:-}/.claude/hooks/protected-paths.conf"; do
+  [[ "$_conf" == /* || "$_conf" == */* ]] && [[ -f "$_conf" ]] || continue
+  while IFS= read -r _line || [[ -n "$_line" ]]; do
+    _line="${_line%$'\r'}"
+    case "$_line" in ''|'#'*|'['*) continue ;; esac
+    PROTECTED_PATTERNS+=("$(lower "$_line")")
+  done < "$_conf"
+  break
+done
+
+# matches_protected <lowercased path> — true when a deployed [deny] pattern matches.
+# Pattern syntax mirrors projects/common/protected-paths.conf:
+#   foo/      that directory and everything under it, at any depth
+#   /foo/bar  anchored to the project root
+#   foo/bar   that path fragment, at any depth
+#   *.sql     matched against the basename
+# SC2254: $pat must glob here — these are patterns, not literals.
+# shellcheck disable=SC2254
+matches_protected() {
+  local p="${1#./}" base="${1##*/}" pat
+  for pat in ${PROTECTED_PATTERNS[@]+"${PROTECTED_PATTERNS[@]}"}; do
+    case "$pat" in
+      */)
+        pat="${pat%/}"; pat="${pat#/}"
+        case "$p" in $pat|$pat/*|*/$pat|*/$pat/*) return 0 ;; esac
+        ;;
+      /*)
+        pat="${pat#/}"
+        case "$p" in $pat) return 0 ;; esac
+        ;;
+      */*)
+        case "$p" in $pat|*/$pat) return 0 ;; esac
+        ;;
+      *)
+        case "$base" in $pat) return 0 ;; esac
+        ;;
+    esac
+  done
+  return 1
+}
+
 # $1 must already be lowercase.
 is_secret_path() {
   local p="$1" base="${1##*/}"
@@ -77,7 +123,7 @@ is_secret_path() {
     .ssh/*|*/.ssh/*|.aws/*|*/.aws/credentials|*/.aws/config|.azure/*|*/.azure/*) return 0 ;;
     *system/user/config/config.php|*.ddev/db_snapshots/*|*.ddev/import-db/*) return 0 ;;
   esac
-  return 1
+  matches_protected "$p"
 }
 
 SECRET_REASON="may contain secrets (Safety Guardrail #1: never read secrets). Ask the developer for the specific non-secret value you need, or use the .env.example template."

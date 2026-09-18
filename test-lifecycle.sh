@@ -137,7 +137,8 @@ printf 'node_modules\n.claude/\n' > "$p/.gitignore"
 run "$p" --force --no-superpowers --shared-policy >/dev/null
 SH="$p/.claude/settings.json"
 assert_true "shared settings.json carries the safety hook" jq -e '[.hooks.PreToolUse[].hooks[].command | select(test("safety-guard"))] | length == 1' "$SH"
-assert_eq "shared settings.json carries every deny rule" "$(jq '.permissions.deny | length' "$POLICY_FILE")" "$(jq '.permissions.deny | length' "$SH")"
+assert_eq "shared settings.json carries every deny rule" "0" \
+  "$(jq -n --slurpfile s "$SH" --slurpfile p "$POLICY_FILE" '[($p[0].permissions.deny // [])[] | select(. as $r | (($s[0].permissions.deny // []) | index([$r])) == null)] | length')"
 assert_false "'.claude/' directory rule replaced" grep -qxF '.claude/' "$p/.gitignore"
 assert_false ".claude/settings.json can be committed" git -C "$p" check-ignore -q .claude/settings.json
 assert_false ".claude/hooks/safety-guard.sh can be committed" git -C "$p" check-ignore -q .claude/hooks/safety-guard.sh

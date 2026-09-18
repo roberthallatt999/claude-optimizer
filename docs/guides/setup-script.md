@@ -32,12 +32,11 @@ ai-config --project=/path/to/project
 - T3 Stack (Next.js + tRPC + Prisma)
 - Nuxt 3
 - Next.js 14+
-- Astro (standalone, + Sanity, + Strapi)
+- Astro (standalone, + Sanity, + Strapi, + Tina CMS)
 - Docusaurus 3+
-- ExpressionEngine 7.x
+- ExpressionEngine 7.x (standalone, + Coilpack, + Coilpack/Next.js)
 - Craft CMS (standalone, + Nuxt, + Next.js)
-- WordPress / Bedrock
-- Coilpack (Laravel + EE hybrid)
+- WordPress / Bedrock (standalone, + Sage/Roots)
 
 ### --stack=\<name>
 
@@ -49,7 +48,7 @@ Manually specify the technology stack template to use.
 - `t3-stack`
 - `nuxt`
 - `nextjs`
-- `astro` / `astro-sanity` / `astro-strapi`
+- `astro` / `astro-sanity` / `astro-strapi` / `astro-tina`
 - `docusaurus`
 - `expressionengine`
 - `coilpack`
@@ -58,6 +57,9 @@ Manually specify the technology stack template to use.
 - `wordpress-roots`
 - `wordpress`
 - `custom` (used with `--discover`)
+
+Run `./setup-project.sh --help` for the exact, current list (also printed at the bottom of its
+output).
 
 **Example:**
 ```bash
@@ -212,18 +214,13 @@ the network or the optimizer repo.
 
 ### Available Skills
 
-| Skill | Purpose |
-|-------|---------|
-| `memory-management` | Persistent context across sessions |
-| `brainstorming` | Structured idea generation |
-| `writing-plans` | Implementation planning |
-| `executing-plans` | Step-by-step execution |
-| `systematic-debugging` | Root cause analysis |
-| `test-driven-development` | TDD workflow |
-| `dispatching-parallel-agents` | Multi-agent coordination |
-| `using-git-worktrees` | Git worktree workflows |
-| `design-system-builder` | Token audit, component inventory, shadcn/ui + cva build |
-| `component-scaffolder` | Typed React/Vue/Svelte component generation with tests |
+16 skills total, deployed to `.claude/skills/<skill>/`. See
+[Superpowers → Available Skills](superpowers.md#available-skills) for the full, categorized
+list — `brainstorming`, `writing-plans`, `executing-plans`, `verification-before-completion`,
+`systematic-debugging`, `test-driven-development`, `requesting-code-review`,
+`receiving-code-review`, `dispatching-parallel-agents`, `subagent-driven-development`,
+`using-git-worktrees`, `finishing-a-development-branch`, `using-superpowers`, `writing-skills`,
+`component-scaffolder`, `design-system-builder`.
 
 ## Update Options
 
@@ -238,13 +235,21 @@ Update configuration files while preserving customizations.
   up to `.claude/ai-config/backups/<run>/` first (see
   [Updating Projects](updating-projects.md#how-refresh-decides-additive-updates))
 - Regenerates `CLAUDE.md` if unedited; otherwise refreshes only its managed blocks
-  (safety guardrails, memory protocol, response style)
+  (safety guardrails, memory protocol, response style, front-end stack, code index, and the
+  orchestrator policy when `--orchestrator` is active)
 - Adds the shared safety policy to `settings.local.json` (nothing removed) and the
   `.claude/hooks/safety-guard.sh` hook
 - **Preserves `MEMORY.md`** (never modified)
-- Stack rules, agents, and skills are not re-copied on refresh; shared
-  `token-optimization.md` / `memory-management.md` update if present and unedited, and the
-  two safety rules are restored if missing
+- Agents, commands, and skills are not re-copied on refresh. Rules are additive: the four common
+  rules (`token-optimization.md`, `memory-management.md`, `sensitive-files.md`,
+  `deployment-safety.md`) update if present and unedited, the two safety rules are restored if
+  missing, and any stack rule a fresh deploy would add — including `typescript-patterns.md` /
+  `design-system.md` / `api-design.md` where they apply — is added once if it's missing and was
+  never deployed before, then kept in sync while present. The original six stack-pattern rules
+  (`expressionengine-templates.md`, `craft-templates.md`, `blade-templates.md`,
+  `nextjs-patterns.md`, `laravel-patterns.md`, `markdown-content.md`), `accessibility.md` /
+  `performance.md`, and the detection-gated rules (`tailwind-css.md`, `alpinejs.md`,
+  `bilingual-content.md`) are still only written on the initial deploy
 - Updates the vendored Superpowers subtree (best-effort) before deploying skills
 
 **Library references respect your curation.** On refresh, `.claude/libraries/` is
@@ -254,10 +259,11 @@ updated, not reset:
 - A library you **deleted** is **not** re-added — unless this refresh newly
   **detects** its technology (e.g. you just added Tailwind, so `tailwind.md`
   comes back).
-- Detection-backed libraries (16 total): `typescript.md`, `zod.md`, `zustand.md`,
+- Detection-backed libraries (22 total): `typescript.md`, `zod.md`, `zustand.md`,
   `tanstack-query.md`, `trpc.md`, `prisma.md`, `supabase.md`, `vitest.md`,
   `playwright.md`, `framer-motion.md`, `shadcn-ui.md`, `pinia.md`, `tailwind.md`,
-  `alpinejs.md`, `foundation.md`, `scss.md`, `tinacms.md`.
+  `alpinejs.md`, `scss.md`, `tinacms.md`, `foundation.md`, `bootstrap.md`, `bulma.md`,
+  `jquery.md`, `material-ui.md`, `vanilla-js.md`.
 - Framework libraries (`react.md`, `vue.md`, `nextjs.md`, …) are stack-implied
   with no runtime signal, so once removed they stay removed.
 
@@ -317,6 +323,20 @@ committed `.claude/settings.json`, and adjusts `.gitignore` so `.claude/settings
 sticky once `.claude/settings.json` carries the hook, and `--doctor` checks both files are
 committable.
 
+## Managing Multiple Projects
+
+`ai-config-fleet` (aliased from `ai-config-fleet.sh`) runs `setup-project.sh` across every
+ai-config project under a folder — `--doctor` by default, or `--refresh` / `--list` — and prints
+one pass/warn/fail summary instead of running each project by hand:
+
+```bash
+ai-config-fleet --root=~/sites --list
+ai-config-fleet --root=~/sites --refresh --dry-run
+```
+
+See [Updating Projects → Updating Multiple Projects](updating-projects.md#updating-multiple-projects)
+for the full flag set and output format.
+
 ## VSCode Options
 
 ### --skip-vscode
@@ -357,6 +377,11 @@ ai-config --dry-run --stack=expressionengine --project=.
 ### --name=\<name>
 
 Set project name manually instead of deriving from directory name.
+
+### --slug=\<slug>
+
+Set the `{{PROJECT_SLUG}}` template variable manually instead of deriving it from the project
+name.
 
 ### --analyze
 
@@ -468,6 +493,79 @@ These are reinforced at three layers:
   reminder to reference an environment variable instead.
 
 Requires `jq`; the script reports an error when it is missing.
+
+## Protected Paths (Stack-Aware)
+
+On top of the stack-agnostic policy above, every deploy and `--refresh` resolves a
+**protected-path list for the detected stack** and applies it. The source is two files:
+
+```
+projects/common/protected-paths.conf     # universal baseline
+projects/<stack>/protected-paths.conf    # what this stack needs on top
+```
+
+### Two tiers
+
+Protecting a path means two different things, and conflating them is a mistake —
+denying `node_modules/` or `dist/` breaks ordinary debugging.
+
+| Tier | What belongs in it | What happens |
+| --- | --- | --- |
+| `[deny]` | Secrets, credentials, database dumps, `.git/` internals | A `Read()` rule in `settings.local.json` **and** a pattern in `.claude/hooks/protected-paths.conf`, which `safety-guard.sh` blocks for file tools *and* for Bash commands that name the path. A hard stop. |
+| `[ignore]` | Dependencies, build output, lockfiles, binary assets | Written to `.claudeignore` only. Never denied — these are token sinks, not secrets. |
+
+A stack may promote a baseline `[ignore]` pattern to `[deny]`. The CMS stacks do this
+with `*.sql`: on a WordPress, ExpressionEngine, Craft or Coilpack site a loose `.sql`
+file is a database dump, while on a JS stack it is far more likely a Prisma, Drizzle or
+Knex migration — which stays readable.
+
+### What each stack adds
+
+| Stack | Blocked (beyond the baseline) | Advisory |
+| --- | --- | --- |
+| `wordpress` | `wp-config.php`, `wp-salt.php`, `wp-content/backup*/`, `ai1wm-backups/`, `updraft/`, `*.sql` | `wp-admin/`, `wp-includes/`, `wp-content/uploads/`, `cache/` |
+| `wordpress-roots` | `config/environments/`, `web/app/backup*/`, `*.sql` | `web/wp/`, `web/app/uploads/`, Sage `public/`, `dist/` |
+| `expressionengine` | `system/user/config/`, `*.sql` | `system/ee/`, `themes/ee/`, `system/user/cache/`, `images/uploads/` |
+| `coilpack` | `system/user/config/`, `storage/framework/sessions/`, `storage/logs/`, `*.sql` | `system/ee/`, `bootstrap/cache/`, `public/build/` |
+| `craftcms` (+ headless) | `storage/backups/`, `storage/logs/`, `storage/runtime/validation.key`, `*.sql` | `storage/runtime/`, `web/cpresources/` |
+| `nextjs`, `t3-stack` | `.vercel/project.json`, `prisma/*.db` | `.next/`, `.vercel/`, `out/` |
+| `nuxt`, `sveltekit`, `remix`, `astro`, `docusaurus` | — | `.nuxt/`, `.output/`, `.svelte-kit/`, `.astro/`, `.docusaurus/`, `build/`, `dist/` |
+| `astro-strapi` | `backend/.env`, `backend/.tmp/` | `backend/build/`, `backend/public/uploads/` |
+| `astro-sanity` | `.sanity/`, `sanity.cli.env*` | `dist-studio/` |
+| `astro-tina` | Tina Cloud prebuild config | `.tina/`, `tina/__generated__/` |
+
+The baseline itself covers `.env*`, `credentials*`, `secrets*`, `.git/`, `*.sqlite`,
+`*.db`, `*.dump`, `*dump*.sql`, `dumps/`, `db_snapshots/` in `[deny]`, and
+dependencies, build output, lockfiles, media and editor noise in `[ignore]`.
+
+### About `.claudeignore`
+
+`.claudeignore` is **advisory**. Claude Code does not read it — the feature request
+([anthropics/claude-code#29455](https://github.com/anthropics/claude-code/issues/29455))
+is still open, and a `.claudeignore` on disk is silently ignored. Enforcement comes
+entirely from the deny rules and the hook.
+
+It is still generated, because it documents what the project treats as off-limits in
+one readable place and works with other tools that read gitignore-syntax exclude files.
+The generated header says so, so nobody mistakes it for a control.
+
+| Flag | Effect |
+| --- | --- |
+| `--no-claudeignore` | Don't write `.claudeignore`. The deny rules and `.claude/hooks/protected-paths.conf` are applied either way. |
+
+### Customising
+
+Both generated files go through the same additive install as every other shipped file:
+edit them and `--refresh` keeps your version, staging its own in
+`.claude/ai-config/pending/`. To change what every project gets, edit the `.conf`
+files in this repository — no script changes needed.
+
+`--doctor` reports a missing or out-of-date `.claude/hooks/protected-paths.conf` and
+runs the hook against a test database dump. `--uninstall` withdraws the deny rules it
+added, using the conf the project was actually deployed with (so the right stack's
+rules go, even without `--stack`).
+
+Tests: `test-protected-paths.sh`.
 
 ## Project Detection
 
@@ -618,9 +716,9 @@ ai-config --project=. --orchestrator
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 1 | Invalid options or missing requirements |
-| 2 | Project directory doesn't exist |
-| 3 | Stack not found |
+| 1 | Any error — invalid options, missing project directory, unknown stack, or a failing `--doctor`/post-run health check |
+
+The script only ever exits `0` or `1`; there's no separate code per error type.
 
 ## Troubleshooting
 
@@ -655,4 +753,7 @@ Detection scans template files only (excluding `node_modules`, `vendor`). If tec
 - **[Memory System](memory-system.md)** - Persistent context guide
 - **[Installation](../getting-started/installation.md)** - Shell aliases and VSCode CLI setup
 - **[Conditional Deployment](conditional-deployment.md)** - Detection logic
-- **[Updating Projects](updating-projects.md)** - Update workflows
+- **[Updating Projects](updating-projects.md)** - Update workflows, including
+  [multiple projects at once](updating-projects.md#updating-multiple-projects)
+- **[Contributing](../development/contributing.md)** - Run `./run-tests.sh` (or a single suite,
+  e.g. `./run-tests.sh fleet`) before submitting a change to `setup-project.sh`
