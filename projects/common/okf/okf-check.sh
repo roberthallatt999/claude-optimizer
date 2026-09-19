@@ -82,10 +82,20 @@ while IFS= read -r file; do
   esac
 done < <(find "$bundle" -type f -name '*.md' | LC_ALL=C sort)
 
-secret_pattern='-----BEGIN [A-Z ]*PRIVATE KEY-----|(AKIA|ASIA)[0-9A-Z]{16}|sk-(ant|proj)-[A-Za-z0-9_-]{20,}|sk_live_[0-9A-Za-z]{16,}|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{40,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}'
+# Keep in sync with projects/common/hooks/safety-guard.sh (SECRET_CONTENT_RE,
+# SECRET_ASSIGN_RE, SECRET_PLACEHOLDER_RE). The hook denies a credential being written
+# into the bundle; this catches one that is already there.
+secret_pattern='-----BEGIN [A-Z ]*PRIVATE KEY-----|(AKIA|ASIA)[0-9A-Z]{16}|sk-(ant|proj)-[A-Za-z0-9_-]{20,}|sk_live_[0-9A-Za-z]{16,}|rk_live_[0-9A-Za-z]{16,}|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{40,}|glpat-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}|SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}|npm_[A-Za-z0-9]{36}|dop_v1_[a-f0-9]{64}|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}'
+secret_assign='(mysql|mariadb|postgres|postgresql|mongodb\+srv|mongodb|redis|rediss|amqp|amqps|mssql|sqlserver|ftp|https?)://[^:/@[:space:]"]+:[^@[:space:]"]{3,}@|(db_password|db_pass|db_pwd|mysql_pwd|mysql_password|mysql_root_password|postgres_password|pgpassword|database_password|redis_password|mail_password|smtp_password|aws_secret_access_key|secret_access_key|api_key|api_secret|apikey|secret_key|access_token|auth_token|bearer_token|client_secret|encryption_key|app_key)[[:space:]]*[=:][[:space:]]*"?[^[:space:]",;&]{8,}'
+secret_placeholder='example|sample|placeholder|dummy|changeme|change[-_]me|your[-_]|redacted|replace_|\*\*\*|\.\.\.|<[^>]*>|\$\{|%[A-Za-z_]+%|process\.env|getenv|os\.environ|env\(|:(pass|password|passwd|pwd|secret|user|username|admin|root|test|demo|foo|bar)@|test[-_]?(key|token|secret|password)|fake[-_]?(key|token|secret)'
 while IFS= read -r hit; do
   warn "${hit#"$bundle"/}: looks like a real credential — remove it and record only the variable name"
-done < <(grep -rlE -e "$secret_pattern" "$bundle" 2>/dev/null)
+done < <( { grep -rlIE -e "$secret_pattern" "$bundle" 2>/dev/null
+            while IFS= read -r f; do
+              grep -IiE -e "$secret_assign" -- "$f" 2>/dev/null \
+                | grep -qviE -e "$secret_placeholder" && printf '%s\n' "$f"
+            done < <(find "$bundle" -type f 2>/dev/null)
+          } | LC_ALL=C sort -u )
 
 echo "OKF bundle $bundle: $concepts concept(s), $errors error(s), $warnings warning(s)"
 [[ $errors -eq 0 ]]

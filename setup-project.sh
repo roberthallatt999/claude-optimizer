@@ -2308,6 +2308,23 @@ verify_deployment() {
       hc_warn "safety-guard.sh did not block a test database dump — run --refresh to update the hook"
     fi
   fi
+
+  # Content scanning: a file whose name is innocent but whose content is not.
+  if [[ -x "$guard" ]]; then
+    local scan_probe scan_out
+    scan_probe="$(mktemp "${TMPDIR:-/tmp}/ai-config-scan.XXXXXX")" || scan_probe=""
+    if [[ -n "$scan_probe" ]]; then
+      printf 'log line\nconnection: mysql://forge:9fJ2kPq7Wm@10.0.0.14:3306/app\n' > "$scan_probe"
+      scan_out=$(printf '{"tool_name":"Read","tool_input":{"file_path":"%s"}}' "$scan_probe" \
+        | (cd "$PROJECT_DIR" && CLAUDE_PROJECT_DIR="$PROJECT_DIR" bash "$guard" 2>/dev/null))
+      rm -f "$scan_probe"
+      if grep -q '"permissionDecision":"deny"' <<< "$scan_out"; then
+        hc_ok "safety-guard.sh blocks reading a file whose content holds a credential"
+      else
+        hc_warn "safety-guard.sh does not scan file contents — run --refresh to update the hook"
+      fi
+    fi
+  fi
   if [[ "$NO_CLAUDEIGNORE" != true && ! -f "$PROJECT_DIR/.claudeignore" ]]; then
     hc_info ".claudeignore not present (expected only with --no-claudeignore)"
   fi

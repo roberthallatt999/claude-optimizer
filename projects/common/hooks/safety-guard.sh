@@ -132,7 +132,99 @@ PROD="Safety Guardrail #3: this may change a production or remote environment; c
 DESTRUCTIVE="This is irreversible; confirm it is intended."
 
 # High-confidence credential shapes — keep in sync with projects/common/okf/okf-check.sh.
-SECRET_CONTENT_RE='-----BEGIN [A-Z ]*PRIVATE KEY-----|(AKIA|ASIA)[0-9A-Z]{16}|sk-(ant|proj)-[A-Za-z0-9_-]{20,}|sk_live_[0-9A-Za-z]{16,}|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{40,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}'
+# Vendor token shapes. Case-sensitive: the casing IS part of the signal.
+SECRET_CONTENT_RE='-----BEGIN [A-Z ]*PRIVATE KEY-----|(AKIA|ASIA)[0-9A-Z]{16}|sk-(ant|proj)-[A-Za-z0-9_-]{20,}|sk_live_[0-9A-Za-z]{16,}|rk_live_[0-9A-Za-z]{16,}|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{40,}|glpat-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}|SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}|npm_[A-Za-z0-9]{36}|dop_v1_[a-f0-9]{64}|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}'
+
+# Database and service credentials, matched case-insensitively: a connection URI with an
+# inline password, or a secret-ish key assigned a concrete value. This is what catches a
+# server log whose stack trace prints the DSN.
+SECRET_ASSIGN_RE='(mysql|mariadb|postgres|postgresql|mongodb\+srv|mongodb|redis|rediss|amqp|amqps|mssql|sqlserver|ftp|https?)://[^:/@[:space:]"]+:[^@[:space:]"]{3,}@|(db_password|db_pass|db_pwd|mysql_pwd|mysql_password|mysql_root_password|postgres_password|pgpassword|database_password|redis_password|mail_password|smtp_password|aws_secret_access_key|secret_access_key|api_key|api_secret|apikey|secret_key|access_token|auth_token|bearer_token|client_secret|encryption_key|app_key)[[:space:]]*[=:][[:space:]]*"?[^[:space:]",;&]{8,}'
+
+# Lines the guard forgives. Without these the guard blocks .env.example, docs and any
+# code that reads a value from the environment — and a guard nobody can live with gets
+# switched off, which is worse than a narrower one that stays on.
+# Deliberately NOT here: "xxxx", "todo", "fixme". A real vendor token can contain a run of
+# x's (sk-ant-api03-xxxx…) and a line can say TODO next to a live key; template files are
+# already skipped by extension in secret_scan, so those markers bought nothing and cost a hole.
+SECRET_PLACEHOLDER_RE='example|sample|placeholder|dummy|changeme|change[-_]me|your[-_]|redacted|replace_|\*\*\*|\.\.\.|<[^>]*>|\$\{|%[A-Za-z_]+%|process\.env|getenv|os\.environ|env\(|:(pass|password|passwd|pwd|secret|user|username|admin|root|test|demo|foo|bar)@|test[-_]?(key|token|secret|password)|fake[-_]?(key|token|secret)'
+
+# Largest file the guard will scan. Past this it denies rather than waving the file
+# through unchecked — an unscanned file is an unknown file.
+SCAN_MAX_BYTES="${AI_CONFIG_SCAN_MAX_BYTES:-20971520}"
+
+SCAN_TAIL="Reading it would put the credential into the transcript. Redact the file, or quote only the lines you need after checking them yourself."
+SCAN_BIG_TAIL="Read a bounded, checked excerpt instead (for a log: the specific timestamp range you need)."
+
+# Cheap first-pass alternation, matched against a lowercased line. Every pattern in
+# SECRET_CONTENT_RE and SECRET_ASSIGN_RE must be reachable through one of these branches,
+# or it becomes dead code — test-secret-scanning.sh has a case per class to catch that.
+# One compiled regex, not a loop of index() calls: on BSD awk the loop costs 929ms on a
+# 4MB log where this costs 126ms, which is awk's floor for reading the file at all.
+SECRET_ANCHORS_RE='akia|asia|sk-ant-|sk-proj-|sk_live_|rk_live_|gh[pousr]_|github_pat_|glpat-|xox|aiza|sg\.|npm_|dop_v1_|eyj|-----begin|mysql://|mariadb://|postgres|mongodb|rediss?://|amqp|mssql://|sqlserver://|ftp://|https?://|password|passwd|_pwd|secret|token|api_?key|app_key|access_key|encryption_key'
+
+# secret_scan <path> — echo a finding; 0 = credential found, 1 = clean/not applicable,
+# 2 = could not be scanned. Fail closed: callers deny on both 0 and 2.
+#
+# Two stages, because this runs on every read.
+#
+# Stage 1 is awk doing literal index() checks against the anchor list. It emits the
+# ORIGINAL line with its real line number, so stage 2 still sees real casing. awk is used
+# rather than grep because BSD grep (every macOS box, and the macOS CI runner) takes
+# ~3.3s on `-F -i` with this many patterns against a 4MB log; awk does the same work in
+# ~30ms. Do not "simplify" this back to grep -Fi.
+#
+# Stage 2 runs the precise regexes over only those candidate lines.
+secret_scan() {
+  local f="$1" base size head_bytes text_bytes scan_target candidates lines
+  [[ -f "$f" && -r "$f" ]] || return 1
+  base="$(lower "${f##*/}")"
+  case "$base" in
+    # Templates exist to show the shape of a secret; that is not a leak.
+    *.example|*.sample|*.template|*.dist|*.defaults|*.tpl) return 1 ;;
+    *.example.*|*.sample.*|*.template.*|*.dist.*) return 1 ;;
+  esac
+  size=$(wc -c < "$f" 2>/dev/null | tr -d '[:space:]')
+  [[ "$size" =~ ^[0-9]+$ ]] || return 2
+  if [[ "$size" -gt "$SCAN_MAX_BYTES" ]]; then
+    printf 'is too large to scan for credentials (%s bytes)' "$size"
+    return 2
+  fi
+
+  # Binary check, standing in for grep -I: a NUL in the first 4KB means not text.
+  head_bytes=$(LC_ALL=C head -c 4096 -- "$f" 2>/dev/null | wc -c | tr -d '[:space:]')
+  text_bytes=$(LC_ALL=C head -c 4096 -- "$f" 2>/dev/null | LC_ALL=C tr -d '\000' | wc -c | tr -d '[:space:]')
+  [[ "$head_bytes" == "$text_bytes" ]] || return 1
+
+  # The pattern reaches awk through the environment rather than -v, which avoids every
+  # quoting question about a regex on a command line. awk has no "--", so a path that
+  # could begin with "-" is prefixed with "./".
+  case "$f" in /*|./*) scan_target="$f" ;; *) scan_target="./$f" ;; esac
+  candidates="$(SECRET_ANCHORS_RE="$SECRET_ANCHORS_RE" LC_ALL=C awk '
+    BEGIN { re = ENVIRON["SECRET_ANCHORS_RE"] }
+    {
+      if (tolower($0) ~ re) { print FNR ":" $0; hits++ }
+      if (hits >= 2000) exit
+    }' "$scan_target" 2>/dev/null)"
+  [[ -n "$candidates" ]] || return 1
+
+  # Stage 2, over candidate lines only. Each already carries its "NN:" prefix.
+  lines=$( { LC_ALL=C grep -E -e "$SECRET_CONTENT_RE" <<< "$candidates" 2>/dev/null
+             LC_ALL=C grep -iE -e "$SECRET_ASSIGN_RE" <<< "$candidates" 2>/dev/null
+           } | LC_ALL=C grep -viE -e "$SECRET_PLACEHOLDER_RE" \
+             | cut -d: -f1 | sort -n -u | head -5 | paste -sd, - )
+  [[ -n "$lines" ]] || return 1
+  printf 'credential-shaped content (line %s)' "$lines"
+  return 0
+}
+
+# content_secret_hits — count credential-shaped lines in text on stdin.
+content_secret_hits() {
+  local text
+  text="$(cat)"
+  { LC_ALL=C grep -E -e "$SECRET_CONTENT_RE" <<< "$text" 2>/dev/null
+    LC_ALL=C grep -iE -e "$SECRET_ASSIGN_RE" <<< "$text" 2>/dev/null
+  } | LC_ALL=C grep -vcE -e "$SECRET_PLACEHOLDER_RE"
+}
 
 tool="$(json_field .tool_name)"
 
@@ -231,6 +323,17 @@ case "$tool" in
       fi
     done
 
+    # A path rule can only block what we can name. Reading is the leak, so check the
+    # content itself before it reaches the transcript — this is what catches a server
+    # log, a docker-compose.yml or a seeder nobody knew held a credential.
+    if [[ "$tool" == "Read" || "$tool" == "Grep" ]] && [[ -n "$target" ]]; then
+      scan_msg="$(secret_scan "$target")"
+      case $? in
+        0) decide deny "Blocked by ai-config safety guard: '${target##*/}' contains ${scan_msg}. $SCAN_TAIL" ;;
+        2) decide deny "Blocked by ai-config safety guard: '${target##*/}' ${scan_msg}. $SCAN_BIG_TAIL" ;;
+      esac
+    fi
+
     # --- Credential-shaped strings in the text being written -----------------
     case "$tool" in
       Write) content_key=.tool_input.content ;;
@@ -240,9 +343,15 @@ case "$tool" in
       *) exit 0 ;;
     esac
     # grep -c reads all input, so json_field can never die of SIGPIPE mid-write.
-    hits="$(json_field "$content_key" | LC_ALL=C grep -Ec -e "$SECRET_CONTENT_RE")"
+    hits="$(json_field "$content_key" | content_secret_hits)"
     if [[ "${hits:-0}" != 0 ]]; then
-      decide ask "The text being written to '${target##*/}' looks like a real credential (private key or API token). Safety Guardrail #1: never write secrets into code — read the value from an environment variable (e.g. process.env.NAME, getenv('NAME')) kept in the untracked .env. Approve only if this is a placeholder or test fixture."
+      # Project memory and the OKF bundle reload into context every session, so a
+      # credential recorded there leaks repeatedly and silently. No prompt for those.
+      case "$(lower "$target")" in
+        memory.md|*/memory.md|memory-archive.md|*/memory-archive.md|.okf/*|*/.okf/*)
+          decide deny "Blocked by ai-config safety guard: this would record a credential in '${target##*/}', which reloads into context every session. Record the variable NAME only, never its value." ;;
+      esac
+      decide ask "The text being written to '${target##*/}' looks like a real credential (private key, API token, or database password). Safety Guardrail #1: never write secrets into code — read the value from an environment variable (e.g. process.env.NAME, getenv('NAME')) kept in the untracked .env. Approve only if this is a placeholder or test fixture."
     fi
     exit 0
     ;;
@@ -278,8 +387,9 @@ done <<EOF
 $(printf '%s' "$lc" | tr -c 'a-z0-9._/~*@+:%-' '\n')
 EOF
 
+READ_VERBS="${S}(cat|less|more|head|tail|bat|batcat|nl|tac|strings|xxd|od|hexdump|base64|source|\.|grep|egrep|fgrep|rg|ag|ack|awk|gawk|sed|cut|sort|uniq|diff|cmp|jq|yq|cp|scp|rsync|curl|wget|nc|ncat|openssl|gpg|vi|vim|nvim|nano|emacs|code|open|pbcopy|xclip|python|python3|node|deno|php|ruby|perl|export|dotenv|tee|zip|tar|echo|printf|eval|read)([[:space:]]|$)"
+
 if [[ -n "$secret" ]]; then
-  READ_VERBS="${S}(cat|less|more|head|tail|bat|batcat|nl|tac|strings|xxd|od|hexdump|base64|source|\.|grep|egrep|fgrep|rg|ag|ack|awk|gawk|sed|cut|sort|uniq|diff|cmp|jq|yq|cp|scp|rsync|curl|wget|nc|ncat|openssl|gpg|vi|vim|nvim|nano|emacs|code|open|pbcopy|xclip|python|python3|node|deno|php|ruby|perl|export|dotenv|tee|zip|tar|echo|printf|eval|read)([[:space:]]|$)"
   IGNORE_FILE='(^|[[:space:]/;&|])\.(git|docker|prettier|eslint|npm|stylelint)?ignore([[:space:];&|]|$)|\.gitattributes'
   TEMPLATE_COPY="${S}cp[[:space:]]+(-[a-z]+[[:space:]]+)*[^[:space:]]*\.(example|sample|template|dist)[[:space:]]+[^[:space:]]*\.env[^[:space:];&|]*[[:space:]]*($|[;&|])"
   EXISTENCE_ONLY="${S}(ls|test|\[|stat|file|touch|chmod|chown)([[:space:]]|$)"
@@ -296,6 +406,26 @@ if [[ -n "$secret" ]]; then
   else
     decide ask "This command references '${secret}', which may contain secrets. Confirm it will not read or expose secret values."
   fi
+fi
+
+# --- Secrets inside files the command would read ----------------------------
+# The checks above match on the path. This one opens the file. Tokens come from the
+# original command, not the lowercased copy, so paths survive on a case-sensitive
+# filesystem. Capped at a handful of files to keep the hook well inside its timeout.
+if m "$READ_VERBS"; then
+  scanned=0
+  while IFS= read -r tok; do
+    [[ -n "$tok" && -f "$tok" ]] || continue
+    scan_msg="$(secret_scan "$tok")"
+    case $? in
+      0) decide deny "Blocked by ai-config safety guard: '${tok}' contains ${scan_msg}. $SCAN_TAIL" ;;
+      2) decide deny "Blocked by ai-config safety guard: '${tok}' ${scan_msg}. $SCAN_BIG_TAIL" ;;
+    esac
+    scanned=$((scanned + 1))
+    [[ $scanned -ge 5 ]] && break
+  done <<EOF
+$(printf '%s' "$cmd" | tr -c 'A-Za-z0-9._/~*@+:%-' '\n')
+EOF
 fi
 
 # --- Catastrophic / irreversible: deny ---------------------------------------

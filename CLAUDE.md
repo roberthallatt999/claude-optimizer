@@ -9,6 +9,7 @@ This repository provides automated Claude Code configuration deployment across *
 - Memory bank for persistent context (or an OKF `.okf/` bundle with `--okf-memory`)
 - A shared safety policy (deny/ask rules + a PreToolUse hook) merged into every project
 - Stack-aware protected paths (`protected-paths.conf` → deny rules, hook patterns, `.claudeignore`)
+- Content scanning: files are checked for credentials before Claude can read them
 - Additive, non-destructive `--refresh` (edits are kept, backed up, and staged in `pending/`)
 - Token optimization and sensitive file protection rules
 - VSCode settings (formatters, Xdebug, tasks)
@@ -102,7 +103,7 @@ superpowers/
 ├── commands/                 # Slash commands
 └── hooks/                    # Session hooks
 
-test-*.sh                     # 11 test suites, each independently runnable
+test-*.sh                     # 12 test suites, each independently runnable
 run-tests.sh                  # Runs every test-*.sh suite, or a selected subset
 ai-config-fleet.sh            # --doctor / --refresh / --list across many projects
 .github/workflows/tests.yml   # CI: runs the suites on macOS + Ubuntu, plus shellcheck
@@ -226,6 +227,23 @@ readable text such as `(brand green: not set)` rather than a fake value.
 
 ## Recent Changes
 
+- **Content scanning before read** — path rules only block what can be named, so
+  `safety-guard.sh` now opens the file. `Read`/`Grep`, and Bash reading verbs (`cat`, `tail`,
+  `grep`, `strings`, …), are checked for credential-shaped content before it reaches the
+  transcript; a hit is a **deny** naming the pattern class and line numbers, never the value.
+  This closes a hole where `cat storage/logs/laravel.log` was unprotected end to end: the
+  shared policy's `Read(**/*.log)` rules bind the Read tool only, and `Bash(cat …)` is a
+  different rule namespace. Logs are scanned rather than blanket-denied, so a clean log stays
+  readable — a guard too annoying to live with gets switched off. The patterns now cover
+  **database credentials** (connection URIs with an inline password, `DB_PASSWORD=`,
+  `aws_secret_access_key=`, JWTs) alongside the vendor token shapes, and are shared with the
+  write path; writes to `MEMORY.md`/`.okf/**` are denied rather than prompted, since those
+  reload every session. Template files and documentation-shaped lines are forgiven by design.
+  Fail-closed: a file too large to scan (`AI_CONFIG_SCAN_MAX_BYTES`, default 20 MB) is denied.
+  Two-stage by necessity — one compiled `awk` alternation rejects most files and the precise
+  regexes run only over candidate lines, because on BSD `awk`/`grep` (macOS, and the macOS CI
+  runner) the one-stage forms cost 3.3s per read versus ~160ms on a 4 MB log. `okf-check.sh`
+  shares the patterns. Tests: `test-secret-scanning.sh`.
 - **Stack-aware protected paths** — `projects/common/protected-paths.conf` plus a
   `protected-paths.conf` in each of the 19 stacks, in two tiers. `[deny]` (secrets, credentials,
   `.git/`, database dumps) becomes a `Read()` rule in `settings.local.json` *and* a pattern in the

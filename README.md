@@ -154,6 +154,7 @@ This detects 50+ technologies (React, Vue, Laravel, Django, etc.), deploys base 
 
 - **Enforced safety guardrails** - No secret reads; approval for each push, deploy, or destructive action (Bash and MCP tools)
 - **Stack-aware protected paths** - Secrets, credentials and database dumps blocked per stack; build noise kept out of context
+- **Content scanning** - Files are checked for API tokens and database credentials before Claude can read them, whatever they are named
 - **Additive updates** - `--refresh` never overwrites your edits; every change is backed up
 - **Token-lean defaults** - Concise response style, on-demand library references, path-scoped rules
 - **Superpowers Skills** - Workflow automation (planning, debugging, TDD)

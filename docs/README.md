@@ -10,6 +10,7 @@ This repository provides automated Claude Code configuration deployment across *
 - Memory bank for persistent context, or an OKF `.okf/` bundle with `--okf-memory`
 - A shared safety policy (deny/ask rules + a PreToolUse hook) merged into every project
 - Stack-aware protected paths: secrets and dumps blocked, build noise kept out of context
+- Content scanning: credentials are caught before a read, whatever the file is called
 - Additive, non-destructive `--refresh` — edits are kept, backed up, and staged for review
 - Token optimization and sensitive file protection rules
 - 16 Superpowers workflow skills

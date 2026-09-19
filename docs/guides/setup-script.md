@@ -567,6 +567,72 @@ rules go, even without `--stack`).
 
 Tests: `test-protected-paths.sh`.
 
+## Content Scanning (Always On)
+
+Path rules can only block what you can *name*. The commonest leak is a file whose name
+is entirely innocent: a Laravel `storage/logs/laravel.log` whose stack trace prints the
+DSN, a `docker-compose.yml` with `MYSQL_ROOT_PASSWORD` inline, a seeder, an exported
+Postman collection, a runbook with a connection string.
+
+So `safety-guard.sh` opens the file before Claude can read it.
+
+### What it covers
+
+| Path | Behaviour |
+| --- | --- |
+| `Read` / `Grep` of a file | Scanned before the content reaches the transcript |
+| `Bash` with a reading verb (`cat`, `tail`, `head`, `grep`, `strings`, `base64`, …) | Every real file the command names is scanned |
+| `Write` / `Edit` / `MultiEdit` / `NotebookEdit` | Content being written is scanned (unchanged behaviour, wider patterns) |
+
+A hit is a **deny**, reporting the pattern class and line numbers and never echoing the
+value. There is no "approve anyway": reading it *is* the leak. Redact the file, or quote
+a clean excerpt yourself.
+
+Writes to `MEMORY.md`, `MEMORY-ARCHIVE.md` and `.okf/**` are denied rather than prompted —
+those reload into context every session, so a credential recorded there leaks silently
+and repeatedly. `okf-check.sh` uses the same patterns to catch one already in the bundle.
+
+### Why logs are not simply blocked
+
+Logs are scanned like everything else and stay readable when clean. A blanket deny would
+end "read the error log", and a guard too annoying to live with gets switched off — which
+protects nothing. Scanning is strictly *more* aware than a deny-list: it knows whether
+*this* log is dirty.
+
+### What counts as a credential
+
+Vendor token shapes (AWS, Anthropic, OpenAI, Stripe, GitHub, GitLab, Slack, Google,
+SendGrid, npm, DigitalOcean, JWTs, PEM private-key headers) plus **database and service
+credentials**: connection URIs carrying an inline password (`mysql://`, `postgres://`,
+`mongodb+srv://`, `redis://`, `amqp://`, basic-auth HTTPS) and secret-ish assignments
+with a concrete value (`DB_PASSWORD=`, `MYSQL_ROOT_PASSWORD:`, `aws_secret_access_key=`,
+`client_secret=`, `api_key=`).
+
+Deliberately forgiven, or the guard becomes unusable: template files by extension
+(`*.example`, `*.sample`, `*.template`, `*.dist`), and lines that read as documentation or
+indirection — `your_password`, `<your-api-key>`, `${DB_PASSWORD}`, `process.env.X`,
+`getenv(...)`, `user:pass@`, and anything saying `example`/`sample` (AWS publishes
+`AKIAIOSFODNN7EXAMPLE` in its own docs; blocking every page that quotes it would train
+people to ignore the guard).
+
+### Limits, and how it fails
+
+- **Fail closed.** A file too large to scan (`> 20 MB`, override with
+  `AI_CONFIG_SCAN_MAX_BYTES`) is denied rather than waved through. Binary files are
+  skipped, not blocked.
+- **Cost.** Roughly 50 ms on a source file and ~160 ms on a 4 MB log. The scan is two
+  stages: a single compiled alternation in `awk` rejects most files, and the precise
+  regexes only ever run over candidate lines. On BSD `awk`/`grep` — every macOS machine,
+  and the macOS CI runner — the obvious one-stage implementations cost **3.3 seconds per
+  read**, so the staging is load-bearing, not premature optimisation.
+- **Residual risk.** A line that both carries a live credential *and* reads like
+  documentation is forgiven, and only the first 2,000 candidate lines of a file are
+  examined precisely.
+
+`--doctor` runs the scanner against a probe file holding a DSN and reports if it does not
+block. Tests: `test-secret-scanning.sh` (57 cases, including one per credential class so a
+pattern cannot silently become unreachable).
+
 ## Project Detection
 
 The script automatically detects:
