@@ -3546,10 +3546,21 @@ update_gitignore() {
   fi
   local claude_added=()
   local claude_skipped=()
+  local claude_tracked=()
 
   for entry in "${claude_entries[@]}"; do
     if grep -qxF "$entry" "$gitignore_path" 2>/dev/null; then
       claude_skipped+=("$entry")
+    elif [[ "$entry" == ".claude/" ]] && grep -qxF ".claude/*" "$gitignore_path" 2>/dev/null; then
+      # The project ignores .claude/ selectively and re-includes shared folders; ".claude/"
+      # would override those !-exceptions.
+      claude_skipped+=("$entry")
+    elif [[ "$entry" != !* && "$entry" != *'*'* ]] \
+      && [[ -n "$(git -C "$PROJECT_DIR" ls-files -- "${entry%/}" 2>/dev/null | head -1)" ]]; then
+      # The project commits this path on purpose (e.g. shared CLAUDE.md, .okf/); ignoring it
+      # would hide new and renamed files from the next `git add`. Glob entries are skipped:
+      # they are paired with !-re-includes, and as a pathspec they'd match the re-included files.
+      claude_tracked+=("$entry")
     else
       claude_added+=("$entry")
     fi
@@ -3573,6 +3584,9 @@ update_gitignore() {
 
   if [[ ${#claude_skipped[@]} -gt 0 ]]; then
     echo -e "  ${GREEN}✓${NC} Claude entries already in .gitignore (${#claude_skipped[@]})"
+  fi
+  if [[ ${#claude_tracked[@]} -gt 0 ]]; then
+    echo -e "  ${GREEN}✓${NC} Not ignored, tracked in git on purpose: ${claude_tracked[*]}"
   fi
 
   # --- 2. Common security patterns (all stacks) ---

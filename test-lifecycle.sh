@@ -152,6 +152,39 @@ assert_eq "--doctor passes in shared mode" "0" "$status"
 assert_true "--doctor reports the shared policy" contains "$out" "Shared safety policy present"
 
 # ============================================================================
+echo -e "\n${CYAN}=== tracked agent config stays tracked ===${NC}\n"
+# ============================================================================
+
+# A project that commits CLAUDE.md, .okf/ and .claude/ subfolders (the CPS policy). A refresh
+# must not append ignore lines that hide those files from the next `git add`.
+p=$(make_nuxt)
+git -C "$p" init -q
+run "$p" --force --no-superpowers --okf-memory >/dev/null
+printf 'node_modules\n.claude/*\n!.claude/rules/\n.claude/settings.local.json\n.claude/ai-config/\nMEMORY.md\n' > "$p/.gitignore"
+git -C "$p" add .gitignore CLAUDE.md .claude/rules .okf >/dev/null 2>&1
+git -C "$p" -c user.email=t@t -c user.name=t commit -qm tracked >/dev/null 2>&1
+run "$p" --refresh --no-superpowers --okf-memory >/dev/null
+assert_false "tracked CLAUDE.md is not re-ignored" grep -qxF 'CLAUDE.md' "$p/.gitignore"
+assert_false "'.claude/' not added over a '.claude/*' policy" grep -qxF '.claude/' "$p/.gitignore"
+assert_false "tracked .okf/ is not re-ignored" grep -qxF '.okf/' "$p/.gitignore"
+assert_false "CLAUDE.md is still committable" git -C "$p" check-ignore -q CLAUDE.md
+assert_true "untracked local state stays ignored" git -C "$p" check-ignore -q .claude/ai-config/manifest.tsv
+
+# Shared mode commits .claude/settings.json and the hook; their '.claude/*' and '.claude/hooks/*'
+# companions must still be added, or every other file under .claude/ becomes committable.
+p=$(make_nuxt)
+git -C "$p" init -q
+echo 'node_modules' > "$p/.gitignore"
+run "$p" --force --no-superpowers --shared-policy >/dev/null
+git -C "$p" add -f .gitignore .claude/settings.json .claude/hooks/safety-guard.sh >/dev/null 2>&1
+git -C "$p" -c user.email=t@t -c user.name=t commit -qm shared >/dev/null 2>&1
+echo 'node_modules' > "$p/.gitignore"
+run "$p" --refresh --no-superpowers --shared-policy >/dev/null
+assert_true "'.claude/*' still added when shared files are tracked" grep -qxF '.claude/*' "$p/.gitignore"
+assert_true "'.claude/hooks/*' still added when the hook is tracked" grep -qxF '.claude/hooks/*' "$p/.gitignore"
+assert_true "unshared .claude/ files stay ignored" git -C "$p" check-ignore -q .claude/rules/x.md
+
+# ============================================================================
 echo -e "\n${CYAN}=== --uninstall ===${NC}\n"
 # ============================================================================
 
