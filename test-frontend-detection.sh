@@ -176,6 +176,22 @@ assert_eq "installed Tailwind version beats range" "css|3.4.19|theme/package.jso
 assert_eq "installed Alpine version beats range" "js-framework|3.16.2|theme/package.json" "$(lib "$out" alpine)"
 assert_eq "no node_modules entry → range version" "build|5.1.0|theme/package.json" "$(lib "$out" vite)"
 
+# ZURB-template layout: the whole front end is a folder named build/ with its own package.json
+# (CPS cfk: public/build/). A build/ folder without a package.json is still skipped as output.
+d=$(tmp_dir)
+mkdir -p "$d/public/build/node_modules/foundation-sites" "$d/public/build/src/assets/js" \
+  "$d/public/build/src/assets/scss" "$d/build/js" "$d/.claude/skills/brainstorming/scripts" "$d/.okf"
+echo '{"devDependencies":{"foundation-sites":"^6.6.0","jquery":"^3.5.1","sass":"^1.92.0"}}' > "$d/public/build/package.json"
+echo '{"name":"foundation-sites","version":"6.6.3"}' > "$d/public/build/node_modules/foundation-sites/package.json"
+echo '$(document).foundation();' > "$d/public/build/src/assets/js/app.js"
+echo '/* output */' > "$d/build/js/swiper-bundle.min.js"
+echo 'require("http").createServer();' > "$d/.claude/skills/brainstorming/scripts/server.js"
+out=$(bash "$DETECT" "$d")
+assert_eq "build/ workspace with package.json: Foundation (installed)" "css|6.6.3|public/build/package.json" "$(lib "$out" foundation)"
+assert_eq "build/ workspace with package.json: jQuery" "js-lib|3.5.1|public/build/package.json" "$(lib "$out" jquery)"
+assert_eq "build/ without package.json is still skipped" "" "$(lib "$out" swiper)"
+assert_false "agent config under .claude/ is not the site's code" contains "$out" ".claude"
+
 assert_eq "empty project → no output" "" "$(bash "$DETECT" "$(tmp_dir)")"
 
 # ============================================================================

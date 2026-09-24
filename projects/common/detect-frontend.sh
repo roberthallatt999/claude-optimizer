@@ -15,7 +15,8 @@
 # templates, and markup attributes (x-data, hx-get). CMS core and third-party folders are skipped
 # so the libraries they bundle aren't mistaken for the site's own: node_modules, vendor, EE
 # system/ee, themes/ee|user and add-ons, Craft cpresources, WordPress core and plugins, build
-# output, uploads, and caches. Only file names, package.json, and markup are read.
+# output (a build/ folder without a package.json), uploads, caches, and .claude/ agent config.
+# Only file names, package.json, and markup are read.
 #
 # Source of truth: claude-optimizer/projects/common/detect-frontend.sh
 # Tests:           claude-optimizer/test-frontend-detection.sh
@@ -30,11 +31,15 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 US=$'\037'
 
-# find(1) over the project, skipping dependencies, CMS core, third-party code, build output, caches.
+# find(1) over the project, skipping dependencies, CMS core, third-party code, build output, caches,
+# and agent config (.claude/ skill scripts are not the site's code). A build/ folder is output
+# unless it holds a package.json: the ZURB template keeps the whole front end in public/build/.
 project_find() {
   find "$project" -maxdepth 9 \( -type d \( -name node_modules -o -name vendor -o -name .git -o -name .ddev \
       -o -name .next -o -name .nuxt -o -name .output -o -name .svelte-kit -o -name .astro -o -name .cache \
-      -o -name cache -o -name dist -o -name build -o -name coverage -o -name storage -o -name uploads \
+      -o -name .claude -o -name .okf \
+      -o \( -name build ! -exec sh -c 'test -f "$1/package.json"' sh {} \; \) \
+      -o -name cache -o -name dist -o -name coverage -o -name storage -o -name uploads \
       -o -name cpresources -o -name wp-admin -o -name wp-includes -o -name plugins -o -name mu-plugins \
       -o -name addons -o -name tmp -o -name logs -o -path '*/system/ee' -o -path '*/themes/ee' \
       -o -path '*/themes/user' -o -path '*/web/wp' \) -prune \) -o "$@"
