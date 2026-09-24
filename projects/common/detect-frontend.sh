@@ -148,6 +148,12 @@ while IFS="$US" read -r id label category npm_re asset_re markup_re attr_re; do
     if [[ -n "$hit" ]]; then
       version=$(printf '%s' "$hit" | awk -F'\t' '{ if (match($2, /[0-9]+(\.[0-9]+)*/)) print substr($2, RSTART, RLENGTH) }')
       evidence=$(printf '%s' "$hit" | awk -F'\t' '{ print $3 }')
+      # A range like ^3.4.1 only names the floor; report what npm actually installed when we can.
+      installed="$project/$(dirname "$evidence")/node_modules/${hit%%$'\t'*}/package.json"
+      if [[ -f "$installed" ]]; then
+        installed=$(jq -r '.version // empty' "$installed" 2>/dev/null)
+        [[ -n "$installed" ]] && version="$installed"
+      fi
     fi
   fi
 

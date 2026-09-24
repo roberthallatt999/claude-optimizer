@@ -165,6 +165,17 @@ out=$(bash "$DETECT" "$d")
 assert_eq "vendored jQuery file with version" "js-lib|3.6.0|assets/js/jquery-3.6.0.min.js" "$(lib "$out" jquery)"
 assert_eq "vendored library not counted as first-party" "1|assets/js" "$(custom "$out" js)"
 
+# Installed version (node_modules beside the package.json) wins over the declared range
+d=$(tmp_dir)
+mkdir -p "$d/theme/node_modules/tailwindcss" "$d/theme/node_modules/alpinejs/node_modules/nested"
+echo '{"devDependencies":{"tailwindcss":"^3.4.1","vite":"^5.1.0"},"dependencies":{"alpinejs":"^3.13.5"}}' > "$d/theme/package.json"
+echo '{"name":"tailwindcss","version":"3.4.19"}' > "$d/theme/node_modules/tailwindcss/package.json"
+echo '{"name":"alpinejs","version":"3.16.2"}' > "$d/theme/node_modules/alpinejs/package.json"
+out=$(bash "$DETECT" "$d")
+assert_eq "installed Tailwind version beats range" "css|3.4.19|theme/package.json" "$(lib "$out" tailwind)"
+assert_eq "installed Alpine version beats range" "js-framework|3.16.2|theme/package.json" "$(lib "$out" alpine)"
+assert_eq "no node_modules entry → range version" "build|5.1.0|theme/package.json" "$(lib "$out" vite)"
+
 assert_eq "empty project → no output" "" "$(bash "$DETECT" "$(tmp_dir)")"
 
 # ============================================================================

@@ -1043,8 +1043,9 @@ write_frontend_block() {
       echo "- **$heading:** $text"
     done <<< "$lines"
     echo ""
-    echo "Detected from package.json files, template tags, and asset files. Work within this stack;"
-    echo "ask before introducing another CSS or JavaScript framework."
+    echo "Detected from package.json files, template tags, and asset files; versions are the installed"
+    echo "ones (node_modules) where present. Work within this stack; ask before introducing another"
+    echo "CSS or JavaScript framework."
     echo "<!-- END FRONTEND STACK -->"
   } > "$FRONTEND_BLOCK_FILE"
 }
