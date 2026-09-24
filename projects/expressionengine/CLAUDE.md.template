@@ -5,16 +5,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Stack Configuration
 
 @~/.claude/stacks/expressionengine.md
-@./.claude/libraries/tailwind.md
 @./.claude/libraries/html5.md
-@./.claude/libraries/vanilla-js.md
 
 ## Project Overview
 
 {{PROJECT_NAME}} is an ExpressionEngine 7.x website.
 
 - **CMS**: ExpressionEngine 7.x
-- **CSS**: Tailwind CSS (via PostCSS)
+- **Front end**: see *Front-End Stack (detected)* below — CSS/JS frameworks and versions come from the project
 - **Environment**: DDEV (Docker-based local dev)
 - **Database**: {{DDEV_DB_TYPE}}/{{DDEV_DB_VERSION}}
 - **PHP**: {{DDEV_PHP}}+
@@ -40,10 +38,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 │   ├── images/                # Static images
 │   ├── uploads/               # User uploads
 │   ├── themes/                # EE themes
-│   ├── src/                   # Source CSS/JS
-│   ├── tailwind.config.js     # Tailwind configuration
-│   ├── postcss.config.js      # PostCSS configuration
-│   ├── package.json           # Frontend dependencies
+│   ├── src/ or build/         # Front-end source and build config (check where package.json lives)
 │   ├── index.php              # Frontend entry
 │   └── eecp.php               # Control panel entry
 ├── system/
@@ -74,10 +69,9 @@ ddev describe                  # Show project info and URLs
 
 ### Frontend Build
 ```bash
-cd {{DDEV_DOCROOT}}
+# Run from the folder that holds package.json; script names vary, so check its "scripts"
 npm install                    # Install dependencies
-npm run dev                    # Development build with watch
-npm run build                  # Production build
+npm run                        # List the available build/watch scripts
 ```
 
 ### ExpressionEngine CLI
@@ -151,7 +145,6 @@ This site may have bilingual content (EN/FR). When working with templates:
 - Use `dynamic="no"` when URL segments shouldn't affect queries  
 - Cache heavy queries appropriately
 - Lazy load images below the fold
-- Keep Tailwind purge configuration updated
 
 ## Code Style
 
@@ -159,7 +152,7 @@ This site may have bilingual content (EN/FR). When working with templates:
 - HTML/CSS/JS: 2-space indentation
 - Use semantic HTML5 elements
 - Follow BEM for any custom CSS classes
-- Prefer Tailwind utilities over custom CSS
+- Work within the detected CSS framework; don't introduce another
 
 ## Context7 Integration
 
@@ -171,10 +164,10 @@ Use the Context7 MCP server for up-to-date library documentation and code exampl
 
 ### Example
 ```
-resolve-library-id("tailwindcss")
-→ Returns: /tailwindcss/tailwindcss
+resolve-library-id("<library name>")
+→ Returns: /<org>/<project>
 
-get-library-docs("/tailwindcss/tailwindcss", topic="configuration")
+get-library-docs("/<org>/<project>", topic="<topic>")
 → Returns: Current documentation
 ```
 
@@ -185,7 +178,7 @@ get-library-docs("/tailwindcss/tailwindcss", topic="configuration")
 - Keep a `SETUP_GUIDE.md` for complex features or add-ons
 
 ### Git Workflow
-- When finishing a feature branch: merge to `staging` first, then to `main`
+- When finishing a feature branch: merge to `{{GIT_INTEGRATION_BRANCH}}` first, then to `{{GIT_MAIN_BRANCH}}`
 - Delete the feature branch after successful merge to `main`
 - Always pull latest before starting new work
 
@@ -199,7 +192,7 @@ get-library-docs("/tailwindcss/tailwindcss", topic="configuration")
 ## First-Time Setup
 
 After running the setup script, use the `/project-analyze` command to have Claude scan this specific codebase and customize the configuration for:
-- Brand colors from tailwind.config.js
+- Brand colors from the SCSS/CSS variables or framework config
 - Actual npm scripts from package.json
 - Specific add-ons in use
 - Template organization patterns
@@ -209,12 +202,12 @@ After running the setup script, use the `/project-analyze` command to have Claud
 
 This project uses structured workflow skills for disciplined AI-assisted development.
 
-### Key Commands
-| Command | When to Use |
-|---------|-------------|
-| `/brainstorm` | Before building new features - design exploration |
-| `/write-plan` | After design approval - create implementation plan |
-| `/execute-plan` | With approved plan - batch execution with checkpoints |
+### Key Workflow Skills
+| Skill | When to Use |
+|-------|-------------|
+| `brainstorming` | Before building new features - design exploration |
+| `writing-plans` | After design approval - create implementation plan |
+| `executing-plans` | With approved plan - batch execution with checkpoints |
 
 ### Core Skills
 | Skill | When to Use |

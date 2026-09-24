@@ -243,6 +243,25 @@ printf '# KEEP\n' | cat - "$ee/CLAUDE.md" > "$ee/c.md" && mv "$ee/c.md" "$ee/CLA
 run "$ee" --uninstall >/dev/null
 assert_eq "uninstall strips the Front-End Stack block" "0" "$(grep -c '<!-- BEGIN FRONTEND STACK' "$ee/CLAUDE.md")"
 
+# cfk-shaped EE project: Foundation workspace in public/build/, a stray .DS_Store beside the
+# template group, and DDEV's two-line database block (type, then version).
+ee=$(tmp_dir)
+mkdir -p "$ee/.ddev" "$ee/system/ee" "$ee/system/user/templates/cfk/site.group" \
+  "$ee/public/build/node_modules/foundation-sites" "$ee/public/build/src/assets/scss"
+printf 'name: caringforkids\ntype: php\ndocroot: public\nphp_version: "8.2"\ndatabase:\n    type: mariadb\n    version: "10.6"\n' > "$ee/.ddev/config.yaml"
+touch "$ee/system/user/templates/.DS_Store"
+echo '{"devDependencies":{"foundation-sites":"^6.6.0","jquery":"^3.5.1","sass":"^1.92.0"}}' > "$ee/public/build/package.json"
+echo '{"name":"foundation-sites","version":"6.6.3"}' > "$ee/public/build/node_modules/foundation-sites/package.json"
+echo '<p>{exp:channel:entries channel="pages"}{title}{/exp:channel:entries}</p>' > "$ee/system/user/templates/cfk/site.group/index.html"
+run "$ee" --force >/dev/null
+assert_false "EE CLAUDE.md doesn't assume Tailwind" grep -qi 'tailwind' "$ee/CLAUDE.md"
+assert_false "EE CLAUDE.md doesn't assume PostCSS" grep -qi 'postcss' "$ee/CLAUDE.md"
+assert_true "block lists Foundation from public/build" grep -qF -- "- **CSS:** Foundation 6.6.3" "$ee/CLAUDE.md"
+assert_true "Foundation library reference added" grep -qF '.claude/libraries/foundation.md' "$ee/CLAUDE.md"
+assert_true "template group is the folder, not .DS_Store" grep -qF 'templates/cfk/' "$ee/CLAUDE.md"
+assert_false "no .DS_Store template group" grep -qF '.DS_Store' "$ee/CLAUDE.md"
+assert_true "DDEV database version read from the second line" grep -qF 'MariaDB/10.6' "$ee/CLAUDE.md"
+
 # ============================================================================
 echo ""
 echo -e "${CYAN}================================${NC}"

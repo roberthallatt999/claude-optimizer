@@ -949,13 +949,17 @@ detect_ddev_config() {
       DDEV_PRIMARY_URL="https://${DDEV_NAME}.ddev.site"
     fi
     
-    # Database detection (more complex due to nested structure)
+    # Database detection (more complex due to nested structure). DDEV writes `type:` then
+    # `version:` under `database:`, so read both lines; a trailing `|| echo` can't supply the
+    # default because the pipeline's status is tr's, so fall back explicitly when empty.
+    local db_version
+    db_version=$(grep -A2 "^database:" "$config_file" 2>/dev/null | grep "version:" | head -1 | sed 's/.*version:[[:space:]]*//' | tr -d "\"' " || true)
     if grep -q "type: mariadb" "$config_file" 2>/dev/null; then
       DDEV_DB_TYPE="MariaDB"
-      DDEV_DB_VERSION=$(grep -A1 "database:" "$config_file" 2>/dev/null | grep "version:" | sed 's/.*version:[[:space:]]*//' | tr -d '"' || echo "10.11")
+      DDEV_DB_VERSION="${db_version:-10.11}"
     elif grep -q "type: mysql" "$config_file" 2>/dev/null; then
       DDEV_DB_TYPE="MySQL"
-      DDEV_DB_VERSION=$(grep -A1 "database:" "$config_file" 2>/dev/null | grep "version:" | sed 's/.*version:[[:space:]]*//' | tr -d '"' || echo "8.0")
+      DDEV_DB_VERSION="${db_version:-8.0}"
     else
       DDEV_DB_TYPE="MariaDB"
       DDEV_DB_VERSION="10.11"
@@ -968,8 +972,8 @@ detect_ddev_config() {
 detect_template_group() {
   local templates_dir="$PROJECT_DIR/system/user/templates"
   if [[ -d "$templates_dir" ]]; then
-    # Find the first non-underscore directory (the main template group)
-    TEMPLATE_GROUP=$(find "$templates_dir" -mindepth 1 -maxdepth 1 ! -name '_*' -exec basename {} \; 2>/dev/null | LC_ALL=C sort | head -1 || true)
+    # Find the first non-underscore directory (the main template group); skip files like .DS_Store
+    TEMPLATE_GROUP=$(find "$templates_dir" -mindepth 1 -maxdepth 1 -type d ! -name '_*' ! -name '.*' -exec basename {} \; 2>/dev/null | LC_ALL=C sort | head -1 || true)
   fi
   return 0
 }
