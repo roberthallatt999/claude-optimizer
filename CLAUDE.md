@@ -227,6 +227,32 @@ readable text such as `(brand green: not set)` rather than a fake value.
 
 ## Recent Changes
 
+- **Remote servers and databases** — an SSH alias is not a safety boundary (staging and
+  production often share a host, a login and a database server), so `safety-guard.sh` now
+  parses every remote invocation instead of asking before every `ssh`. That covers `ssh`,
+  `scp`/`rsync`, `wp @alias`/`--ssh=`, `mysql`/`psql`/`mongosh`/`redis-cli` with a non-local
+  host, and any tool handed a remote database URI. The parser is one bash-3.2-safe awk pass
+  that follows quotes, heredocs, `bash -c`, `$(…)` and `VAR=…; $VAR`. It classifies the
+  commands a remote invocation would run: read-only and output-safe (defer), returns
+  contents/config/rows (ask: unscanned, may hold secrets or PII), write or unrecognised
+  (ask), or uninspectable (ask). Production is declared per project under `[remote]` in
+  `ai-config.conf` (paths, aliases, database names; matched longest-first, any production
+  marker wins), and a production write or uninspectable command is **denied**. The CLIs
+  covered span all 19 stacks (WP-CLI, artisan, craft, EE, drush, composer, npm, git,
+  systemctl, docker, curl, SQL/Mongo/Redis). A production environment flag (`--env=production`,
+  `NODE_ENV=production`, `.env.production`, …) and Sanity/Strapi data commands now ask.
+  The shared policy now allows `Bash(ssh:*)` (withdrawn on `--uninstall`), so read-only
+  checks stop prompting. The hook fails closed: with no `jq`/`python3` it asks before any
+  `ssh`. Server MySQL credential files (`.mysql*.cnf`, `.my*.cnf`) are secret paths, and
+  `--defaults-extra-file=` is exempt the way `ssh -i` is. `--doctor` probes every production
+  marker. Opt-in `assert-database = true` denies a staging write that doesn't run `SELECT DATABASE()`
+  first (for staging on a cloned production database). `ai-config.conf` edits ask like other
+  safety config. The always-on guardrails block gains
+  #4 (read freely, change nothing unprompted, prove the database). `--save-policy` keeps
+  `[remote]`; `--doctor` live-tests the production deny, or warns when a project uses SSH
+  without declaring production. Verified on BSD awk, mawk and gawk (gawk 5.2 double-frees an
+  unset array element passed to a function; `classify_wp` pre-sets them). Tests:
+  `test-remote-guard.sh`.
 - **Content scanning before read** — path rules only block what can be named, so
   `safety-guard.sh` now opens the file. `Read`/`Grep`, and Bash reading verbs (`cat`, `tail`,
   `grep`, `strings`, …), are checked for credential-shaped content before it reaches the
@@ -342,7 +368,7 @@ ai-config --project=. --no-claudeignore
 ai-config --uninstall --project=.
 
 # Record this project's policy in a committed ai-config.conf (stack, flags, decisions
-# path, files removed on purpose) so a fresh clone redeploys the tuned config
+# path, files removed on purpose, [remote] production targets) so a fresh clone redeploys the tuned config
 ai-config --save-policy --project=.
 
 # Health check (or --refresh) every ai-config project under a folder

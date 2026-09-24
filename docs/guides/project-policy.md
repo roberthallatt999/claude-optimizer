@@ -135,6 +135,60 @@ A path listed here is left entirely alone, whether it exists or not. Use it for 
   tracked simply won't exist — if you have rewritten a shipped file and want to keep it, commit
   it or use `[decisions]` instead of excluding it.
 
+### `[remote]`
+
+```ini
+[remote]
+production = /var/www/vhosts/example.org/members.example.org
+production = members_prod, websvr-members-prod, @production
+staging    = /var/www/vhosts/example.org/stg.members.example.org, members_stage
+```
+
+What production and staging look like inside a command: vhost paths, SSH host aliases,
+database names, WP-CLI `@aliases`. Values are case-insensitive substrings; repeat a key or
+separate values with commas; a trailing slash is ignored.
+
+`.claude/hooks/safety-guard.sh` reads this section directly on every Bash call. It parses
+each remote invocation (`ssh`, `scp`/`rsync`, `wp @alias`/`--ssh=`, a database client with a
+non-local host, any tool handed a remote database URI), following quotes, heredocs,
+`bash -c` and `VAR=…; $VAR` indirection. It then classifies what the command would run:
+
+| What the command does | Staging / undeclared | Production |
+|---|---|---|
+| Read-only, output-safe: versions, status, listings, `COUNT(*)`, hashes | runs | runs |
+| Returns contents: `cat`/`tail`, `wp option get`, `config get`, `SELECT` rows, logs | asks | asks |
+| Writes, or isn't recognised | asks | **denied** |
+| Can't be inspected: interactive shell, script file, `< file`, tunnel | asks | **denied** |
+
+Three rules decide the target:
+
+- **The alias isn't a boundary.** A command matches production if a production marker
+  appears anywhere in it: the host, the path, the database or a variable it assigns. The
+  staging alias with a production path is production.
+- **Longest marker first.** A staging path that contains the production one
+  (`stg.members.example.org` contains `members.example.org`) is matched as staging before
+  the production marker is tried, so it isn't mistaken for production.
+- **Production wins.** If any production marker remains, the command is production.
+
+"Runs" means the hook stops forcing a prompt for that command. The shared safety policy
+allows `Bash(ssh:*)`, so read-only checks then run unprompted while the hook keeps gating
+everything else. If the hook can't read the call (no `jq` or `python3` on PATH), it asks
+before any `ssh` rather than letting the allow rule through unchecked.
+Without a `[remote]` section the classifier still applies, but nothing counts as production,
+so remote writes ask instead of being denied.
+
+`assert-database = true` adds one rule for projects whose staging and production share a
+database server: a write to staging is **denied** unless the same command runs
+`SELECT DATABASE()` before it, so the target is proven, not assumed.
+
+Server-side MySQL credential files (`~/.mysql-<site>-prod.cnf`, `.my*.cnf`) are secrets:
+reading one is denied, while passing one to `mysql --defaults-extra-file=` is allowed.
+`--doctor` probes every production marker, and `--save-policy` warns about a marker that
+contains a space or `|`, since it could never match.
+
+Edits to `ai-config.conf` itself ask for confirmation, because this section is part of the
+safety policy.
+
 ## Health checks
 
 `ai-config --doctor --project=.` reports:
@@ -145,6 +199,10 @@ A path listed here is left entirely alone, whether it exists or not. Use it for 
   it
 - a `[decisions] path` that doesn't exist yet
 - `[exclude]` entries that are still present on disk (informational — they are left alone)
+- with `[remote] production` declared: a live test that the deployed hook denies a
+  production write, and any marker under 4 characters (it would match unrelated commands)
+- without it: a warning when `CLAUDE.md`, `MEMORY.md`, `.claude/` or `.okf/` show the
+  project using `ssh`/`rsync`/`scp`
 
 ## What it does not cover
 

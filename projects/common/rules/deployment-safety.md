@@ -13,7 +13,7 @@ paths:
 
 # Deployment & Production Safety
 
-Detail for guardrails #2 and #3 in `CLAUDE.md`. The harness asks before pushes,
+Detail for guardrails #2, #3 and #4 in `CLAUDE.md`. The harness asks before pushes,
 publishes, deploys, remote shells, cloud/infra CLIs, destructive git, and destructive
 SQL (`.claude/hooks/safety-guard.sh` plus `ask` rules). Approval is per action.
 
@@ -41,6 +41,33 @@ Needs explicit approval for the specific action:
 Treat a target as production unless confirmed otherwise: hostnames without
 `local`/`dev`/`staging`/`test`/`ddev.site`, `.env.production`, `--prod` flags, or
 live customer data.
+
+## Remote servers & databases (guardrail #4)
+
+The hook parses every remote invocation (`ssh`, `scp`/`rsync`, `wp @alias`/`--ssh=`,
+`mysql`/`psql`/`mongosh`/`redis-cli` with a non-local host, any tool given a remote
+database URI) and classifies the commands it would run:
+
+| What the command does | Staging / undeclared | Production |
+|---|---|---|
+| Read-only, output-safe: versions, status, listings, `COUNT(*)`, hashes | runs | runs |
+| Returns contents: `cat`/`tail`, `wp option get`, `config get`, `SELECT` rows, logs | asks | asks |
+| Writes, or isn't recognised | asks | **denied** |
+| Can't be inspected: interactive shell, `bash script.sh`, `< file`, tunnels | asks | **denied** |
+
+Production is whatever `ai-config.conf` declares:
+
+```ini
+[remote]
+production = /var/www/example.org, example_prod, prod-ssh-alias, @production
+staging    = /var/www/stg.example.org, example_stage
+assert-database = true   # optional: staging writes must run SELECT DATABASE() first
+```
+
+When a production change is needed, give the developer the exact command and let them
+run it (in Claude Code, prefixed with `!`). Don't split a command, move it into a script
+or pipe it through stdin to get past the check. Keep remote commands inline so they can
+be read: `ssh host 'bash -s' <<'EOF' … EOF` is inspected, `ssh host bash -s < file` is not.
 
 ## Asking for permission
 

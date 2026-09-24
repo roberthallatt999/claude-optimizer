@@ -213,6 +213,46 @@ out=$(run "$p" --save-policy)
 assert_true "a second run is a no-op" contains "$out" "already current"
 
 # ============================================================================
+echo -e "\n${CYAN}=== [remote] declares production for the safety hook ===${NC}\n"
+
+p=$(make_craft)
+run "$p" >/dev/null
+printf 'Deploy: ssh prod-web "cd /srv/site && git pull"\n' >> "$p/CLAUDE.md"
+out=$("$SETUP_SCRIPT" --project="$p" --doctor 2>&1)
+assert_true "doctor warns when SSH is used but no production is declared" contains "$out" "declares no production target"
+
+cat >> "$p/ai-config.conf" 2>/dev/null <<'EOF'
+[remote]
+production = /srv/site/, prod-web   # trailing slash is dropped
+staging = /srv/stg.site
+assert-database = yes
+bogus = x
+EOF
+out=$(run "$p" --refresh)
+assert_false "[remote] is a known section" contains "$out" "Unknown section '[remote]'"
+assert_true "an unknown [remote] key is reported" contains "$out" "unknown key 'bogus'"
+out=$("$SETUP_SCRIPT" --project="$p" --doctor 2>&1)
+assert_true "doctor proves the deployed hook denies a production write" contains "$out" "denies remote writes to production (2 production, 1 staging"
+
+deny=$(jq -n '{tool_name:"Bash", tool_input:{command:"ssh prod-web \"cd /srv/site && git pull\""}}' \
+  | CLAUDE_PROJECT_DIR="$p" bash "$p/.claude/hooks/safety-guard.sh" | jq -r '.hookSpecificOutput.permissionDecision')
+assert_eq "the deployed hook denies it for real" "deny" "$deny"
+alias_dec=$(jq -n '{tool_name:"Bash", tool_input:{command:"ssh prod-web \"cd /srv/stg.site && git pull\""}}' \
+  | CLAUDE_PROJECT_DIR="$p" bash "$p/.claude/hooks/safety-guard.sh" | jq -r '.hookSpecificOutput.permissionDecision')
+assert_eq "a staging path on the production alias still denies (alias is production)" "deny" "$alias_dec"
+
+run "$p" --save-policy >/dev/null
+assert_true "--save-policy keeps production markers" grep -qx "production = /srv/site" "$p/ai-config.conf"
+assert_true "--save-policy keeps staging markers" grep -qx "staging = /srv/stg.site" "$p/ai-config.conf"
+assert_true "--save-policy keeps assert-database" grep -qx "assert-database = true" "$p/ai-config.conf"
+out=$(run "$p" --save-policy)
+assert_true "and re-saving is a no-op" contains "$out" "already current"
+
+p=$(make_craft)
+run "$p" --save-policy >/dev/null
+assert_true "a new policy file shows a commented [remote] example" grep -q "^# production = " "$p/ai-config.conf"
+
+# ============================================================================
 echo ""
 echo -e "${CYAN}================================${NC}"
 echo -e "  ${GREEN}PASS${NC}: $PASS"

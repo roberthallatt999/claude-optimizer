@@ -176,6 +176,7 @@ assert_true "OKF bundle kept" test -f "$p/.okf/index.md"
 assert_eq "only the project's own deny rule remains" '["Read(**/team-secret.txt)"]' "$(jq -c '.permissions.deny' "$S")"
 assert_eq "policy ask rules removed" "0" "$(jq '(.permissions.ask // []) | length' "$S")"
 assert_true "project allow rule kept" jq -e '.permissions.allow | index("Bash(team-tool:*)") != null' "$S"
+assert_eq "policy ssh allow rule withdrawn" "false" "$(jq '(.permissions.allow // []) | index("Bash(ssh:*)") != null' "$S")"
 assert_eq "safety hook registration removed, project hook kept" "null|npx prettier --write" \
   "$(jq -r '"\(.hooks.PreToolUse)|\(.hooks.PostToolUse[0].hooks[0].command)"' "$S")"
 assert_true "removed files are in the backup" test -n "$(find "$p/.claude/ai-config/backups" -path '*/.claude/rules/deployment-safety.md' 2>/dev/null)"

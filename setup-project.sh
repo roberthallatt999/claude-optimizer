@@ -151,6 +151,9 @@ GIT_INTEGRATION_BRANCH=""
 #                managed Memory Protocol block and the memory rules.
 #   [exclude]    shipped files this project has deliberately removed, or taken ownership of.
 #                Never created, updated or staged.
+#   [remote]     production = / staging = markers (paths, host aliases, database names,
+#                WP-CLI @aliases). Read directly by .claude/hooks/safety-guard.sh on every
+#                Bash call: a remote command that changes a production target is denied.
 #
 # --save-policy writes the file from a project's current state, so a tuned project can be
 # captured and committed in one run.
@@ -161,6 +164,9 @@ POLICY_DECISIONS_PATH=""
 POLICY_EXCLUDE=()
 POLICY_OPTION_KEYS=()
 POLICY_OPTION_VALS=()
+POLICY_REMOTE_PROD=()        # [remote] production markers, as the hook will see them
+POLICY_REMOTE_STAGE=()       # [remote] staging markers
+POLICY_REMOTE_ASSERT_DB=""   # [remote] assert-database: a staging write must prove its database
 POLICY_SKIPPED=0             # files not written this run because [exclude] covers them
 DECISION_RECORD=""           # rendered clause for the managed memory-protocol blocks
 DECISION_LOCATION=""         # rendered path for {{DECISION_LOCATION}} in shipped rules
@@ -182,6 +188,40 @@ policy_bool() {
   esac
 }
 
+# policy_add_remote <key> <comma-separated values> — normalise [remote] markers exactly as
+# safety-guard.sh does (lowercase, trailing slashes dropped), so --doctor tests what the hook sees.
+policy_add_remote() {
+  local key v vals
+  key=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  case "$key" in
+    production|staging) ;;
+    assert-database)
+      POLICY_REMOTE_ASSERT_DB=$(policy_bool "$2")
+      [[ -n "$POLICY_REMOTE_ASSERT_DB" ]] \
+        || echo -e "  ${YELLOW}⚠${NC}  $POLICY_FILE_NAME [remote]: assert-database must be true or false — ignored"
+      return 0
+      ;;
+    *)
+      echo -e "  ${YELLOW}⚠${NC}  $POLICY_FILE_NAME [remote]: unknown key '$1' — use production, staging or assert-database"
+      return 0
+      ;;
+  esac
+  IFS=',' read -r -a vals <<< "$2"
+  for v in ${vals[@]+"${vals[@]}"}; do
+    v=$(printf '%s' "$v" | tr '[:upper:]' '[:lower:]')
+    v="${v#"${v%%[![:space:]]*}"}"
+    v="${v%"${v##*[![:space:]]}"}"
+    while [[ "$v" == */ && "$v" != / ]]; do v="${v%/}"; done
+    [[ -n "$v" ]] || continue
+    case "$v" in
+      *[[:space:]\|]*)
+        echo -e "  ${YELLOW}⚠${NC}  $POLICY_FILE_NAME [remote]: '$v' contains a space or '|' and will never match — separate values with commas"
+        ;;
+    esac
+    if [[ "$key" == production ]]; then POLICY_REMOTE_PROD+=("$v"); else POLICY_REMOTE_STAGE+=("$v"); fi
+  done
+}
+
 # load_project_policy — parse $PROJECT_DIR/ai-config.conf into the POLICY_* globals.
 # Never fatal: an unknown section or a malformed line is reported and skipped, so a typo in a
 # committed file can't block a deploy.
@@ -192,6 +232,9 @@ load_project_policy() {
   POLICY_EXCLUDE=()
   POLICY_OPTION_KEYS=()
   POLICY_OPTION_VALS=()
+  POLICY_REMOTE_PROD=()
+  POLICY_REMOTE_STAGE=()
+  POLICY_REMOTE_ASSERT_DB=""
   [[ -f "$POLICY_PATH" ]] || return 0
   POLICY_PRESENT=true
 
@@ -208,6 +251,7 @@ load_project_policy() {
       '[options]')   section=options;   continue ;;
       '[decisions]') section=decisions; continue ;;
       '[exclude]')   section=exclude;   continue ;;
+      '[remote]')    section=remote;    continue ;;
       '['*)
         echo -e "  ${YELLOW}⚠${NC}  Unknown section '$line' in $POLICY_FILE_NAME — ignored"
         section=""
@@ -215,7 +259,7 @@ load_project_policy() {
         ;;
     esac
     case "$section" in
-      options|decisions)
+      options|decisions|remote)
         case "$line" in
           *=*) ;;
           *)
@@ -227,7 +271,9 @@ load_project_policy() {
         val="${line#*=}"
         key="${key%"${key##*[![:space:]]}"}"
         val="${val#"${val%%[![:space:]]*}"}"
-        if [[ "$section" == decisions ]]; then
+        if [[ "$section" == remote ]]; then
+          policy_add_remote "$key" "$val"
+        elif [[ "$section" == decisions ]]; then
           if [[ "$key" == "path" ]]; then
             POLICY_DECISIONS_PATH="$val"
           else
@@ -806,6 +852,22 @@ save_project_policy() {
       } | grep -v '^$' | sort -u
     else
       echo "# (nothing removed yet — e.g. .claude/libraries/react.md)"
+    fi
+    echo ""
+    echo "[remote]"
+    echo "# What production and staging look like in a command: vhost paths, SSH host aliases,"
+    echo "# database names, WP-CLI @aliases. The safety hook denies any remote command that would"
+    echo "# change a production target, asks before other remote writes, and lets read-only"
+    echo "# checks through. Declare production even when it shares a server with staging."
+    if [[ ${#POLICY_REMOTE_PROD[@]} -gt 0 ]] || [[ ${#POLICY_REMOTE_STAGE[@]} -gt 0 ]]; then
+      local mk
+      for mk in ${POLICY_REMOTE_PROD[@]+"${POLICY_REMOTE_PROD[@]}"}; do echo "production = $mk"; done
+      for mk in ${POLICY_REMOTE_STAGE[@]+"${POLICY_REMOTE_STAGE[@]}"}; do echo "staging = $mk"; done
+      [[ -n "$POLICY_REMOTE_ASSERT_DB" ]] && echo "assert-database = $POLICY_REMOTE_ASSERT_DB"
+    else
+      echo "# production = /var/www/example.org"
+      echo "# production = prod-db-name, prod-ssh-alias"
+      echo "# staging = /var/www/stg.example.org"
     fi
   } > "$out"
 
@@ -1878,6 +1940,8 @@ apply_protected_paths() {
 # Source of truth: projects/common/security.settings.local.json + hooks/safety-guard.sh
 # Additive only — nothing the project already has is removed:
 #   permissions.deny / ask      policy entries appended (existing entries and order kept)
+#   permissions.allow           Bash(ssh:*) — read-only remote checks run unprompted; the hook
+#                               still asks/denies every remote write (see ai-config.conf [remote])
 #   hooks                       PreToolUse safety-guard.sh registered once; other hooks kept; the
 #                               managed entry's matcher follows the policy (e.g. MCP tools)
 #   enableAllProjectMcpServers  set to false only when the project hasn't set it
@@ -1941,7 +2005,8 @@ merge_security_policy() {
     | .enableAllProjectMcpServers = ($e.enableAllProjectMcpServers // false)
     | .permissions = (($e.permissions // {})
         | .deny = union(union($e.permissions.deny; $p.permissions.deny); $extra)
-        | .ask = union($e.permissions.ask; $p.permissions.ask))
+        | .ask = union($e.permissions.ask; $p.permissions.ask)
+        | if $p.permissions.allow then .allow = union($e.permissions.allow; $p.permissions.allow) else . end)
     | .hooks = ((.hooks // {}) | merge_hooks($p.hooks))
     | if $matcher then
         .hooks.PreToolUse |= map(if ([.hooks[]?.command | hook_key] | index([".claude/hooks/safety-guard.sh"])) != null then .matcher = $matcher else . end)
@@ -1951,19 +2016,20 @@ merge_security_policy() {
     return 0
   fi
 
-  local added_deny added_ask added_hooks overlapping matcher_changed
-  IFS=$'\t' read -r added_deny added_ask added_hooks overlapping matcher_changed < <(
+  local added_allow added_deny added_ask added_hooks overlapping matcher_changed
+  IFS=$'\t' read -r added_allow added_deny added_ask added_hooks overlapping matcher_changed < <(
     jq -rn --argjson a "$existing" --argjson b "$merged" --slurpfile p "$SECURITY_POLICY_FILE" "$JQ_SETTINGS_DEFS"'
       def n(x): (x // []) | length;
       def guard_matcher(s): ([(s | .hooks.PreToolUse[]?) | select(([.hooks[]?.command | hook_key] | index([".claude/hooks/safety-guard.sh"])) != null) | .matcher] | first) // "";
       [(($p[0].permissions.ask // []) + ($p[0].permissions.deny // []))[] | norm_rule] as $pol |
-      [ n($b.permissions.deny) - n($a.permissions.deny),
+      [ n($b.permissions.allow) - n($a.permissions.allow),
+        n($b.permissions.deny) - n($a.permissions.deny),
         n($b.permissions.ask) - n($a.permissions.ask),
         n($b.hooks.PreToolUse) - n($a.hooks.PreToolUse),
         ([($b.permissions.allow // [])[] | norm_rule | select(. as $r | any($pol[]; . == $r))] | length),
         (if guard_matcher($a) != "" and guard_matcher($a) != guard_matcher($b) then 1 else 0 end) ] | @tsv'
   )
-  local summary="+${added_deny} deny, +${added_ask} ask, +${added_hooks} PreToolUse hook"
+  local summary="+${added_allow} allow, +${added_deny} deny, +${added_ask} ask, +${added_hooks} PreToolUse hook"
   if [[ "$matcher_changed" == "1" ]]; then summary="$summary, hook matcher updated"; fi
 
   if [[ "$DRY_RUN" == true ]]; then
@@ -2742,6 +2808,44 @@ verify_deployment() {
       fi
     fi
   fi
+
+  # Remote servers: a production target declared in ai-config.conf [remote] is only worth
+  # anything if the deployed hook enforces it, so prove it with a production write.
+  local remote_refs="" mk short=0
+  if [[ ${#POLICY_REMOTE_PROD[@]} -gt 0 ]]; then
+    for mk in "${POLICY_REMOTE_PROD[@]}" ${POLICY_REMOTE_STAGE[@]+"${POLICY_REMOTE_STAGE[@]}"}; do
+      [[ ${#mk} -lt 4 ]] && short=$((short + 1))
+    done
+    [[ $short -gt 0 ]] && hc_warn "$short [remote] marker(s) in $POLICY_FILE_NAME are under 4 characters — they will match unrelated commands"
+    # Probe every production marker, in a real command shape: one malformed marker would
+    # otherwise pass on the strength of the others.
+    local unproven=""
+    for mk in "${POLICY_REMOTE_PROD[@]}"; do
+      [[ -x "$guard" ]] && jq -n --arg c "ssh ai-config-probe 'cd $mk/current && touch ai-config-probe'" \
+          '{tool_name:"Bash", tool_input:{command:$c}}' 2>/dev/null \
+        | (cd "$PROJECT_DIR" && CLAUDE_PROJECT_DIR="$PROJECT_DIR" bash "$guard" 2>/dev/null) \
+        | grep -q '"permissionDecision":"deny"' || unproven+="'$mk' "
+    done
+    if [[ -z "$unproven" ]]; then
+      hc_ok "safety-guard.sh denies remote writes to production (${#POLICY_REMOTE_PROD[@]} production, ${#POLICY_REMOTE_STAGE[@]} staging marker(s))"
+    else
+      hc_warn "safety-guard.sh did not deny a test production write naming ${unproven% } — run --refresh to update the hook, or check the marker in $POLICY_FILE_NAME [remote]"
+    fi
+  else
+    for f in "$claude_md" "$PROJECT_DIR/MEMORY.md" "$PROJECT_DIR/.claude/rules" "$PROJECT_DIR/.claude/commands" \
+             "$PROJECT_DIR/.claude/skills" "$PROJECT_DIR/.okf"; do
+      [[ -e "$f" ]] || continue
+      if grep -rqiE '(^|[^a-z0-9_-])(ssh|rsync|scp)[[:space:]]+[^[:space:]]*[a-z0-9]' "$f" 2>/dev/null; then
+        remote_refs+="${f#"$PROJECT_DIR"/} "
+      fi
+    done
+    if [[ -n "$remote_refs" ]]; then
+      hc_warn "Remote servers are used here (${remote_refs% }) but $POLICY_FILE_NAME declares no production target — production writes over SSH prompt instead of being blocked. Add production = <path, SSH alias or database> under [remote]"
+    else
+      hc_info "No production target declared ($POLICY_FILE_NAME [remote]); none needed while this project doesn't use remote servers"
+    fi
+  fi
+
   if [[ "$NO_CLAUDEIGNORE" != true && ! -f "$PROJECT_DIR/.claudeignore" ]]; then
     hc_info ".claudeignore not present (expected only with --no-claudeignore)"
   fi
@@ -3126,6 +3230,7 @@ do_uninstall() {
       | if .permissions then
           .permissions.deny = ((.permissions.deny // []) - $pol)
           | .permissions.ask = ((.permissions.ask // []) - $pol)
+          | if .permissions.allow then .permissions.allow -= ($p[0].permissions.allow // []) else . end
         else . end
       | if .hooks then
           .hooks |= (with_entries(.value = ((.value // [])

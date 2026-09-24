@@ -46,6 +46,7 @@ jobs:
           test-lifecycle.sh
           test-okf-memory.sh
           test-refresh-additive.sh
+          test-remote-guard.sh
           test-protected-paths.sh
           test-safety-guard.sh
           test-secret-scanning.sh
