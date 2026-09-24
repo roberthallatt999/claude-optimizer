@@ -38,6 +38,7 @@ This repository provides automated Claude Code configuration deployment across *
 - **[Superpowers](guides/superpowers.md)** - Workflow skills for systematic development
 - **[Conditional Deployment](guides/conditional-deployment.md)** - Technology detection and smart deployment
 - **[Updating Projects](guides/updating-projects.md)** - Refresh and update existing configurations
+- **[Project Policy](guides/project-policy.md)** - `ai-config.conf`: a project's committed say over its own config
 - **[MCP Integration](guides/mcp-integration.md)** - Connecting Supabase, GitHub, Cloudflare, and other MCP servers
 
 ## Reference

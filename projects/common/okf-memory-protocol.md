@@ -9,10 +9,11 @@ running record of what changed and why. Where this file mentions `MEMORY.md`, us
   needs — never the whole bundle. Quick self-contained questions don't need it.
 - **After a meaningful change** (feature, fix, refactor, config change), add one bullet under
   today's `## YYYY-MM-DD` heading in `.okf/log.md`.
-- **For durable knowledge** — a decision, convention, integration, or known issue — create or
-  update one concept file and link it from `.okf/index.md`. Set `type`, `title`,
-  `description`, and `generated: { by: claude-code/<model>, at: <ISO 8601> }`. Add a
-  `verified` entry (`human:<id>`) only when the developer confirms the concept.
+- **For durable knowledge** — a convention, integration, or known issue — create or update
+  one concept file and link it from `.okf/index.md`. Set `type`, `title`, `description`, and
+  `generated: { by: claude-code/<model>, at: <ISO 8601> }`. Add a `verified` entry
+  (`human:<id>`) only when the developer confirms the concept.
+- **After an architectural decision**, {{DECISION_RECORD}}.
 - **When the developer signals they're done**, update `.okf/handoff.md`.
 
 Never record secret values — variable names only. After editing the bundle, run

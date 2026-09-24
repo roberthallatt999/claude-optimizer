@@ -207,6 +207,8 @@ After running `ai-config --project=.`, your project will have:
 your-project/
 ├── CLAUDE.md                     # Generated from template (AGENTS.md too, with --with-openai)
 ├── MEMORY.md                     # Persistent memory bank (or .okf/ with --okf-memory)
+├── ai-config.conf                # Only with --save-policy — COMMIT THIS: stack, flags,
+│                                 # decisions path, files removed on purpose
 │
 ├── .claude/
 │   ├── settings.local.json       # Permissions, MCP config, merged safety policy + hooks
@@ -277,6 +279,7 @@ Files with `.template` extension contain template variables that get replaced du
 Documentation and configuration files:
 - `CLAUDE.md` - Project context
 - `MEMORY.md` - Persistent memory bank
+- `ai-config.conf` - Committed project policy (INI-style; see [Project Policy](../guides/project-policy.md))
 - Rules, agents, commands, skills
 
 ### JSON
@@ -311,6 +314,11 @@ MEMORY-ARCHIVE.md
 # VSCode (optional - some teams commit these)
 .vscode/
 ```
+
+`ai-config.conf` is the deliberate exception — it is worthless unless it is committed, because
+its whole job is to tell a fresh clone what this project decided. `setup-project.sh` adds a
+`!/ai-config.conf` re-include if a broader rule would otherwise ignore it. See
+[Project Policy](../guides/project-policy.md).
 
 `setup-project.sh` adds these entries itself (append-only) rather than requiring you to write
 them by hand. With `--okf-memory` it also adds `.okf/`; with a registered codegraph index,

@@ -27,6 +27,7 @@
 #   --install-deps      Install missing tools via the system package manager before deploying
 #   --shared-policy     Also write the safety policy to committed .claude/settings.json
 #   --uninstall         Remove ai-config from a project (additive-safe, backed up)
+#   --save-policy       Write ai-config.conf (committed project policy) from current state
 #
 
 set -e
@@ -76,6 +77,7 @@ OKF_MEMORY=false               # --okf-memory records project memory as an OKF b
 DOCTOR=false                   # --doctor runs the read-only prerequisite and health check, then exits
 INSTALL_DEPS=false             # --install-deps installs missing tools via the system package manager (and npm)
 SHARED_POLICY=false            # --shared-policy also writes the safety policy to committed .claude/settings.json (sticky)
+SAVE_POLICY=false              # --save-policy writes ai-config.conf from the project's current state
 UNINSTALL=false                # --uninstall removes ai-config from the project (everything removed is backed up)
 RUN_MODE=deploy                # deploy | refresh | uninstall — recorded in .claude/ai-config/version
 EFFORT_LEVEL=""                # Optional --effort=<low|medium|high|xhigh|max> → effortLevel in settings.local.json
@@ -128,8 +130,211 @@ BRAND_GREEN="" BRAND_BLUE="" BRAND_ORANGE="" BRAND_LIGHT_GREEN=""
 GIT_MAIN_BRANCH=""
 GIT_INTEGRATION_BRANCH=""
 
+
+
+# ============================================================================
+# Project Policy (ai-config.conf)
+# ============================================================================
+# Everything else ai-config writes lives in .claude/, CLAUDE.md, MEMORY.md or .okf/, and most
+# projects gitignore all four. That makes a deliberate local decision unreproducible: a pruned
+# library set, a decision log kept in a tracked file, a rule the project has taken over. The
+# evidence for those choices sits in the same ignored tree, so a fresh clone has no manifest,
+# no stickiness markers and no record of them — and the next run rebuilds the untuned default.
+#
+# ai-config.conf is the project's own say, at the project root, meant to be committed, and read
+# on every run before anything is written:
+#
+#   [options]    flags this project always wants (stack, okf-memory, orchestrator, …), so the
+#                stickiness that is otherwise inferred from ignored files survives a clone.
+#                An explicit command-line flag still wins.
+#   [decisions]  path = <file> — where architectural decisions are recorded. Rendered into the
+#                managed Memory Protocol block and the memory rules.
+#   [exclude]    shipped files this project has deliberately removed, or taken ownership of.
+#                Never created, updated or staged.
+#
+# --save-policy writes the file from a project's current state, so a tuned project can be
+# captured and committed in one run.
+POLICY_FILE_NAME="ai-config.conf"
+POLICY_PATH=""
+POLICY_PRESENT=false
+POLICY_DECISIONS_PATH=""
+POLICY_EXCLUDE=()
+POLICY_OPTION_KEYS=()
+POLICY_OPTION_VALS=()
+POLICY_SKIPPED=0             # files not written this run because [exclude] covers them
+DECISION_RECORD=""           # rendered clause for the managed memory-protocol blocks
+DECISION_LOCATION=""         # rendered path for {{DECISION_LOCATION}} in shipped rules
+DECISION_PATH_GLOB=""        # the same location as a rule "paths:" glob, "" when already listed
+CLI_FLAGS_SEEN=" "           # flags actually passed on the command line, for precedence
+
+# cli_flag_seen <--flag> — true when the user passed it, so the policy file must not override it.
+cli_flag_seen() {
+  case "$CLI_FLAGS_SEEN" in *" $1 "*) return 0 ;; esac
+  return 1
+}
+
+# policy_bool <value> — "true"/"false", or empty when the value isn't a boolean.
+policy_bool() {
+  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+    true|yes|on|1)  printf 'true' ;;
+    false|no|off|0) printf 'false' ;;
+    *)              printf '' ;;
+  esac
+}
+
+# load_project_policy — parse $PROJECT_DIR/ai-config.conf into the POLICY_* globals.
+# Never fatal: an unknown section or a malformed line is reported and skipped, so a typo in a
+# committed file can't block a deploy.
+load_project_policy() {
+  POLICY_PATH="$PROJECT_DIR/$POLICY_FILE_NAME"
+  POLICY_PRESENT=false
+  POLICY_DECISIONS_PATH=""
+  POLICY_EXCLUDE=()
+  POLICY_OPTION_KEYS=()
+  POLICY_OPTION_VALS=()
+  [[ -f "$POLICY_PATH" ]] || return 0
+  POLICY_PRESENT=true
+
+  local section="" line key val
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
+    case "$line" in '#'*|';'*) continue ;; esac
+    line="${line%% #*}"
+    line="${line%%$'\t'#*}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [[ -n "$line" ]] || continue
+    case "$line" in
+      '[options]')   section=options;   continue ;;
+      '[decisions]') section=decisions; continue ;;
+      '[exclude]')   section=exclude;   continue ;;
+      '['*)
+        echo -e "  ${YELLOW}⚠${NC}  Unknown section '$line' in $POLICY_FILE_NAME — ignored"
+        section=""
+        continue
+        ;;
+    esac
+    case "$section" in
+      options|decisions)
+        case "$line" in
+          *=*) ;;
+          *)
+            echo -e "  ${YELLOW}⚠${NC}  $POLICY_FILE_NAME [$section]: '$line' is not 'key = value' — ignored"
+            continue
+            ;;
+        esac
+        key="${line%%=*}"
+        val="${line#*=}"
+        key="${key%"${key##*[![:space:]]}"}"
+        val="${val#"${val%%[![:space:]]*}"}"
+        if [[ "$section" == decisions ]]; then
+          if [[ "$key" == "path" ]]; then
+            POLICY_DECISIONS_PATH="$val"
+          else
+            echo -e "  ${YELLOW}⚠${NC}  $POLICY_FILE_NAME [decisions]: unknown key '$key' — ignored"
+          fi
+        else
+          POLICY_OPTION_KEYS+=("$key")
+          POLICY_OPTION_VALS+=("$val")
+        fi
+        ;;
+      exclude)
+        POLICY_EXCLUDE+=("${line#./}")
+        ;;
+      *)
+        echo -e "  ${YELLOW}⚠${NC}  $POLICY_FILE_NAME: '$line' appears before any section — ignored"
+        ;;
+    esac
+  done < "$POLICY_PATH"
+  return 0
+}
+
+# apply_project_policy — the committed file supplies defaults; an explicit command-line flag
+# always wins, so `--no-superpowers` still beats `superpowers = true` in the file.
+apply_project_policy() {
+  [[ "$POLICY_PRESENT" == true ]] || return 0
+  local i key val b
+  for ((i = 0; i < ${#POLICY_OPTION_KEYS[@]}; i++)); do
+    key="${POLICY_OPTION_KEYS[$i]}"
+    val="${POLICY_OPTION_VALS[$i]}"
+    b="$(policy_bool "$val")"
+    case "$key" in
+      stack)   if ! cli_flag_seen --stack; then STACK="$val"; fi ;;
+      name)    if ! cli_flag_seen --name;  then PROJECT_NAME="$val"; fi ;;
+      slug)    if ! cli_flag_seen --slug;  then PROJECT_SLUG="$val"; fi ;;
+      effort)  if ! cli_flag_seen --effort; then EFFORT_LEVEL="$val"; fi ;;
+      okf-memory)
+        if [[ -n "$b" ]] && ! cli_flag_seen --okf-memory; then OKF_MEMORY="$b"; fi ;;
+      orchestrator)
+        if [[ -n "$b" ]] && ! cli_flag_seen --orchestrator; then WITH_ORCHESTRATOR="$b"; fi ;;
+      shared-policy)
+        if [[ -n "$b" ]] && ! cli_flag_seen --shared-policy; then SHARED_POLICY="$b"; fi ;;
+      with-openai)
+        if [[ -n "$b" ]] && ! cli_flag_seen --with-openai; then WITH_OPENAI="$b"; fi ;;
+      superpowers)
+        if [[ -n "$b" ]] && ! cli_flag_seen --no-superpowers && ! cli_flag_seen --with-superpowers; then
+          WITH_SUPERPOWERS="$b"
+        fi ;;
+      eager-libraries)
+        if [[ -n "$b" ]] && ! cli_flag_seen --eager-libraries; then EAGER_LIBRARIES="$b"; fi ;;
+      skip-vscode)
+        if [[ -n "$b" ]] && ! cli_flag_seen --skip-vscode; then SKIP_VSCODE="$b"; fi ;;
+      response-style)
+        if [[ "$b" == false ]] && ! cli_flag_seen --no-response-style; then NO_RESPONSE_STYLE=true; fi ;;
+      claudeignore)
+        if [[ "$b" == false ]] && ! cli_flag_seen --no-claudeignore; then NO_CLAUDEIGNORE=true; fi ;;
+      *)
+        echo -e "  ${YELLOW}⚠${NC}  $POLICY_FILE_NAME [options]: unknown key '$key' — ignored" ;;
+    esac
+  done
+  return 0
+}
+
+# policy_excluded <project-relative-path> — true when [exclude] covers it. Entries are
+# project-relative. A trailing slash or a bare directory name covers everything beneath it;
+# shell globs (".claude/libraries/*.md") are matched as patterns.
+policy_excluded() {
+  local rel="$1" pat
+  for pat in ${POLICY_EXCLUDE[@]+"${POLICY_EXCLUDE[@]}"}; do
+    [[ -n "$pat" ]] || continue
+    case "$pat" in
+      */) [[ "$rel" == "$pat"* ]] && return 0 ;;
+    esac
+    [[ "$rel" == "$pat" ]] && return 0
+    [[ "$rel" == "$pat"/* ]] && return 0
+    # shellcheck disable=SC2053  # unquoted on purpose: [exclude] entries may be globs
+    [[ "$rel" == $pat ]] && return 0
+  done
+  return 1
+}
+
+# resolve_decision_record — what the managed memory-protocol block and the memory rules say
+# about where architectural decisions belong. By default that is wherever project memory
+# already lives. [decisions] path overrides it, which is the whole point: a project that keeps
+# a tracked decision log under docs/ must not have every run send decisions back into .okf/.
+resolve_decision_record() {
+  if [[ -n "$POLICY_DECISIONS_PATH" ]]; then
+    DECISION_LOCATION="$POLICY_DECISIONS_PATH"
+    case "$POLICY_DECISIONS_PATH" in
+      */) DECISION_PATH_GLOB="${POLICY_DECISIONS_PATH}**" ;;
+      *)  DECISION_PATH_GLOB="$POLICY_DECISIONS_PATH" ;;
+    esac
+    DECISION_RECORD="record it in \`$POLICY_DECISIONS_PATH\` (context, decision, rationale, consequences), which is version-controlled — so decisions land through review like any other change. Do not put decisions in project memory"
+  elif [[ "$OKF_MEMORY" == true ]]; then
+    DECISION_LOCATION=".okf/"
+    DECISION_PATH_GLOB=".okf/**"
+    DECISION_RECORD="do the same with a \`type: Decision\` concept file, linked from \`.okf/index.md\`"
+  else
+    DECISION_LOCATION="MEMORY.md"
+    DECISION_PATH_GLOB=""   # already in every memory rule's paths:
+    DECISION_RECORD="add a short **Decision Log** entry to \`MEMORY.md\` (context, decision, rationale)"
+  fi
+}
+
 # Parse arguments
 while [[ $# -gt 0 ]]; do
+  # Record every flag the user actually passed, so ai-config.conf never overrides an explicit one.
+  CLI_FLAGS_SEEN+="${1%%=*} "
   case $1 in
     --stack=*)
       STACK="${1#*=}"
@@ -260,6 +465,10 @@ while [[ $# -gt 0 ]]; do
       UNINSTALL=true
       shift
       ;;
+    --save-policy)
+      SAVE_POLICY=true
+      shift
+      ;;
     -h|--help)
       echo "Usage: $0 --project=<path> [options]"
       echo ""
@@ -281,6 +490,10 @@ while [[ $# -gt 0 ]]; do
       echo "                    via brew/apt-get/dnf/yum/pacman/zypper/apk; asks first unless --force"
       echo "  --shared-policy   Also put the safety policy in committed .claude/settings.json for teammates"
       echo "  --uninstall       Remove ai-config from the project (edited files kept; all removals backed up)"
+      echo "  --save-policy     Write ai-config.conf from the project's current state, then exit."
+      echo "                    Commit it: it records the stack, the flags this project wants,"
+      echo "                    where decisions are logged, and the files you removed on purpose,"
+      echo "                    so a fresh clone redeploys the tuned config instead of the default"
       echo ""
       echo "Superpowers Skills (enabled by default):"
       echo "  --no-superpowers        Disable Superpowers skills system"
@@ -339,6 +552,15 @@ PROJECT_DIR="$(cd "$PROJECT_DIR" 2>/dev/null && pwd)" || {
   echo -e "${RED}Error: Project directory does not exist: $PROJECT_DIR${NC}"
   exit 1
 }
+
+# Read the project's own committed policy before anything else looks at the project. It can
+# supply the stack and the sticky flags, which otherwise have to be inferred from .claude/ and
+# .okf/ — gitignored in most projects, and therefore absent from a fresh clone.
+load_project_policy
+apply_project_policy
+if [[ "$POLICY_PRESENT" == true ]]; then
+  echo -e "${CYAN}Project policy: ${GREEN}$POLICY_FILE_NAME${NC} (${#POLICY_OPTION_KEYS[@]} option(s), ${#POLICY_EXCLUDE[@]} exclusion(s))"
+fi
 
 # Auto-detect stack if not specified
 if [[ -z "$STACK" ]]; then
@@ -502,6 +724,123 @@ fi
 if [[ -z "$PROJECT_SLUG" ]]; then
   PROJECT_SLUG="$(basename "$PROJECT_DIR" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')"
 fi
+
+# missing_shipped_paths — every path the manifest says ai-config installed that is no longer on
+# disk. Under the additive model a missing file is re-added on the next run, so these are exactly
+# the removals that need recording. A skill whose whole directory is gone collapses to one entry
+# instead of the hundreds of files underneath it.
+missing_shipped_paths() {
+  [[ -f "$MANIFEST_FILE" ]] || return 0
+  local rel skill
+  cut -f1 "$MANIFEST_FILE" | sort -u | while IFS= read -r rel; do
+    [[ -n "$rel" ]] || continue
+    case "$rel" in .claude/ai-config/*) continue ;; esac
+    [[ -e "$PROJECT_DIR/$rel" ]] && continue
+    case "$rel" in
+      .claude/skills/*/*)
+        skill="${rel#.claude/skills/}"
+        skill="${skill%%/*}"
+        if [[ ! -d "$PROJECT_DIR/.claude/skills/$skill" ]]; then
+          echo ".claude/skills/$skill/"
+          continue
+        fi
+        ;;
+    esac
+    echo "$rel"
+  done | sort -u
+}
+
+# save_project_policy — write ai-config.conf from the project's current state.
+# It captures precisely what a fresh clone loses today: the stack and sticky flags (inferred
+# from ignored files), where decisions are recorded, and the files removed on purpose.
+# Hand-written values in an existing file are kept — [exclude] is a union, never a replacement.
+save_project_policy() {
+  local out dest removed extra pat
+  dest="$PROJECT_DIR/$POLICY_FILE_NAME"
+  out=$(mktemp)
+  removed=$(missing_shipped_paths)
+
+  {
+    echo "# ai-config.conf — this project's configuration policy. Commit this file."
+    echo "#"
+    echo "# ai-config reads it on every run, before it writes anything. Everything else it"
+    echo "# produces (.claude/, CLAUDE.md, MEMORY.md, .okf/) is normally gitignored, so without"
+    echo "# this file a fresh clone redeploys the stock config and silently undoes local"
+    echo "# decisions: a curated library set returns, a relocated decision log moves back."
+    echo "#"
+    echo "# Written by: ai-config --save-policy"
+    echo "# Written at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "# Safe to edit by hand; re-running --save-policy keeps what is here and adds to it."
+    echo ""
+    echo "[options]"
+    echo "# Flags this project always wants. An explicit command-line flag still wins."
+    echo "stack = $STACK"
+    [[ "$OKF_MEMORY" == true ]]       && echo "okf-memory = true"
+    [[ "$WITH_ORCHESTRATOR" == true ]] && echo "orchestrator = true"
+    [[ "$SHARED_POLICY" == true ]]    && echo "shared-policy = true"
+    [[ -f "$PROJECT_DIR/AGENTS.md" ]] && echo "with-openai = true"
+    [[ "$WITH_SUPERPOWERS" == false ]] && echo "superpowers = false"
+    [[ "$EAGER_LIBRARIES" == true ]]  && echo "eager-libraries = true"
+    [[ "$NO_RESPONSE_STYLE" == true ]] && echo "response-style = false"
+    [[ "$NO_CLAUDEIGNORE" == true ]]  && echo "claudeignore = false"
+    [[ -n "$EFFORT_LEVEL" ]]          && echo "effort = $EFFORT_LEVEL"
+    echo ""
+    echo "[decisions]"
+    if [[ -n "$POLICY_DECISIONS_PATH" ]]; then
+      echo "# Architectural decisions are recorded here, not in project memory. Re-applied to the"
+      echo "# managed Memory Protocol block on every run, so it cannot drift back."
+      echo "path = $POLICY_DECISIONS_PATH"
+    else
+      echo "# Uncomment to keep architectural decisions in a tracked file instead of project"
+      echo "# memory. The managed Memory Protocol block and the memory rules follow this path."
+      echo "# path = docs/decisions.md"
+    fi
+    echo ""
+    echo "[exclude]"
+    echo "# Files ai-config ships that this project has removed on purpose, or taken over."
+    echo "# Never created, updated or staged — the one case where 'missing' does not mean 'add'."
+    if [[ -n "$removed" ]] || [[ ${#POLICY_EXCLUDE[@]} -gt 0 ]]; then
+      {
+        printf '%s\n' ${POLICY_EXCLUDE[@]+"${POLICY_EXCLUDE[@]}"}
+        [[ -n "$removed" ]] && printf '%s\n' "$removed"
+      } | grep -v '^$' | sort -u
+    else
+      echo "# (nothing removed yet — e.g. .claude/libraries/react.md)"
+    fi
+  } > "$out"
+
+  if [[ "$DRY_RUN" == true ]]; then
+    echo -e "  ${YELLOW}[DRY-RUN]${NC} Would write $POLICY_FILE_NAME:"
+    sed 's/^/      /' "$out"
+    rm -f "$out"
+    return 0
+  fi
+
+  # The timestamp alone must not rewrite a committed file — that would put a spurious diff in
+  # every run's working tree. Compare the content that matters.
+  if [[ -f "$dest" ]] \
+    && diff -q <(grep -v '^# Written at:' "$out") <(grep -v '^# Written at:' "$dest") >/dev/null 2>&1; then
+    echo -e "  ${GREEN}✓${NC} $POLICY_FILE_NAME already current"
+    rm -f "$out"
+    return 0
+  fi
+  [[ -f "$dest" ]] && backup_file "$dest"
+  cat "$out" > "$dest"
+  rm -f "$out"
+
+  extra=$(grep -c . <<< "$removed")
+  [[ -n "$removed" ]] || extra=0
+  echo -e "  ${GREEN}✓${NC} Wrote $POLICY_FILE_NAME (stack=$STACK, $extra removed file(s) recorded)"
+
+  if git -C "$PROJECT_DIR" rev-parse --git-dir &>/dev/null; then
+    if git -C "$PROJECT_DIR" check-ignore -q "$POLICY_FILE_NAME" 2>/dev/null; then
+      echo -e "  ${YELLOW}⚠${NC}  .gitignore ignores $POLICY_FILE_NAME — it must be committed to be worth anything"
+    elif ! git -C "$PROJECT_DIR" ls-files --error-unmatch "$POLICY_FILE_NAME" &>/dev/null; then
+      echo -e "  ${CYAN}○${NC} Commit it:  git add $POLICY_FILE_NAME"
+    fi
+  fi
+  return 0
+}
 
 # ============================================================================
 # Project Detection Functions
@@ -952,6 +1291,13 @@ install_file() {
   local src="$1" dest="$2" history_src="${3:-$1}" rel
   rel=$(rel_path "$dest")
 
+  # ai-config.conf [exclude]: the project has removed this file on purpose, or taken it over.
+  # Not created, not updated, not staged — the one case where "missing" is not "add".
+  if policy_excluded "$rel"; then
+    POLICY_SKIPPED=$((POLICY_SKIPPED + 1))
+    return 0
+  fi
+
   if [[ ! -e "$dest" ]]; then
     if [[ "$DRY_RUN" == true ]]; then
       echo -e "  ${YELLOW}[DRY-RUN]${NC} Add $rel"
@@ -1009,6 +1355,11 @@ install_rendered() {
   local template="$1" dest="$2" rel name
   rel=$(rel_path "$dest")
   name=$(basename "$dest")
+
+  if policy_excluded "$rel"; then
+    POLICY_SKIPPED=$((POLICY_SKIPPED + 1))
+    return 0
+  fi
 
   if [[ "$DRY_RUN" == true ]]; then
     if [[ ! -f "$dest" ]]; then
@@ -1088,6 +1439,12 @@ apply_pending_updates() {
   while IFS= read -r f; do
     rel="${f#"$PENDING_DIR"/}"
     dest="$PROJECT_DIR/$rel"
+    # A path excluded since this version was staged: drop the stale staging, don't adopt it.
+    if policy_excluded "$rel"; then
+      [[ "$DRY_RUN" == true ]] || rm -f "$f"
+      POLICY_SKIPPED=$((POLICY_SKIPPED + 1))
+      continue
+    fi
     if [[ "$DRY_RUN" == true ]]; then
       echo -e "  ${YELLOW}[DRY-RUN]${NC} Replace $rel with its staged version"
       continue
@@ -1122,6 +1479,9 @@ finish_additive_run() {
     return 0
   fi
   echo -e "${CYAN}Additive update summary:${NC} ${COUNT_ADDED} added, ${COUNT_UPDATED} updated (unedited), ${COUNT_KEPT} kept with your edits"
+  if [[ $POLICY_SKIPPED -gt 0 ]]; then
+    echo "  ${POLICY_SKIPPED} file(s) left alone — $POLICY_FILE_NAME [exclude] covers them"
+  fi
   if [[ $COUNT_BACKED_UP -gt 0 ]]; then
     echo "  Previous versions of ${COUNT_BACKED_UP} modified file(s): .claude/ai-config/backups/$RUN_STAMP/"
   fi
@@ -1197,6 +1557,7 @@ do_mkdir() {
 render_template() {
   local src="$1"
   local dest="$2"
+  resolve_decision_record
   # First pass: variable substitution
   sed -e "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" \
       -e "s/{{PROJECT_SLUG}}/$PROJECT_SLUG/g" \
@@ -1211,7 +1572,12 @@ render_template() {
       -e "s/{{TEMPLATE_GROUP}}/${TEMPLATE_GROUP:-$PROJECT_SLUG}/g" \
       -e "s/{{GIT_MAIN_BRANCH}}/${GIT_MAIN_BRANCH:-main}/g" \
       -e "s/{{GIT_INTEGRATION_BRANCH}}/${GIT_INTEGRATION_BRANCH:-main}/g" \
+      -e "s|{{DECISION_LOCATION}}|${DECISION_LOCATION}|g" \
       "$src" > "$dest"
+  if [[ -n "$DECISION_PATH_GLOB" ]]; then
+    sed_inplace -e "s|{{DECISION_PATHS}}|  - \"$DECISION_PATH_GLOB\"|" "$dest"
+  fi
+  perl -i -pe 's/^\s*\{\{DECISION_PATHS\}\}\n//' "$dest"
 
   # Brand colors are substituted only when known — never guessed.
   local var value
@@ -1805,15 +2171,41 @@ append_safety_policy() {
   append_managed_block "$1" "$SCRIPT_DIR/projects/common/safety-guardrails.md" "SAFETY GUARDRAILS" "Operational Safety Guardrails"
 }
 
+# render_protocol_template <src> <out> — resolve the {{DECISION_*}} placeholders in a
+# memory-protocol block. Kept separate from render_template: these blocks are appended to an
+# existing CLAUDE.md rather than rendered from a stack template.
+render_protocol_template() {
+  resolve_decision_record
+  DR="$DECISION_RECORD" DL="$DECISION_LOCATION" perl -pe '
+    s/\{\{DECISION_RECORD\}\}/$ENV{DR}/g;
+    s/\{\{DECISION_LOCATION\}\}/$ENV{DL}/g;
+  ' "$1" > "$2"
+}
+
 # Read project memory before substantive work; log meaningful changes and decisions to it.
 # With --okf-memory the OKF protocol (.okf/ bundle) replaces the MEMORY.md protocol block.
+# Where decisions go is the project's call: ai-config.conf [decisions] path redirects them to a
+# tracked file, and is re-applied on every run so the block can't drift back to project memory.
 append_memory_policy() {
+  local src rendered
   if [[ "$OKF_MEMORY" == true ]]; then
+    src="$SCRIPT_DIR/projects/common/okf-memory-protocol.md"
     if [[ "$DRY_RUN" != true && -f "$1" ]]; then remove_managed_block "$1" "MEMORY PROTOCOL"; fi
-    append_managed_block "$1" "$SCRIPT_DIR/projects/common/okf-memory-protocol.md" "OKF MEMORY PROTOCOL" "OKF Memory Protocol"
   else
-    append_managed_block "$1" "$SCRIPT_DIR/projects/common/memory-protocol.md" "MEMORY PROTOCOL" "Project Memory Protocol"
+    src="$SCRIPT_DIR/projects/common/memory-protocol.md"
   fi
+  if [[ ! -f "$src" ]]; then
+    echo -e "  ${YELLOW}○${NC} Memory Protocol template not found — skipping"
+    return 0
+  fi
+  rendered=$(mktemp)
+  render_protocol_template "$src" "$rendered"
+  if [[ "$OKF_MEMORY" == true ]]; then
+    append_managed_block "$1" "$rendered" "OKF MEMORY PROTOCOL" "OKF Memory Protocol"
+  else
+    append_managed_block "$1" "$rendered" "MEMORY PROTOCOL" "Project Memory Protocol"
+  fi
+  rm -f "$rendered"
 }
 
 # Front-End Stack block (what detection found); removed when nothing front-end is detected.
@@ -2197,8 +2589,33 @@ verify_deployment() {
   local guard="$PROJECT_DIR/.claude/hooks/safety-guard.sh"
   local claude_md="$PROJECT_DIR/CLAUDE.md"
   local missing count rule report choice import target server shared f deployed current
+  local gone stale pat
   HC_FAILURES=0
   HC_WARNINGS=0
+
+  # Project policy — the only piece of this configuration that a fresh clone can rely on.
+  if [[ "$POLICY_PRESENT" == true ]]; then
+    hc_ok "$POLICY_FILE_NAME present (${#POLICY_OPTION_KEYS[@]} option(s), ${#POLICY_EXCLUDE[@]} exclusion(s))"
+    if git -C "$PROJECT_DIR" rev-parse --git-dir &>/dev/null \
+      && ! git -C "$PROJECT_DIR" ls-files --error-unmatch "$POLICY_FILE_NAME" &>/dev/null; then
+      hc_warn "$POLICY_FILE_NAME is not committed — a fresh clone will redeploy the default config"
+    fi
+    if [[ -n "$POLICY_DECISIONS_PATH" && ! -e "$PROJECT_DIR/$POLICY_DECISIONS_PATH" ]]; then
+      hc_warn "$POLICY_FILE_NAME [decisions] path '$POLICY_DECISIONS_PATH' does not exist yet"
+    fi
+    for pat in ${POLICY_EXCLUDE[@]+"${POLICY_EXCLUDE[@]}"}; do
+      if [[ -e "$PROJECT_DIR/$pat" ]]; then
+        hc_info "[exclude] '$pat' still exists — ai-config leaves it entirely alone"
+      fi
+    done
+  else
+    gone=$(missing_shipped_paths | grep -c . || true)
+    if [[ "${gone:-0}" -gt 0 ]]; then
+      hc_warn "$gone shipped file(s) removed on purpose but not recorded — a redeploy re-adds them; run: ai-config --save-policy --project=$PROJECT_DIR"
+    else
+      hc_info "No $POLICY_FILE_NAME — stack and flags are inferred from .claude/, which is usually gitignored"
+    fi
+  fi
 
   # Tools
   missing=$(missing_required_tools)
@@ -3011,6 +3428,12 @@ update_gitignore() {
   fi
   if [[ "$OKF_MEMORY" == true ]]; then claude_entries+=(".okf/"); fi
   if [[ "$CODE_INDEX" == true ]]; then claude_entries+=(".codegraph/"); fi
+  # ai-config.conf is the one file here that is worthless unless it is committed. A broad
+  # ignore rule elsewhere in the project would silently defeat it, so re-include it explicitly.
+  if [[ -f "$PROJECT_DIR/$POLICY_FILE_NAME" ]] \
+    && git -C "$PROJECT_DIR" check-ignore -q "$POLICY_FILE_NAME" 2>/dev/null; then
+    claude_entries+=("!/$POLICY_FILE_NAME")
+  fi
   local claude_added=()
   local claude_skipped=()
 
@@ -3405,6 +3828,14 @@ fi
 CODE_INDEX=false
 if code_index_ready && command -v claude &>/dev/null; then
   CODE_INDEX=true
+fi
+
+# --save-policy: capture the project's tuned state into the committed ai-config.conf, then stop.
+# Runs here so it sees the stack and the sticky flags after they have been resolved.
+if [[ "$SAVE_POLICY" == true ]]; then
+  echo -e "${BLUE}Saving project policy...${NC}"
+  save_project_policy
+  exit 0
 fi
 
 # --doctor: read-only prerequisite and health check of an already-deployed project

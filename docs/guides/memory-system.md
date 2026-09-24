@@ -114,6 +114,18 @@ Not trivial edits — a feature, fix, refactor, or config change gets one row in
 
 Add a short **Decision Log** entry: context, decision, rationale.
 
+Decisions are the one part of project memory that is usually worth version-controlling: they
+are not reproducible from the code, and `MEMORY.md` / `.okf/` are gitignored in most projects.
+To keep them in a tracked file instead, set `[decisions] path` in `ai-config.conf`:
+
+```ini
+[decisions]
+path = docs/decisions.md
+```
+
+The managed Memory Protocol block and the memory rules are re-rendered from that path on every
+run, so the redirect can't drift back. See [Project Policy](project-policy.md#decisions).
+
 ### When the Developer Signals They're Done
 
 Update **Session Handoff** with unfinished work and next steps.

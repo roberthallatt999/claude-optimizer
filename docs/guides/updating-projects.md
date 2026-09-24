@@ -128,6 +128,20 @@ policy/hooks are pulled back out of `settings.local.json` (and `.claude/settings
 you edited, `MEMORY.md`, and the `.okf/` bundle are kept. Everything removed or changed is backed
 up first. See [Setup Script → --uninstall](setup-script.md#--uninstall) for the full breakdown.
 
+### Recording What This Project Decided
+
+A refresh respects your curation, but a *fresh deploy* — a new machine, a teammate, a rebuilt
+container — does not, because the evidence sits in gitignored files. Record it once:
+
+```bash
+ai-config --save-policy --project=.
+git add ai-config.conf && git commit -m "chore: record ai-config project policy"
+```
+
+`ai-config.conf` carries the stack, the flags this project wants, where decisions are logged,
+and the files you removed on purpose. `--doctor` warns when removals aren't recorded yet or the
+file isn't committed. See [Project Policy](project-policy.md).
+
 ### Sharing the Safety Policy with Teammates
 
 By default everything ai-config writes is gitignored, so the safety policy only protects you.

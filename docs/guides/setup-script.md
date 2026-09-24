@@ -271,12 +271,41 @@ This means a refresh never silently re-introduces a library you intentionally
 curated away — the kind of change that previously required re-running analysis to
 undo.
 
+A **fresh deploy** is a different matter: it has nothing to curate against, so it installs the
+full set. Record the pruning in `ai-config.conf` (`ai-config --save-policy --project=.`) and it
+holds on a fresh deploy and a fresh clone as well — see [Project Policy](project-policy.md).
+
 **Example:**
 ```bash
 ai-config --refresh --project=/path/to/project
 ```
 
 **Note:** Specify `--stack` for refresh if auto-detection fails.
+
+### --save-policy
+
+Write `ai-config.conf` — the project's own, committed record of its AI configuration policy —
+from the project's current state, then exit without deploying.
+
+```bash
+ai-config --save-policy --project=.
+git add ai-config.conf && git commit -m "chore: record ai-config project policy"
+```
+
+It captures exactly what a fresh clone would otherwise lose, because the evidence for it lives
+in gitignored files:
+
+- `[options]` — the stack and the flags now in effect (`okf-memory`, `orchestrator`,
+  `shared-policy`, `with-openai`, `effort`, …), which are otherwise inferred from `.okf/`,
+  `.claude/settings.json` and `settings.local.json`
+- `[decisions] path` — kept from an existing file; a location can be recorded, not detected
+- `[exclude]` — every file the manifest says ai-config installed that is no longer on disk,
+  i.e. removed on purpose
+
+Re-running is safe: hand-written values are kept, new exclusions are added, and a run that
+finds nothing new leaves the file untouched. `--dry-run` prints the file instead of writing it.
+
+Full reference: [Project Policy](project-policy.md).
 
 ### --force
 

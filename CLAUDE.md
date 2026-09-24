@@ -261,6 +261,20 @@ readable text such as `(brand green: not set)` rather than a fake value.
   hook against a test dump; `--uninstall` withdraws the rules using the conf the project was actually
   deployed with. Tests: `test-protected-paths.sh`.
 - **Every stack rule now deploys** — the rule copy step only knew a fixed list of file names, so 12 shipped stack rules never reached a project (`sveltekit-patterns`, `nuxt-patterns`, `astro-patterns` ×2, `sanity-patterns`, `strapi-patterns`, `craft-graphql` ×2, `laravel-api`, `wordpress-coding-standards`, `wordpress-security`, custom's `coding-standards`). `stack_rule_sources()` now copies every file in a stack's `rules/` except the detection-gated `tailwind-css`/`alpinejs`/`bilingual-content`, plus the shared, now path-scoped `typescript-patterns.md` (when `tsconfig.json` exists), `design-system.md` and `api-design.md` (JS-framework stacks). `--refresh` adds rules older versions never deployed when they're missing and absent from the manifest; rules deleted on purpose stay deleted. Tests: `test-refresh-additive.sh`.
+- **Project policy (`ai-config.conf`)** — a committed, project-root file that ai-config reads on
+  every run, before it writes anything. It exists because every other thing ai-config produces
+  (`.claude/`, `CLAUDE.md`, `MEMORY.md`, `.okf/`) is gitignored in most projects, so a fresh
+  clone had no manifest and no stickiness markers and silently rebuilt the stock config —
+  re-adding pruned library references, sending a relocated decision log back into `MEMORY.md` /
+  `.okf/`, and dropping `--okf-memory` / `--orchestrator` / `--shared-policy`. `[options]`
+  supplies the stack and those flags (an explicit CLI flag still wins); `[decisions] path`
+  redirects architectural decisions to a tracked file and is re-rendered into the managed Memory
+  Protocol block and the memory rules (including their `paths:` frontmatter) on every run, so it
+  can't drift back; `[exclude]` lists shipped files removed on purpose or taken over, the one
+  case where "missing" does not mean "add". `--save-policy` writes the file from a project's
+  current state (union with what's already there, no timestamp churn); `--doctor` flags an
+  uncommitted policy file and removals that aren't recorded yet. Malformed lines are reported,
+  never fatal. Tests: `test-project-policy.sh`. Guide: `docs/guides/project-policy.md`.
 - **Front-end stack detection** — `projects/common/detect-frontend.sh` replaces the Tailwind/Foundation/SCSS/Alpine-only checks with a 50+ entry catalog (CSS frameworks and tooling, UI kits, JS frameworks and libraries, build tools, TypeScript), read from every `package.json` (theme folders included), vendored asset names, CDN/`wp_enqueue` references, and `x-data`/`hx-*` markup, with versions and evidence. CMS core and third-party folders are skipped. Projects without a framework are reported as "custom JavaScript/CSS, no framework detected" with file counts; vanilla JS is no longer assumed whenever Tailwind/Foundation/Alpine are absent. Results go to the scan summary, a deterministic **Front-End Stack** managed block in `CLAUDE.md`/`AGENTS.md`, discovery mode, and new Bootstrap/Bulma/jQuery/Material UI/Foundation/vanilla-JS library references. Tests: `test-frontend-detection.sh`.
 - **Gap fixes: superpowers, MCP guard, placeholders, lifecycle** — Superpowers skills deploy to `.claude/skills/<skill>/` (the nested `.claude/skills/superpowers/` layout was never discovered, and the session-start hook injected a read error instead of the skill); refresh moves nested copies up and re-registers the hook with `CLAUDE_PLUGIN_ROOT`. `safety-guard.sh` covers MCP tools (push/merge/deploy/send/buy/delete/write, SQL writes) and credential-shaped content in Write/Edit; the managed hook matcher is updated on refresh. Copied stack files render `{{VARIABLES}}` (unset ones become readable text; brand colors are no longer faked as `#000000`). New `--shared-policy`, `--uninstall`, `.claude/ai-config/version` stamps, `ai-config-fleet.sh`, `run-tests.sh` + CI workflow; `--doctor` flags missing/stale `@~/.claude/stacks` imports and undefined `enabledMcpjsonServers`; the dead `context7` entry was dropped from stack templates. Tests: `test-lifecycle.sh`, `test-fleet.sh`.
 - **`--install-deps`** — installs missing required tools (`jq`, `perl`, `shasum`, …) and `git` through the system package manager (Homebrew; `apt-get` with update-and-retry, `dnf`, `yum`, `pacman`, `zypper`, `apk`; `sudo` only for system managers when not root), and for PHP stacks Intelephense via `npm install -g` (Node.js/npm from the package manager first if needed). Shows the commands, asks on a terminal unless `--force`, and `--dry-run` only prints the plan. Never installs a package manager, never pipes remote install scripts (codegraph and Claude Code stay manual and are named), never runs npm with `sudo`. `AI_CONFIG_PKG_MANAGER` overrides detection. Tests: `test-install-deps.sh`.
@@ -326,6 +340,10 @@ ai-config --project=. --no-claudeignore
 
 # Remove ai-config from a project (unedited files only; everything backed up)
 ai-config --uninstall --project=.
+
+# Record this project's policy in a committed ai-config.conf (stack, flags, decisions
+# path, files removed on purpose) so a fresh clone redeploys the tuned config
+ai-config --save-policy --project=.
 
 # Health check (or --refresh) every ai-config project under a folder
 ai-config-fleet --root=~/sites

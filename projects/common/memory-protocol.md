@@ -8,8 +8,7 @@
   questions), read `MEMORY.md`. Quick self-contained questions don't need it.
 - **After a meaningful change** (feature, fix, refactor, config change — not trivial
   edits), add one row to **Recent Changes**: `Date | Change | Files`.
-- **After an architectural decision**, add a short **Decision Log** entry (context,
-  decision, rationale).
+- **After an architectural decision**, {{DECISION_RECORD}}.
 - **When the developer signals they're done**, update **Session Handoff** with
   unfinished work and next steps.
 

@@ -48,6 +48,9 @@ Claude Optimizer fixes each of these once, and you can reuse the fix on every pr
   planning, TDD, systematic debugging, code review and parallel subagents.
 - 🔄 **Safe updates:** `--refresh` never overwrites your edits. New versions are staged for review and every change
   is backed up. `--uninstall` removes everything cleanly.
+- 📌 **Decisions that stick:** `--save-policy` writes a committed `ai-config.conf` recording the stack, the flags this
+  project wants, where decisions are logged and the files you pruned — so a fresh clone redeploys the tuned config
+  instead of the default.
 - 🚢 **Fleet mode:** `ai-config-fleet --root=~/sites` health-checks or refreshes every project in a folder and prints one
   summary.
 - 💸 **Cost controls:** Includes a concise response style, an effort-level setting and an optional Opus-orchestrator /
@@ -241,6 +244,7 @@ ai-config --project=<path> [options]
 | `--clean` | Move existing config to a backup, then deploy fresh |
 | `--uninstall` | Remove ai-config: unedited files, managed blocks, policy rules, hook registrations (all backed up) |
 | `--doctor` | Read-only health check, including a live safety-hook test |
+| `--save-policy` | Write a committed `ai-config.conf` from the project's current state, then exit |
 
 ### Safety, Memory & Cost Options
 

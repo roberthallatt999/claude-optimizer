@@ -1,6 +1,7 @@
 ---
 paths:
   - ".okf/**"
+{{DECISION_PATHS}}
 ---
 
 # OKF Memory Bundle
@@ -52,7 +53,8 @@ sources:
 
 ## Bodies
 
-- Decision: `# Context`, `# Decision`, `# Consequences`.
+- Decision: `# Context`, `# Decision`, `# Consequences`. Decisions are recorded in
+  `{{DECISION_LOCATION}}`.
 - Integration: what it does, env var names (never values), where it is configured.
 - Keep concepts short (roughly 20–60 lines); split rather than grow.
 

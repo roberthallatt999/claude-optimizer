@@ -2,6 +2,7 @@
 paths:
   - "MEMORY.md"
   - "MEMORY-ARCHIVE.md"
+{{DECISION_PATHS}}
 ---
 
 # Memory Management
@@ -29,6 +30,9 @@ MEMORY.md
 ```
 
 ## Decision Log
+
+Architectural decisions go in `{{DECISION_LOCATION}}`. The when-to-record protocol is in
+`CLAUDE.md`; this is the format.
 
 ```markdown
 ### DEC-001: Decision title
