@@ -388,11 +388,39 @@ S='(^|[;&|({`"'"'"']|\$\()[[:space:]]*(([a-z_][a-z0-9_]*=("[^"]*"|'"'[^']*'"'|[^
 # `git` plus any global options before the subcommand (git -C dir push).
 G='git([[:space:]]+(-c|--git-dir|--work-tree)[[:space:]]+[^[:space:]]+|[[:space:]]+--?[a-z][a-z-]*(=[^[:space:]]+)?)*[[:space:]]+'
 
+# --- Tracked config files that must stay committable ------------------------
+# EE's system/user/config/config.php is a secret path, but unlike .env it is tracked:
+# every EE upgrade rewrites it and the upgrade is not shipped until it is committed.
+# These git subcommands only move a file between working tree, index and remote, and
+# never print it, so a path named only as their argument is exempt. Anything that shows
+# content (cat, git diff/show/log -p, add -p, status -v) still hits the checks below.
+TRACKED_CONFIG_RE='(^|/)system/user/config/config\.php$'
+GIT_STAGE_RE="${S}${G}(add|commit|status|restore|reset|rm|push)([[:space:]]+[^;&|<>\`\$]*)?"
+GIT_SHOWS_CONTENT_RE='[[:space:]](-[a-z]*[piv][a-z]*|--patch|--interactive|--verbose|--edit)([[:space:]]|$)'
+
+# git_stage_only <lowercased token> — true when every mention of the token is an
+# argument to a GIT_STAGE_RE subcommand that cannot print it.
+git_stage_only() {
+  local tok="$1" rest="$lc" seg
+  [[ "$tok" =~ $TRACKED_CONFIG_RE ]] || return 1
+  while [[ "$rest" =~ $GIT_STAGE_RE ]]; do
+    seg="${BASH_REMATCH[0]}"
+    [[ "$seg" =~ $GIT_SHOWS_CONTENT_RE ]] && return 1
+    rest="${rest/"$seg"/ }"
+  done
+  [[ "$rest" != *"$tok"* ]]
+}
+STAGE_ONLY_TOKS=" "
+
 # --- Secrets referenced from the shell --------------------------------------
 secret=""
 while IFS= read -r tok; do
   [[ -n "$tok" ]] || continue
   if is_secret_path "$tok"; then
+    if git_stage_only "$tok"; then
+      STAGE_ONLY_TOKS+="$tok "
+      continue
+    fi
     # `ssh -i ~/.ssh/key` and `mysql --defaults-extra-file=~/.mysql-site.cnf` use a credential
     # file without printing it; only that exact argument is exempt.
     if [[ "$lc" =~ ${S}(ssh|scp|sftp)[[:space:]] && "$lc" == *"-i $tok"* ]]; then
@@ -441,6 +469,7 @@ if m "$READ_VERBS"; then
   scanned=0
   while IFS= read -r tok; do
     [[ -n "$tok" && -f "$tok" ]] || continue
+    [[ "$STAGE_ONLY_TOKS" == *" $(lower "$tok") "* ]] && continue
     scan_msg="$(secret_scan "$tok")"
     case $? in
       0) decide deny "Blocked by ai-config safety guard: '${tok}' contains ${scan_msg}. $SCAN_TAIL" ;;

@@ -372,6 +372,23 @@ else
   echo "SKIP python3 not found"
 fi
 
+echo -e "\n${CYAN}Tracked EE config: stage/commit allowed, content still blocked${NC}"
+P='system/user/config/config.php'
+bash_expect none "git add $P"
+bash_expect none "git add -- $P .okf/log.md"
+bash_expect none "git -C /x/cfk add $P && git commit -q -m \"chore(ee): update config\""
+bash_expect none "git status --short -- $P"
+bash_expect none "git restore --staged $P"
+bash_expect none "git rm --cached $P"
+bash_expect ask  "git add $P && git push origin main"
+bash_expect ask  "git add -p $P"
+bash_expect ask  "git status -v $P"
+bash_expect ask  "git diff $P"
+bash_expect ask  "git show HEAD:$P"
+bash_expect deny "git add $P && cat $P"
+bash_expect deny "cat $P"
+bash_expect deny "cp $P /tmp/x"
+
 echo ""
 echo -e "${CYAN}================================${NC}"
 echo -e "  ${GREEN}PASS${NC}: $PASS"
