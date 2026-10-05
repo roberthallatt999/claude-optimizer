@@ -13,4 +13,6 @@ $lang = [
     'cps_logs_option_grep' => 'Case-insensitive substring filter on the message',
     'cps_logs_option_full' => 'Do not truncate long messages (default truncates at 300 characters)',
     'cps_logs_option_deprecated' => 'Include deprecation notices (excluded by default)',
+
+    'cps_tools_option_json' => 'Output machine-readable JSON',
 ];

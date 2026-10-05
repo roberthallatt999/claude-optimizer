@@ -9,7 +9,9 @@ return [
     'namespace'   => 'CPS\Tools',
     'commands'    => [
         'cps:logs' => CPS\Tools\Commands\CommandLogs::class,
-        // cps:migrate-status, cps:migrate-verify, cps:schema-check are registered by later tasks,
+        'cps:migrate-status' => CPS\Tools\Commands\CommandMigrateStatus::class,
+        'cps:migrate-verify' => CPS\Tools\Commands\CommandMigrateVerify::class,
+        // cps:schema-check is registered by a later task,
         // once their classes exist (EE fatals on `eecli list` if a registered class is missing).
     ],
 ];
