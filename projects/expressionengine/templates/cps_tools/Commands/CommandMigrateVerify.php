@@ -49,8 +49,13 @@ class CommandMigrateVerify extends Cli
     public function handle()
     {
         $name = (string) ($this->arguments[0] ?? '');
+        if (preg_match('/^\d{4}_\d{2}_\d{2}_\d{6}_[a-z0-9_]+$/', $name) !== 1) {
+            $this->error('Invalid migration name: ' . $name);
+            exit(2);
+        }
+
         $file = SYSPATH . 'user/database/migrations/' . $name . '.php';
-        if ($name === '' || !is_file($file)) {
+        if (!is_file($file)) {
             $this->error('Migration not found: ' . $name);
             exit(2);
         }

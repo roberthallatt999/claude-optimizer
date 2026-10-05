@@ -60,28 +60,38 @@ class CommandMigrateStatus extends Cli
     public function handle()
     {
         $this->loadAddonLang();
-        $migration = ee('Migration');
-        $migration->ensureMigrationTableExists();
-
-        // EE's own list, in the order `migrate --core` will run them.
-        $pending = array_values($migration->getNewMigrations('ExpressionEngine'));
-
         $dir = SYSPATH . 'user/database/migrations/';
+
+        // Strictly read-only: never call ensureMigrationTableExists(), it CREATEs the table.
+        $table = ee()->db->dbprefix . 'migrations';
+        $hasTable = ee()->db->query('SHOW TABLES LIKE ' . ee()->db->escape($table))->num_rows() > 0;
+
         $missing = [];
-        $applied = ee()->db->select('migration')
-            ->where('migration_location', 'ExpressionEngine')
-            ->get('migrations')
-            ->result_array();
-        foreach ($applied as $row) {
-            if (!is_file($dir . $row['migration'] . '.php')) {
-                $missing[] = $row['migration'];
+        if ($hasTable) {
+            $pending = array_values(ee('Migration')->getNewMigrations('ExpressionEngine'));
+            $applied = ee()->db->select('migration')
+                ->where('migration_location', 'ExpressionEngine')
+                ->get('migrations')
+                ->result_array();
+            foreach ($applied as $row) {
+                if (!is_file($dir . $row['migration'] . '.php')) {
+                    $missing[] = $row['migration'];
+                }
             }
+        } else {
+            // No table means nothing has been applied: every migration file is pending.
+            $pending = [];
+            foreach (glob($dir . '*.php') ?: [] as $path) {
+                $pending[] = basename($path, '.php');
+            }
+            sort($pending);
         }
 
         $hashFile = $this->releaseRoot() . '.commit_hash';
         $data = [
             'pending' => $pending,
             'missing_files' => $missing,
+            'migrations_table' => $hasTable,
             'commit' => is_file($hashFile) ? trim((string) file_get_contents($hashFile)) : null,
             'counts' => [
                 'tables' => (int) ee()->db->query(

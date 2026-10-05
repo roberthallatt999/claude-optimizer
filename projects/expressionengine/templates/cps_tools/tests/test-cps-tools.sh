@@ -25,6 +25,9 @@ out=$(EE cps:migrate-status --json)
 echo "$out" | jq -e '.pending and .missing_files and .counts.tables and .counts.channel_titles and .counts.channel_fields' >/dev/null \
   && ok "status json has pending/missing_files/counts" || bad "status json shape" "$out"
 
+[[ "$(echo "$out" | jq -r '.migrations_table')" == "true" ]] \
+  && ok "status reports migrations_table true" || bad "migrations_table flag" "$out"
+
 cp "$HERE/fixtures/$STATUS_FIXTURE.php" "$MIG/"
 out=$(EE cps:migrate-status --json)
 [[ "$(echo "$out" | jq -r '.pending[-1]')" == "$STATUS_FIXTURE" ]] \
@@ -45,5 +48,11 @@ verify_case "${FIXTURES[3]}" 0 "no verify()" "no verify() -> exit 0"
 out=$(EE cps:migrate-verify 2099_01_01_999999_does_not_exist); code=$?
 [[ $code -eq 2 && "$out" == *"not found"* ]] \
   && ok "unknown name -> exit 2 + not found" || bad "unknown name" "exit=$code out=$out"
+
+for bad_name in ../../index foo; do
+  out=$(EE cps:migrate-verify "$bad_name"); code=$?
+  [[ $code -eq 2 && "$out" == *"Invalid migration name"* ]] \
+    && ok "invalid name '$bad_name' -> exit 2" || bad "invalid name $bad_name" "exit=$code out=$out"
+done
 
 echo "---"; echo "$PASS passed, $FAIL failed"; [[ $FAIL -eq 0 ]]
