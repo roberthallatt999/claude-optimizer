@@ -234,6 +234,24 @@ counts in DDEV must match the same counts read from the target by `cps:migrate-s
 | `<staging\|prod> rehearse` | `ddev snapshot` → import fresh copy of the target DB via the existing sync route → verify the import (§7.0b) → run the pending set with the §7.0 per-file loop, `cps:migrate-verify` after each → schema-check incl. smoke test → restore snapshot and delete the imported copy. Writes a rehearsal stamp (target, pending set, commit, time). |
 | `<staging\|prod> apply --expect=<names>` | Refuses unless: remote pending set equals `--expect` exactly; a passing rehearsal stamp for that set and commit exists, < 24 h old; the deployed release contains those files. Then: backup to the site's out-of-release backup directory, `chmod 600`, size compared to the previous dump → the §7.0 per-file loop (`migrate --core --steps=1`, then `cps:migrate-verify`, per file) → structural schema-check on the server (`--no-smoke`) → print backup name, rollback command and restore command. Records success in the stamp file. |
 
+### 7.1a Backup rule (all modes that change a database)
+
+No `migrate` or `migrate:rollback` call is ever made until a backup of **that** database has been
+taken and verified in the same run:
+
+| Mode | Database changed | Backup taken first |
+|---|---|---|
+| `local test` | DDEV | `ddev ee backup:database` |
+| `rehearse` | DDEV (replaced by the target copy) | `ddev snapshot` of the local DB, restored at the end |
+| `staging apply` / `prod apply` | the server | `eecli.php backup:database --absolute_path=<BACKUP_DIR>` |
+
+A backup counts as verified only when the file exists, is non-empty, and is at least 90 % of the size
+of the previous dump in the same directory (first run: at least 1 MB), and for server backups is
+`chmod 600`. The exit code alone is never trusted. **Any failure aborts the run before the first
+`migrate` call**, prints why, and leaves the database untouched. The backup's name is printed and
+written to the stamp file so the restore command is always one copy-paste away. There is no flag to
+skip the backup.
+
 ### 7.2 Production gate — sites with staging (cps, cpsp, cyntc)
 
 Local gate → staging rehearsal → staging apply (recorded) → push code → production rehearsal is
