@@ -138,7 +138,8 @@ class CpsrefGrid extends Migration
         if (! isset(ee()->session)) {
             return;
         }
-        $channel = ee()->db->select('channel_id')->where('channel_name', CpsRefFixture::CHANNEL)->get('channels')->row_array();
+        $channel = ee()->db->select('channel_id')->where('channel_name', CpsRefFixture::CHANNEL)
+            ->get('channels')->row_array();
         if (! $channel) {
             return;
         }
@@ -318,7 +319,8 @@ class CpsrefGrid extends Migration
         } finally {
             ee()->db->db_debug = $previous;
             $orphans = ee()->db->query(
-                "SELECT COUNT(*) AS n FROM exp_grid_columns WHERE col_name = 'cpsref_probe_positional' AND field_id IS NULL"
+                "SELECT COUNT(*) AS n FROM exp_grid_columns"
+                . " WHERE col_name = 'cpsref_probe_positional' AND field_id IS NULL"
             )->row_array();
             ee()->db->where('col_name', 'cpsref_probe_positional')->delete('grid_columns');
         }
@@ -345,14 +347,17 @@ class CpsrefGrid extends Migration
             'vertical_layout' => 'horizontal', 'row_counter' => 'y',
         ];
         self::gridField($group, self::GRID, $settings, [
-            ['name' => self::TEXT, 'type' => 'text', 'label' => 'Text', 'settings' => self::textSettings(), 'search' => 'y'],
+            ['name' => self::TEXT, 'type' => 'text', 'label' => 'Text', 'settings' => self::textSettings(),
+                'search' => 'y'],
             ['name' => self::NUM, 'type' => 'number', 'label' => 'Number', 'settings' => [
                 'field_min_value' => '', 'field_max_value' => '', 'field_step' => '', 'datalist_items' => '',
                 'field_content_type' => 'numeric',
             ]],
-            ['name' => self::DATE, 'type' => 'date', 'label' => 'Date', 'settings' => ['localize' => true, 'show_time' => true]],
+            ['name' => self::DATE, 'type' => 'date', 'label' => 'Date',
+                'settings' => ['localize' => true, 'show_time' => true]],
             ['name' => self::FLAG, 'type' => 'toggle', 'label' => 'Flag', 'settings' => ['field_default_value' => '1']],
-            ['name' => self::REL, 'type' => 'relationship', 'label' => 'Related', 'settings' => self::relationshipSettings($channelId)],
+            ['name' => self::REL, 'type' => 'relationship', 'label' => 'Related',
+                'settings' => self::relationshipSettings($channelId)],
         ], 1);
 
         $gridId = CpsRefFixture::fieldId(self::GRID);
@@ -453,7 +458,8 @@ class CpsrefGrid extends Migration
     {
         self::gridField($group, self::MUT, self::defaultGridSettings(), [
             ['name' => self::MUT_A, 'type' => 'text', 'label' => 'A', 'settings' => self::textSettings()],
-            ['name' => self::MUT_REL, 'type' => 'relationship', 'label' => 'Rel', 'settings' => self::relationshipSettings($channelId)],
+            ['name' => self::MUT_REL, 'type' => 'relationship', 'label' => 'Rel',
+                'settings' => self::relationshipSettings($channelId)],
         ], 2);
         $fieldId = CpsRefFixture::fieldId(self::MUT);
         $table = 'channel_grid_field_' . $fieldId;
@@ -466,14 +472,20 @@ class CpsrefGrid extends Migration
             ]],
         ]);
         $entryId = CpsRefFixture::entryId(self::MUT_ENTRY);
-        $this->expect(count(self::relationshipRows($entryId, $fieldId)) === 2, 'mut: expected 2 relationship rows before changes');
+        $this->expect(
+            count(self::relationshipRows($entryId, $fieldId)) === 2,
+            'mut: expected 2 relationship rows before changes'
+        );
 
         // (a) ADD a column: data column appears, existing rows get '' (set_datatype() UPDATEs every row)
         $added = self::addColumn($fieldId, 2, self::MUT_ADDED, 'text', self::textSettings(), 'Added');
         $this->expect(CpsRefFixture::columnExists($table, 'col_id_' . $added), 'mut add: data column missing');
         $values = array_column(CpsRefFixture::gridRows(self::MUT, $entryId), 'col_id_' . $added);
         self::probe('add column existing rows get', json_encode($values));
-        $this->expect($values === ['', ''], 'mut add: existing rows should hold empty strings, got ' . json_encode($values));
+        $this->expect(
+            $values === ['', ''],
+            'mut add: existing rows should hold empty strings, got ' . json_encode($values)
+        );
         $this->expect(
             array_column(CpsRefFixture::gridRows(self::MUT, $entryId), 'col_id_' . $a) === ['keep me', 'and me'],
             'mut add: existing data changed'
@@ -493,7 +505,8 @@ class CpsrefGrid extends Migration
         // single data column in place.
         $before = CpsRefFixture::columnType($table, 'col_id_' . $a);
         $retyped = self::columnArray($fieldId, 0, 'cpsref_mut_renamed', 'textarea', [
-            'field_fmt' => 'none', 'field_text_direction' => 'ltr', 'field_ta_rows' => 6, 'db_column_type' => 'mediumtext',
+            'field_fmt' => 'none', 'field_text_direction' => 'ltr', 'field_ta_rows' => 6,
+            'db_column_type' => 'mediumtext',
         ], 'Renamed');
         ee()->grid_model->save_col_settings($retyped, $a, 'channel');
         $after = CpsRefFixture::columnType($table, 'col_id_' . $a);
@@ -503,7 +516,8 @@ class CpsrefGrid extends Migration
             'mut retype: data lost'
         );
         $this->expect(
-            ee()->db->select('col_type')->where('col_id', $a)->get('grid_columns')->row_array()['col_type'] === 'textarea',
+            ee()->db->select('col_type')->where('col_id', $a)->get('grid_columns')
+                ->row_array()['col_type'] === 'textarea',
             'mut retype: col_type not updated'
         );
 
@@ -515,7 +529,10 @@ class CpsrefGrid extends Migration
         $left = self::relationshipRows($entryId, $fieldId);
         self::probe('delete relationship column leaves exp_relationships rows', (string) count($left));
         $this->expect($left === [], 'mut delete: relationship rows survived the column');
-        $this->expect(count(CpsRefFixture::gridRows(self::MUT, $entryId)) === 2, 'mut delete: rows were removed with the column');
+        $this->expect(
+            count(CpsRefFixture::gridRows(self::MUT, $entryId)) === 2,
+            'mut delete: rows were removed with the column'
+        );
         $this->expect(
             array_column(CpsRefFixture::gridRows(self::MUT, $entryId), 'col_id_' . $a) === ['keep me', 'and me'],
             'mut delete: sibling data lost'
@@ -547,7 +564,10 @@ class CpsrefGrid extends Migration
         $rows = CpsRefFixture::gridRows(self::ROWS, $entryId);
         $ids = array_map('intval', array_column($rows, 'row_id'));
         $this->expect(count($ids) === 3, 'rows: expected 3 rows');
-        $this->expect(array_map('intval', array_column($rows, 'row_order')) === [0, 1, 2], 'rows: row_order should be 0,1,2');
+        $this->expect(
+            array_map('intval', array_column($rows, 'row_order')) === [0, 1, 2],
+            'rows: row_order should be 0,1,2'
+        );
         [$one, $two, $three] = $ids;
 
         // Append: resubmit every existing row WITH its values, plus one new row. Existing row ids are kept.
@@ -557,8 +577,14 @@ class CpsrefGrid extends Migration
         }
         self::writeRows(self::ROWS_ENTRY, self::ROWS, $existing + ['new_row_1' => [$t => 'four', $n => '4']]);
         $rows = CpsRefFixture::gridRows(self::ROWS, $entryId);
-        $this->expect(array_slice(array_map('intval', array_column($rows, 'row_id')), 0, 3) === $ids, 'rows append: existing row ids changed');
-        $this->expect(array_column($rows, $t) === ['one', 'two', 'three', 'four'], 'rows append: wrong values ' . json_encode(array_column($rows, $t)));
+        $this->expect(
+            array_slice(array_map('intval', array_column($rows, 'row_id')), 0, 3) === $ids,
+            'rows append: existing row ids changed'
+        );
+        $this->expect(
+            array_column($rows, $t) === ['one', 'two', 'three', 'four'],
+            'rows append: wrong values ' . json_encode(array_column($rows, $t))
+        );
         $four = (int) $rows[3]['row_id'];
 
         // An existing row submitted with an EMPTY cell blanks that cell (every column is saved, missing = null)
@@ -570,7 +596,10 @@ class CpsrefGrid extends Migration
         ]);
         $rows = CpsRefFixture::gridRows(self::ROWS, $entryId);
         self::probe('omitted cell on an existing row becomes', var_export($rows[0][$n], true));
-        $this->expect($rows[0][$t] === 'one-edited' && $rows[0][$n] === null, 'rows partial: omitted cell should be NULL, got ' . var_export($rows[0][$n], true));
+        $this->expect(
+            $rows[0][$t] === 'one-edited' && $rows[0][$n] === null,
+            'rows partial: omitted cell should be NULL, got ' . var_export($rows[0][$n], true)
+        );
 
         // Reorder: row_order follows the array position; ids are unchanged
         $submit = [];
@@ -580,8 +609,14 @@ class CpsrefGrid extends Migration
         }
         self::writeRows(self::ROWS_ENTRY, self::ROWS, $submit);
         $rows = CpsRefFixture::gridRows(self::ROWS, $entryId);
-        $this->expect(array_map('intval', array_column($rows, 'row_id')) === [$three, $one, $two, $four], 'rows reorder: wrong order');
-        $this->expect(array_map('intval', array_column($rows, 'row_order')) === [0, 1, 2, 3], 'rows reorder: row_order wrong');
+        $this->expect(
+            array_map('intval', array_column($rows, 'row_id')) === [$three, $one, $two, $four],
+            'rows reorder: wrong order'
+        );
+        $this->expect(
+            array_map('intval', array_column($rows, 'row_order')) === [0, 1, 2, 3],
+            'rows reorder: row_order wrong'
+        );
 
         // A row left out of the submitted array is DELETED
         $submit = [];
@@ -590,7 +625,10 @@ class CpsrefGrid extends Migration
             $submit['row_id_' . $id] = [$t => $row[$t], $n => $row[$n] ?? '1'];
         }
         self::writeRows(self::ROWS_ENTRY, self::ROWS, $submit);
-        $this->expect(count(CpsRefFixture::gridRows(self::ROWS, $entryId)) === 3, 'rows omit: omitted row should be deleted');
+        $this->expect(
+            count(CpsRefFixture::gridRows(self::ROWS, $entryId)) === 3,
+            'rows omit: omitted row should be deleted'
+        );
         $this->expect(
             ee()->db->where('row_id', $four)->count_all_results('channel_grid_field_' . $fieldId) === 0,
             'rows omit: row four still exists'
@@ -621,29 +659,52 @@ class CpsrefGrid extends Migration
             self::SEARCH => ['rows' => ['new_row_1' => [$col => 'alpha'], 'new_row_2' => [$col => 'beta']]],
         ]);
         $one = CpsRefFixture::entryId(self::SEARCH_ONE);
-        self::probe('search data after save() without validate()', var_export(CpsRefFixture::fieldValue(self::SEARCH, $one), true));
-        $this->expect(CpsRefFixture::fieldValue(self::SEARCH, $one) === null, 'search: unexpected search data without validate()');
+        self::probe(
+            'search data after save() without validate()',
+            var_export(CpsRefFixture::fieldValue(self::SEARCH, $one), true)
+        );
+        $this->expect(
+            CpsRefFixture::fieldValue(self::SEARCH, $one) === null,
+            'search: unexpected search data without validate()'
+        );
 
         // validate() first, then save(): the compound value is written
         $two = CpsRefFixture::makeEntry(self::SEARCH_TWO, []);
         $entry = ee('Model')->get('ChannelEntry', $two)->first();
-        $entry->{'field_id_' . $fieldId} = ['rows' => ['new_row_1' => [$col => 'gamma'], 'new_row_2' => [$col => 'delta']]];
+        $entry->{'field_id_' . $fieldId} = ['rows' => [
+            'new_row_1' => [$col => 'gamma'], 'new_row_2' => [$col => 'delta'],
+        ]];
         $entry->edit_date = ee()->localize->now;
         $result = $entry->validate();
         $this->expect($result->isValid(), 'search: validate() failed ' . json_encode($result->getAllErrors()));
         $entry->save();
-        self::probe('search data after validate() + save()', var_export(CpsRefFixture::fieldValue(self::SEARCH, $two), true));
-        $this->expect(CpsRefFixture::fieldValue(self::SEARCH, $two) === 'gamma|delta', 'search: validate()+save() should write gamma|delta');
+        self::probe(
+            'search data after validate() + save()',
+            var_export(CpsRefFixture::fieldValue(self::SEARCH, $two), true)
+        );
+        $this->expect(
+            CpsRefFixture::fieldValue(self::SEARCH, $two) === 'gamma|delta',
+            'search: validate()+save() should write gamma|delta'
+        );
 
         // grid_model::update_grid_search() rebuilds the value for every entry from the row tables (migration-safe)
         ee()->grid_model->update_grid_search([$fieldId]);
-        $this->expect(CpsRefFixture::fieldValue(self::SEARCH, $one) === 'alpha|beta', 'search: update_grid_search() did not fill entry one');
-        $this->expect(CpsRefFixture::fieldValue(self::SEARCH, $two) === 'gamma|delta', 'search: update_grid_search() changed entry two');
+        $this->expect(
+            CpsRefFixture::fieldValue(self::SEARCH, $one) === 'alpha|beta',
+            'search: update_grid_search() did not fill entry one'
+        );
+        $this->expect(
+            CpsRefFixture::fieldValue(self::SEARCH, $two) === 'gamma|delta',
+            'search: update_grid_search() changed entry two'
+        );
 
         // col_search on a Grid whose field_search is 'n' (the main Grid's text column): nothing is stored
         ee()->grid_model->update_grid_search([CpsRefFixture::fieldId(self::GRID)]);
         $main = CpsRefFixture::entryId(self::ENTRY);
-        $this->expect(CpsRefFixture::fieldValue(self::GRID, $main) === null, 'search: col_search without field_search must store nothing');
+        $this->expect(
+            CpsRefFixture::fieldValue(self::GRID, $main) === null,
+            'search: col_search without field_search must store nothing'
+        );
     }
 
     /** Defect 3a: delete a Grid field in the same request that created it. */
@@ -665,7 +726,10 @@ class CpsrefGrid extends Migration
         );
         // Safe pattern: plain SQL, never table_exists()/list_fields() (both cached per request)
         CpsRefFixture::dropDataTableIfExists($id);
-        $this->expect(self::showTables($tables) === ['channel_data_field_' . $id => false, 'channel_grid_field_' . $id => false], 'doomed: tables still exist after the safe drop');
+        $this->expect(
+            self::showTables($tables) === ['channel_data_field_' . $id => false, 'channel_grid_field_' . $id => false],
+            'doomed: tables still exist after the safe drop'
+        );
         ee()->db->where('field_id', $id)->delete('grid_columns');
     }
 
@@ -743,14 +807,20 @@ class CpsrefGrid extends Migration
         $table = 'channel_grid_field_' . $gridId;
         foreach (['row_id' => 'int(10) unsigned', 'entry_id' => 'int(10) unsigned', 'row_order' => 'int(10) unsigned',
             'fluid_field_data_id' => 'int(10) unsigned'] as $column => $type) {
-            $check(CpsRefFixture::columnType($table, $column) === $type, "$column type is " . CpsRefFixture::columnType($table, $column));
+            $check(
+                CpsRefFixture::columnType($table, $column) === $type,
+                "$column type is " . CpsRefFixture::columnType($table, $column)
+            );
         }
         $expected = [
             self::TEXT => 'text', self::NUM => 'float', self::DATE => 'varchar(60)',
-            self::FLAG => 'tinyint(1)', self::REL => 'varchar(8)',
+            self::FLAG => 'tinyint(4)', self::REL => 'varchar(8)',
         ];
         $columns = self::columns(self::GRID);
-        $check(array_keys($columns) === array_keys($expected), 'grid_columns order/names: ' . implode(',', array_keys($columns)));
+        $check(
+            array_keys($columns) === array_keys($expected),
+            'grid_columns order/names: ' . implode(',', array_keys($columns))
+        );
         $order = 0;
         foreach ($expected as $name => $type) {
             $column = $columns[$name] ?? null;
@@ -760,12 +830,18 @@ class CpsrefGrid extends Migration
             }
             $actual = CpsRefFixture::columnType($table, 'col_id_' . $column['col_id']);
             $check($actual === $type, "column $name data type is $actual, expected $type");
-            $check((int) $column['field_id'] === $gridId && $column['content_type'] === 'channel', "column $name field_id/content_type wrong");
+            $check(
+                (int) $column['field_id'] === $gridId && $column['content_type'] === 'channel',
+                "column $name field_id/content_type wrong"
+            );
             $check((int) $column['col_order'] === $order, "column $name col_order is " . $column['col_order']);
             $check(is_array(json_decode($column['col_settings'], true)), "column $name col_settings is not JSON");
             $order++;
         }
-        $check(ee()->db->query('SELECT COUNT(*) AS n FROM exp_grid_columns WHERE field_id IS NULL OR field_id = 0')->row_array()['n'] === '0', 'orphan grid_columns rows (field_id NULL/0)');
+        $orphans = ee()->db->query(
+            'SELECT col_id, col_name FROM exp_grid_columns WHERE field_id IS NULL OR field_id = 0'
+        )->result_array();
+        $check($orphans === [], 'orphan grid_columns rows (field_id NULL/0): ' . json_encode($orphans));
 
         // Rows and the relationship cell
         $entryId = CpsRefFixture::entryId(self::ENTRY);
@@ -775,31 +851,58 @@ class CpsrefGrid extends Migration
         $check(array_column($rows, $text) === ['first', 'second'], 'main rows text wrong');
         $check(array_map('intval', array_column($rows, $flag)) === [0, 1], 'toggle column wrong');
         $relRows = self::relationshipRows($entryId, $gridId);
-        $check(count($relRows) === 1 && (int) $relRows[0]['grid_col_id'] === (int) ($columns[self::REL]['col_id'] ?? -1), 'relationship cell rows wrong: ' . json_encode($relRows));
-        $check(CpsRefFixture::fieldValue(self::GRID, $entryId) === null, 'field_search n: the field column must stay NULL');
+        $check(
+            count($relRows) === 1 && (int) $relRows[0]['grid_col_id'] === (int) ($columns[self::REL]['col_id'] ?? -1),
+            'relationship cell rows wrong: ' . json_encode($relRows)
+        );
+        $check(
+            CpsRefFixture::fieldValue(self::GRID, $entryId) === null,
+            'field_search n: the field column must stay NULL'
+        );
 
         // Mutations: final state
         $mutId = CpsRefFixture::fieldId(self::MUT);
         $mut = self::columns(self::MUT);
-        $check(array_keys($mut) === ['cpsref_mut_renamed', self::MUT_ADDED], 'mut columns: ' . implode(',', array_keys($mut)));
+        $check(
+            array_keys($mut) === ['cpsref_mut_renamed', self::MUT_ADDED],
+            'mut columns: ' . implode(',', array_keys($mut))
+        );
         $mutTable = 'channel_grid_field_' . $mutId;
-        $check(CpsRefFixture::columnType($mutTable, 'col_id_' . ($mut['cpsref_mut_renamed']['col_id'] ?? 0)) === 'mediumtext', 'retyped column is not mediumtext');
-        $check(self::relationshipRows(CpsRefFixture::entryId(self::MUT_ENTRY), $mutId) === [], 'mut: relationship rows remain');
+        $check(
+            CpsRefFixture::columnType($mutTable, 'col_id_' . ($mut['cpsref_mut_renamed']['col_id'] ?? 0))
+                === 'mediumtext',
+            'retyped column is not mediumtext'
+        );
+        $check(
+            self::relationshipRows(CpsRefFixture::entryId(self::MUT_ENTRY), $mutId) === [],
+            'mut: relationship rows remain'
+        );
 
         // Row contract final state
         $rowsId = CpsRefFixture::entryId(self::ROWS_ENTRY);
         $final = CpsRefFixture::gridRows(self::ROWS, $rowsId);
-        $check(array_column($final, 'col_id_' . CpsRefFixture::gridColumnId(self::ROWS, self::ROWS_T)) === ['final-a', 'final-b'], 'rows final state wrong');
+        $check(
+            array_column($final, 'col_id_' . CpsRefFixture::gridColumnId(self::ROWS, self::ROWS_T))
+                === ['final-a', 'final-b'],
+            'rows final state wrong'
+        );
 
         // Search
-        $check(CpsRefFixture::fieldValue(self::SEARCH, CpsRefFixture::entryId(self::SEARCH_ONE)) === 'alpha|beta', 'search value wrong');
+        $check(
+            CpsRefFixture::fieldValue(self::SEARCH, CpsRefFixture::entryId(self::SEARCH_ONE)) === 'alpha|beta',
+            'search value wrong'
+        );
 
         // Fluid child: the Grid row carries fluid_field_data_id
         $fluidEntry = CpsRefFixture::entryId('cpsref-grid-fluid');
         $fluid = CpsRefFixture::fluidRows(self::FLUID, $fluidEntry);
         $childRows = CpsRefFixture::gridRows(self::CHILD, $fluidEntry);
         $check(count($fluid) === 1 && count($childRows) === 1, 'fluid: expected one fluid row and one Grid row');
-        $check(count($fluid) === 1 && count($childRows) === 1 && (int) $childRows[0]['fluid_field_data_id'] === (int) $fluid[0]['id'], 'fluid: grid row fluid_field_data_id does not match');
+        $check(
+            count($fluid) === 1 && count($childRows) === 1
+                && (int) $childRows[0]['fluid_field_data_id'] === (int) $fluid[0]['id'],
+            'fluid: grid row fluid_field_data_id does not match'
+        );
 
         return $problems;
     }

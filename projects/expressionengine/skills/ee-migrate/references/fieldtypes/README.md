@@ -27,39 +27,39 @@ schema).
 Notes: playa, matrix and image_cropper are EE2-era (cpsp only): read and migrate-away only, no create
 recipe. structure is shipped with EE but the Structure module is not installed on any CPS site.
 
-| Type | Origin | Status |
-|---|---|---|
-| checkboxes | core | not yet written |
-| colorpicker | core | not yet written |
-| date | core | not yet written |
-| duration | core | not yet written |
-| email_address | core | not yet written |
-| file | core | not yet written |
-| file_grid | core | not yet written |
-| fluid_field | core | not yet written |
-| grid | core | not yet written |
-| hidden | core | not yet written |
-| member | core | not yet written |
-| multi_select | core | not yet written |
-| notes | core | not yet written |
-| number | core | not yet written |
-| pro_variables | core | not yet written |
-| radio | core | not yet written |
-| range_slider | core | not yet written |
-| relationship | core | not yet written |
-| rte | core | not yet written |
-| select | core | not yet written |
-| selectable_buttons | core | not yet written |
-| slider | core | not yet written |
-| structure | core (module not installed) | not yet written |
-| text | core | not yet written |
-| textarea | core | not yet written |
-| toggle | core | not yet written |
-| url | core | not yet written |
-| wygwam | third-party | not yet written |
-| ansel | third-party | not yet written |
-| publish_sections | third-party | not yet written |
-| category_entry_picker | third-party | not yet written |
-| playa | legacy (cpsp) | not yet written |
-| matrix | legacy (cpsp) | not yet written |
-| image_cropper | legacy (cpsp) | not yet written |
+| Type | Origin | Verified | Fixture site |
+|---|---|---|---|
+| [checkboxes](checkboxes.md) | core | 7.5.27 | cfk |
+| [colorpicker](colorpicker.md) | core | 7.5.27 | cps |
+| [date](date.md) | core | 7.5.27 | cps |
+| [duration](duration.md) | core | 7.5.27 | cps |
+| [email_address](email_address.md) | core | 7.5.27 | cps |
+| [file](file.md) | core | 7.5.27 | cfk |
+| [file_grid](file_grid.md) | core | 7.5.27 | cfk |
+| [fluid_field](fluid_field.md) | core | pending | cps |
+| [grid](grid.md) | core | 7.5.27 | cfk |
+| [hidden](hidden.md) | core | no — not installed on any CPS site; source only | none |
+| [member](member.md) | core | 7.5.27 | cfk |
+| [multi_select](multi_select.md) | core | 7.5.27 | cfk |
+| [notes](notes.md) | core | 7.5.27 | cps |
+| [number](number.md) | core | 7.5.27 | cps |
+| [pro_variables](pro_variables.md) | core | no — not installed on any CPS site; source only | none |
+| [radio](radio.md) | core | 7.5.27 | cfk |
+| [range_slider](range_slider.md) | core | 7.5.27 | cps |
+| [relationship](relationship.md) | core | 7.5.27 | cfk |
+| [rte](rte.md) | core | 7.5.27 | cfk |
+| [select](select.md) | core | 7.5.27 | cfk |
+| [selectable_buttons](selectable_buttons.md) | core | 7.5.27 | cfk |
+| [slider](slider.md) | core | 7.5.27 | cps |
+| [structure](structure.md) | core (module not installed) | no — Structure not installed on any CPS site; source only | none |
+| [text](text.md) | core | 7.5.27 | cps |
+| [textarea](textarea.md) | core | 7.5.27 | cps |
+| [toggle](toggle.md) | core | 7.5.27 | cfk |
+| [url](url.md) | core | 7.5.27 | cps |
+| [wygwam](wygwam.md) | third-party | 7.5.27 | cps |
+| [ansel](ansel.md) | third-party | 7.5.27 | cps |
+| [publish_sections](publish_sections.md) | third-party | 7.5.27 | cps |
+| [category_entry_picker](category_entry_picker.md) | third-party | no — not installed in any live CPS database; source-documented | cyntc |
+| [playa](playa.md) | legacy (cpsp) | 7.5.27 (read-only: existing fields) | cpsp |
+| [matrix](matrix.md) | legacy (cpsp) | 7.5.27 (read-only: existing fields) | cpsp |
+| [image_cropper](image_cropper.md) | legacy (cpsp) | 7.5.27 (read-only: existing fields) | cpsp |
