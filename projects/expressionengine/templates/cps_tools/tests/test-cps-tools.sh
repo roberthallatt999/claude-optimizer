@@ -76,6 +76,14 @@ out=$(EEJ cps:schema-check --no-smoke --json --compare="$BASE"); code=$?
 EE cps:schema-check --no-smoke --compare=/nonexistent/baseline.json >/dev/null; code=$?
 [[ $code -eq 2 ]] && ok "compare with missing baseline -> exit 2" || bad "missing baseline exit" "exit=$code"
 
+# --- schema-check: settings contract is DDEV-only ----------------------------
+if [[ "$LOCAL_EECLI" == "ddev exec "* ]]; then
+  out=$(${LOCAL_EECLI/ddev exec /ddev exec env -u IS_DDEV_PROJECT } cps:schema-check --no-smoke --json 2>/dev/null)
+  n=$(echo "$out" | jq '[.results[]|select(.check=="settings_contract")]|length')
+  w=$(echo "$out" | jq '[.results[]|select(.check=="settings_contract" and .subject=="*" and .status=="warn" and .message=="settings contract skipped: not DDEV")]|length')
+  [[ "$n" == 1 && "$w" == 1 ]] && ok "non-DDEV -> single skipped warn" || bad "non-DDEV skip" "n=$n w=$w ${out:0:200}"
+fi
+
 # --- schema-check: settings contract (spec defects 1 and 2) -------------------
 run_fixture() {  # run_fixture <name>: copy in, migrate exactly one step
   cp "$HERE/fixtures/$1.php" "$MIG/"
@@ -110,6 +118,8 @@ n=$(echo "$out" | jq '[.results[]|select(.check=="settings_contract" and .status
 [[ "$n" -ge 1 ]] && ok "relationship channels type mismatch reported" || bad "rel channels type" "n=$n"
 n=$(echo "$out" | jq '[.results[]|select(.check=="settings_contract" and .status=="fail" and .subject=="cpstools_fx_rel" and (.message|test("order_field")))]|length')
 [[ "$n" -ge 1 ]] && ok "relationship invalid order_field reported" || bad "rel order_field" "n=$n"
+n=$(echo "$out" | jq '[.results[]|select(.message=="order_field \"nonexistent\" is not title|entry_date")]|length')
+[[ "$n" -ge 1 ]] && ok "double quote in message round-trips through jq" || bad "quote round-trip" "n=$n"
 undo_fixture "$FX_REL"
 out=$(EEJ cps:schema-check --no-smoke --json --compare="$BASE"); code=$?
 [[ $code -eq 0 ]] && ok "relationship fixture removed -> compare exits 0" || bad "rel fixture cleanup" "exit=$code"

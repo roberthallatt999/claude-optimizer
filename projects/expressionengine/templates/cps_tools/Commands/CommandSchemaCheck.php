@@ -94,7 +94,8 @@ class CommandSchemaCheck extends Cli
                 $out['new_failures'] = count($newFailures);
                 $out['new_failure_results'] = $newFailures;
             }
-            $this->write(json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            // Not $this->write(): it strips backslashes, which corrupts JSON escapes.
+            fwrite(STDOUT, json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
         } else {
             foreach ($report->results() as $result) {
                 if ($result['status'] === 'pass') {

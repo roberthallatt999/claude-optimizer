@@ -25,6 +25,12 @@ class SettingsContract
      */
     public function run(Report $report): void
     {
+        // Fieldtype settings methods can write (Toggle updates site prefs), so run only in DDEV.
+        if (getenv('IS_DDEV_PROJECT') !== 'true') {
+            $report->add(self::CHECK, '*', 'warn', 'settings contract skipped: not DDEV');
+            return;
+        }
+
         ee()->load->library('api');
         ee()->legacy_api->instantiate('channel_fields');
         ee()->api_channel_fields->fetch_installed_fieldtypes();
@@ -79,6 +85,7 @@ class SettingsContract
         array $channels
     ): void {
         $problems = [];
+        $warnings = [];
 
         $contract = $this->contract($type, $isColumn);
         if ($contract === null) {
@@ -86,7 +93,13 @@ class SettingsContract
         } else {
             foreach ($contract as $key => $default) {
                 if (!array_key_exists($key, $stored)) {
-                    $problems[] = 'missing setting ' . $key;
+                    // A missing array default is the crash class (in_array/implode on false); scalar or
+                    // null defaults are tolerated by EE and common on older fields.
+                    if (is_array($default)) {
+                        $problems[] = 'missing setting ' . $key;
+                    } else {
+                        $warnings[] = 'missing setting ' . $key;
+                    }
                 } elseif (is_array($default) && !is_array($stored[$key])) {
                     $problems[] = 'setting ' . $key . ' should be an array';
                 }
@@ -97,8 +110,14 @@ class SettingsContract
             $problems = array_merge($problems, $this->relationshipProblems($stored, $channels));
         }
 
+        foreach ($warnings as $warning) {
+            $report->add(self::CHECK, $subject, 'warn', $warning, $type);
+        }
+
         if ($problems === []) {
-            $report->add(self::CHECK, $subject, 'pass', 'settings match contract', $type);
+            if ($warnings === [] && $contract !== null) {
+                $report->add(self::CHECK, $subject, 'pass', 'settings match contract', $type);
+            }
             return;
         }
 
@@ -138,7 +157,8 @@ class SettingsContract
         }
 
         if (isset($stored['order_field']) && !in_array($stored['order_field'], ['title', 'entry_date'], true)) {
-            $problems[] = 'invalid order_field value ' . var_export($stored['order_field'], true);
+            $problems[] = 'order_field "' . (is_scalar($stored['order_field']) ? $stored['order_field'] : gettype($stored['order_field']))
+                    . '" is not title|entry_date';
         }
 
         return $problems;
