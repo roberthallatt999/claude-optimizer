@@ -94,7 +94,7 @@ JSON
 run() {
   local runner="$1"
   shift
-  OUT="$(PATH="$STUBS:$PATH" "$runner" "$@" 2>&1)"
+  OUT="$(PATH="$STUBS:$PATH" "$runner" "$@" 2>&1 </dev/null)"
   RC=$?
 }
 
@@ -187,8 +187,8 @@ reset_stub
 run "$RUNNER" prod apply --expect=a,b
 expected="$(printf '%s\n' 'cps:migrate-status --json' pending-hash backup schema-baseline 'migrate --core --steps=1' \
   'cps:migrate-status --json' 'cps:migrate-verify a' 'migrate --core --steps=1' 'cps:migrate-status --json' \
-  'cps:migrate-verify b' \
-  'cps:schema-check --no-smoke --json --compare')"
+  'cps:migrate-verify b' 'cps:migrate-status --json' \
+  'cps:schema-check --no-smoke --json --compare')"   # the status call after verify b proves nothing is left pending
 check "happy path exits 0" '[[ $RC -eq 0 ]]'
 check "happy path order exactly as spec" '[[ "$(calls)" == "$expected" ]]'
 check "success prints rollback and restore" '[[ "$OUT" == *"rollback:"* && "$OUT" == *"restore (Robert runs this):"* ]]'
@@ -599,6 +599,23 @@ echo 'not json' > "$STUB_DIR/local-status.json"
 run "$RUNNER" staging rehearse
 check "rehearse: unreadable local status -> exit 2, no snapshot" \
   '[[ $RC -eq 2 && "$OUT" == *"local cps:migrate-status unreadable"* ]] && ! grep -q "ddev snapshot" "$STUB_LOG"'
+
+# Every named migration runs, not just the first. The stubs read stdin like real ssh and `ddev exec`,
+# so a loop that feeds the names on stdin stops after one and these fail (the 2026-10-05 false PASS).
+reset_stub
+rm -f "$STAMPS/staging.json"
+echo '{"pending":["a","b","c"],"commit":"abc123","counts":{"tables":10,"channel_titles":5,"channel_fields":3}}' > "$STUB_DIR/migrate-status.json"
+echo '{"pending":["a","b","c"],"counts":{"tables":10,"channel_titles":5,"channel_fields":3}}' > "$STUB_DIR/local-status.json"
+run "$RUNNER" staging rehearse
+check "rehearse runs all three migrations" \
+  '[[ $RC -eq 0 && "$(grep -c "^ddev exec .*migrate --core --steps=1" "$STUB_LOG")" -eq 3 ]]'
+check "rehearse verifies all three" '[[ "$(grep -c "^ddev exec .*cps:migrate-verify" "$STUB_LOG")" -eq 3 ]]'
+check "rehearse names all three in order" \
+  '[[ "$(grep -o "rehearsing [abc] locally" <<<"$OUT" | tr "\n" " ")" == "rehearsing a locally rehearsing b locally rehearsing c locally " ]]'
+reset_stub
+run "$RUNNER" staging apply --expect=a,b
+check "apply runs both migrations" '[[ $RC -eq 0 && "$(grep -c "^ssh .*migrate --core --steps=1" "$STUB_LOG")" -eq 2 ]]'
+check "apply verifies both" '[[ "$(grep -c "^ssh .*cps:migrate-verify" "$STUB_LOG")" -eq 2 ]]'
 
 # rehearsal: not recorded locally
 reset_stub

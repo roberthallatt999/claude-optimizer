@@ -34,6 +34,7 @@ MODE=""        # local | remote
 TARGET=""      # staging | prod
 ACTION=""      # test | status | rehearse | apply
 EXPECT=""
+EXPECT_NAMES=()
 LOCAL_MIGRATION=""
 BACKUP_NAME=""
 BACKUP_FILE=""
@@ -88,9 +89,10 @@ parse_args() {
           EXPECT="${1#--expect=}"
           [[ -n "$EXPECT" ]] || die "apply needs --expect=<m1,m2,...>"
           local name
-          while IFS= read -r name; do
+          expect_names
+          for name in "${EXPECT_NAMES[@]}"; do
             valid_name "$name" || die "invalid migration name in --expect: $name"
-          done < <(tr ',' '\n' <<<"$EXPECT")
+          done
           ;;
         *) die "unknown action: $ACTION" ;;
       esac
@@ -391,6 +393,22 @@ print_restore_only() {
 # Fatal text in a migrate call's output is a failure signal even when eecli exits 0.
 output_has_fatal() { grep -qE 'Fatal error|Uncaught|The following error occurred' <<<"$1"; }
 
+# The names in $EXPECT as an array. Never iterate them with `while read ... done < <(...)`: ssh and
+# `ddev exec` inside the loop read the same stdin and swallow every name after the first, so the loop
+# ends after ONE migration and the caller reports success for the whole set (seen 2026-10-05).
+expect_names() { IFS=',' read -r -a EXPECT_NAMES <<<"$EXPECT"; }
+
+# assert_none_pending <status-fn> <where>: after a loop, none of the expected migrations may still be
+# pending. Independent proof that every one ran; a FAIL here means the loop stopped early.
+assert_none_pending() {
+  local st left
+  st="$($1 2>/dev/null)"
+  jq -e '.pending | type == "array"' >/dev/null 2>&1 <<<"$st" \
+    || fail "could not re-read migrate-status on $2 after the migrations — state unknown, check before going on"
+  left="$(jq -r --arg e "$EXPECT" '[.pending[] | select(. as $p | ($e | split(",")) | index($p) != null)] | join(",")' <<<"$st")"
+  [[ -z "$left" ]] || fail "still pending on $2 after the loop: [$left] — not every migration ran"
+}
+
 # run_migrate_step <eecli-fn> <status-fn> <name>: one `migrate --core --steps=1`, then proof it was
 # recorded. EE exits 0 when up() throws, so the status re-read is the authority. Returns:
 # 0 recorded, 1 failed (output printed), 2 reported success but not recorded.
@@ -415,7 +433,8 @@ remote_status_json() { remote_eecli cps:migrate-status --json; }
 
 apply_loop() {
   local name rc
-  while IFS= read -r name; do
+  expect_names
+  for name in "${EXPECT_NAMES[@]}"; do
     echo "ee-migrate: migrating $name"
     run_migrate_step remote_eecli remote_status_json "$name"
     rc=$?
@@ -434,7 +453,8 @@ apply_loop() {
       print_recovery "$name"
       exit 1
     fi
-  done < <(tr ',' '\n' <<<"$EXPECT")
+  done
+  assert_none_pending remote_status_json "$TARGET"
 }
 
 # Server-side structural baseline taken after the backup and before the first migrate, so the
@@ -583,14 +603,16 @@ cmd_rehearse() {
   local_eecli cps:schema-check --json "--baseline=$EM_REL/rehearse-baseline.json" >/dev/null
   rc=$?
   [[ $rc -lt 2 ]] || fail "local schema-check baseline could not run"
-  while IFS= read -r name; do
+  expect_names
+  for name in "${EXPECT_NAMES[@]}"; do
     echo "ee-migrate: rehearsing $name locally"
     run_migrate_step local_eecli local_status_json "$name"
     rc=$?
     [[ $rc -ne 2 ]] || fail "$(printf "$UNRECORDED_MSG" "$name") (local rehearsal copy; it is restored from the snapshot)"
     [[ $rc -eq 0 ]] || fail "local migrate failed for $name"
     local_eecli cps:migrate-verify "$name" || fail "local verify failed for $name"
-  done < <(tr ',' '\n' <<<"$EXPECT")
+  done
+  assert_none_pending local_status_json "the local rehearsal copy"
   local_eecli cps:schema-check --json "--compare=$EM_REL/rehearse-baseline.json" >/dev/null \
     || fail "rehearsal schema-check (smoke on) reports new failures or could not run"
   write_rehearsal_stamp

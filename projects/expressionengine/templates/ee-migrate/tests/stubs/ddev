@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Stub ddev: logs the call and answers from canned files in $STUB_DIR. Real ddev is never used.
+# Real ssh and `ddev exec` read stdin. Do the same, so a runner loop that feeds names on stdin is caught.
+[ -t 0 ] || cat >/dev/null
 echo "ddev $*" >> "$STUB_LOG"
 d="$STUB_DIR"
 args="$*"

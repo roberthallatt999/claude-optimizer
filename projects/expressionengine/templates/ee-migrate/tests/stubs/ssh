@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Stub ssh: logs "ssh <host> <command>" and answers from canned files in $STUB_DIR.
+# Real ssh and `ddev exec` read stdin. Do the same, so a runner loop that feeds names on stdin is caught.
+[ -t 0 ] || cat >/dev/null
 echo "ssh $*" >> "$STUB_LOG"
 cmd="$2"
 d="$STUB_DIR"
