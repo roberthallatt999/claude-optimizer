@@ -36,7 +36,7 @@ recipe. structure is shipped with EE but the Structure module is not installed o
 | [email_address](email_address.md) | core | 7.5.27 | cps |
 | [file](file.md) | core | 7.5.27 | cfk |
 | [file_grid](file_grid.md) | core | 7.5.27 | cfk |
-| [fluid_field](fluid_field.md) | core | pending | cps |
+| [fluid_field](fluid_field.md) | core | 7.5.27 | cps |
 | [grid](grid.md) | core | 7.5.27 | cfk |
 | [hidden](hidden.md) | core | no — not installed on any CPS site; source only | none |
 | [member](member.md) | core | 7.5.27 | cfk |
