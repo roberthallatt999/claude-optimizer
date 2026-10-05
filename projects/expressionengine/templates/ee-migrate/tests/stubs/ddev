@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Stub ddev: logs the call; real ddev is never used by the tests.
+echo "ddev $*" >> "$STUB_LOG"
+exit 0

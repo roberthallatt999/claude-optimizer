@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Stub ssh: logs "ssh <host> <command>" and answers from canned files in $STUB_DIR.
+echo "ssh $*" >> "$STUB_LOG"
+cmd="$2"
+d="$STUB_DIR"
+case "$cmd" in
+  *cps:migrate-status*)
+    if [[ -f "$d/status-missing" ]]; then echo "Command not found: cps:migrate-status"; exit 1; fi
+    cat "$d/migrate-status.json"
+    ;;
+  *backup:database*)
+    [[ -f "$d/backup-fail" ]] && { echo BACKUP_CMD_FAILED; exit 0; }
+    [[ -f "$d/backup-nofile" ]] && { echo NEW_MISSING; exit 0; }
+    echo "NEW $(cat "$d/backup-size" 2>/dev/null || echo 104857600) $(cat "$d/backup-mode" 2>/dev/null || echo 600)"
+    echo "PREV $(cat "$d/prev-size" 2>/dev/null || echo none)"
+    ;;
+  *cps:migrate-verify*)
+    name="${cmd##*cps:migrate-verify }"
+    [[ -f "$d/verify-exit-$name" ]] && exit "$(cat "$d/verify-exit-$name")"
+    exit 0
+    ;;
+  *migrate:rollback*) exit 0 ;;
+  *"migrate --core"*) exit "$(cat "$d/migrate-exit" 2>/dev/null || echo 0)" ;;
+  *cps:schema-check*)
+    echo '{"results":[],"summary":{"pass":1,"warn":0,"fail":0}}'
+    exit "$(cat "$d/schema-exit" 2>/dev/null || echo 0)"
+    ;;
+esac
+exit 0
