@@ -67,7 +67,7 @@ class CpsRefFixture
      * Create a top-level channel field attached to $group (pass null to leave it unattached).
      * $settings is the full field_settings array (include field_fmt etc. the fieldtype expects).
      */
-    public static function makeField($group, string $name, string $type, array $settings, int $order = 1)
+    public static function makeField($group, string $name, string $type, array $settings, int $order = 1, array $native = [])
     {
         $field = ee('Model')->make('ChannelField');
         $field->site_id = self::siteId();
@@ -81,6 +81,11 @@ class CpsRefFixture
         $field->field_order = $order;
         $field->legacy_field_data = 'n';
         $field->field_settings = $settings;
+        // $native: values for real exp_channel_fields columns (field_maxl, field_text_direction, field_fmt,
+        // field_ta_rows, field_content_type, ...). Optional; added for text/textarea (Plan 2 Task 2).
+        foreach ($native as $property => $value) {
+            $field->$property = $value;
+        }
         if ($group) {
             $field->ChannelFieldGroups = $group;
         }
@@ -265,6 +270,30 @@ class CpsRefFixture
         return ee()->db->query(
             'SHOW COLUMNS FROM `' . $name . '` LIKE ' . ee()->db->escape($column)
         )->num_rows() > 0;
+    }
+
+    /**
+     * SQL type string of a column on an (unprefixed) table, from SHOW COLUMNS (e.g. 'text', 'int(11)',
+     * 'decimal(10,4)'); null when the table or column is missing. Lower-cased.
+     */
+    public static function columnType(string $unprefixed, string $column): ?string
+    {
+        if (! self::tableExists($unprefixed)) {
+            return null;
+        }
+        $row = ee()->db->query(
+            'SHOW COLUMNS FROM `' . ee()->db->dbprefix . $unprefixed . '` LIKE ' . ee()->db->escape($column)
+        )->row_array();
+
+        return isset($row['Type']) ? strtolower($row['Type']) : null;
+    }
+
+    /** Column value of a native exp_channel_fields column for a field name; null when missing. */
+    public static function nativeColumn(string $fieldName, string $column)
+    {
+        $row = ee()->db->select($column)->where('field_name', $fieldName)->get('channel_fields')->row_array();
+
+        return $row[$column] ?? null;
     }
 
     /** Append $message to $problems when $condition is false (verify() collects failures this way). */
