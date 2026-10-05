@@ -4,6 +4,8 @@
   "respectGitignore": true,
   "permissions": {
     "allow": [
+      "Bash(.admin-scripts/ee-migrate.sh:*)",
+      "Bash(bash .admin-scripts/ee-migrate.sh:*)",
       "Bash(bun:*)",
       "Bash(cat:*)",
       "Bash(composer:*)",
@@ -33,6 +35,10 @@
       "Bash(touch:*)",
       "Bash(wc:*)",
       "Bash(yarn:*)"
+    ],
+    "ask": [
+      "Bash(.admin-scripts/ee-migrate.sh prod apply:*)",
+      "Bash(bash .admin-scripts/ee-migrate.sh prod apply:*)"
     ]
   }
 }

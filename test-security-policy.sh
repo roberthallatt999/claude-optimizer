@@ -226,6 +226,13 @@ for f in "$SCRIPT_DIR"/projects/*/rules/*.md; do
 done
 assert_eq "stack rules are path-scoped" "" "$unscoped"
 
+echo -e "\n${CYAN}=== ExpressionEngine ee-migrate permissions ===${NC}\n"
+EE_SETTINGS="$SCRIPT_DIR/projects/expressionengine/settings.local.json"
+assert_true "ee-migrate prod apply asks (plain)" \
+  jq -e '.permissions.ask | index("Bash(.admin-scripts/ee-migrate.sh prod apply:*)")' "$EE_SETTINGS"
+assert_true "ee-migrate prod apply asks (bash form)" \
+  jq -e '.permissions.ask | index("Bash(bash .admin-scripts/ee-migrate.sh prod apply:*)")' "$EE_SETTINGS"
+
 # ============================================================================
 echo ""
 echo -e "${CYAN}================================${NC}"

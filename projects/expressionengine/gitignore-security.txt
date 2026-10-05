@@ -39,3 +39,6 @@ db-config.*
 *.sql
 !*-schema.sql
 !*-migrations.sql
+
+# EE migration runner state (per-machine stamps)
+.admin-scripts/.ee-migrate/
