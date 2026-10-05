@@ -4154,6 +4154,24 @@ if [[ -d "$STACK_DIR/agents" ]]; then
   done
 fi
 
+# 2a'. EE-based stacks without their own skills/ dir share the expressionengine migration tooling
+# (single source: projects/expressionengine/), so one copy of the skill and agent serves all three.
+if [[ "$STACK" == "coilpack" || "$STACK" == "ee-nextjs" ]]; then
+  ee_src="$SCRIPT_DIR/projects/expressionengine"
+  if [[ -d "$ee_src/skills/ee-migrate" || -f "$ee_src/agents/ee-migration-author.md" ]]; then
+    echo ""
+    echo -e "${CYAN}Copying EE migration tooling (shared with the expressionengine stack)...${NC}"
+    if [[ -d "$ee_src/skills/ee-migrate" ]]; then
+      do_mkdir "$PROJECT_DIR/.claude/skills"
+      do_copy "$ee_src/skills/ee-migrate" "$PROJECT_DIR/.claude/skills/"
+    fi
+    if [[ -f "$ee_src/agents/ee-migration-author.md" ]]; then
+      do_mkdir "$PROJECT_DIR/.claude/agents"
+      do_copy "$ee_src/agents/ee-migration-author.md" "$PROJECT_DIR/.claude/agents/"
+    fi
+  fi
+fi
+
 # 2b. Copy commands conditionally
 if [[ -d "$STACK_DIR/commands" ]]; then
   echo ""

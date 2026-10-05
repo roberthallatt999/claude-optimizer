@@ -256,6 +256,16 @@ out=$("$SETUP_SCRIPT" --project="$ee" --doctor 2>&1)
 assert_false "current cps_tools not reported" contains "$out" "older than the template"
 assert_true "ee-migrate skill deployed" test -f "$ee/.claude/skills/ee-migrate/SKILL.md"
 
+# EE-based stacks without their own skills/ dir still get the shared ee-migrate tooling
+for st in coilpack ee-nextjs; do
+  cp_dir=$(make_ee)
+  run "$cp_dir" --force --no-superpowers --stack="$st" >/dev/null
+  assert_true "$st deploy gets the ee-migrate skill" test -f "$cp_dir/.claude/skills/ee-migrate/SKILL.md"
+  assert_true "$st deploy gets the ee-migration-author agent" test -f "$cp_dir/.claude/agents/ee-migration-author.md"
+  assert_true "$st deploy gets the runner allow rule" \
+    jq -e '.permissions.allow | index("Bash(.admin-scripts/ee-migrate.sh:*)")' "$cp_dir/.claude/settings.local.json"
+done
+
 assert_eq "no stack template enables the undefined context7 server" "" \
   "$(grep -l '"context7"' "$SCRIPT_DIR"/projects/*/settings.local.json 2>/dev/null)"
 

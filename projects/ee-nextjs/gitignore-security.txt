@@ -52,3 +52,6 @@ out/
 # Node.js Dependencies (never commit -- use npm install)
 # =============================================================================
 node_modules/
+
+# EE migration runner state (per-machine stamps)
+.admin-scripts/.ee-migrate/

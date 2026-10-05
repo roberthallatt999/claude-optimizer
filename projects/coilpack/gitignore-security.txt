@@ -36,3 +36,6 @@ system/expressionengine/cache/
 # PHP Dependencies (never commit — use composer install)
 # =============================================================================
 vendor/
+
+# EE migration runner state (per-machine stamps)
+.admin-scripts/.ee-migrate/

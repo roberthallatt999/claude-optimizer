@@ -233,6 +233,17 @@ assert_true "ee-migrate prod apply asks (plain)" \
 assert_true "ee-migrate prod apply asks (bash form)" \
   jq -e '.permissions.ask | index("Bash(bash .admin-scripts/ee-migrate.sh prod apply:*)")' "$EE_SETTINGS"
 
+for st in coilpack ee-nextjs; do
+  f="$SCRIPT_DIR/projects/$st/settings.local.json"
+  assert_true "$st ee-migrate prod apply asks (plain)" \
+    jq -e '.permissions.ask | index("Bash(.admin-scripts/ee-migrate.sh prod apply:*)")' "$f"
+  assert_true "$st ee-migrate prod apply asks (bash form)" \
+    jq -e '.permissions.ask | index("Bash(bash .admin-scripts/ee-migrate.sh prod apply:*)")' "$f"
+  assert_true "$st ee-migrate runner allowed" \
+    jq -e '.permissions.allow | index("Bash(.admin-scripts/ee-migrate.sh:*)")' "$f"
+  assert_true "$st ignores runner state" grep -qx '.admin-scripts/.ee-migrate/' "$SCRIPT_DIR/projects/$st/gitignore-security.txt"
+done
+
 # ============================================================================
 echo ""
 echo -e "${CYAN}================================${NC}"
