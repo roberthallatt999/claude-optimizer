@@ -2,7 +2,7 @@
 fieldtype: category_entry_picker
 addon: category_entry_picker 1.0.1 (CPS-custom, author Robert Hallatt)
 origin: third-party
-verified: no — add-on not installed in any CPS site's live database (code present in the cyntc repo; installed only in a stale local database)
+verified: no — add-on not installed in any CPS site's live database (code present in the cyntc repo; it was installed only in a stale local database, dropped 2026-10-05)
 fixture: 2099_02_01_000028_cpsref_category_entry_picker
 fixture_site: cyntc
 grid: no
@@ -15,7 +15,8 @@ add-on (module and fieldtype) first, then run `run-fixtures.sh <site> category_e
 then the runner SKIPs the fixture. Nothing below was proven by a passing fixture. Evidence is the source in
 `cyntc/system/user/addons/category_entry_picker/` (`addon.setup.php`, `ft.category_entry_picker.php`,
 `upd.category_entry_picker.php`, `ext.category_entry_picker.php`) and a read-only look at the one existing field
-in `admin_immun`, a STALE local database (not the database cyntc's EE uses). That field is `test_url` (#1816).
+in `admin_immun`, a stale local database (not the one cyntc's EE uses) that was dropped on 2026-10-05, so that
+look cannot be repeated. That field was `test_url` (#1816).
 
 ## Settings contract
 
@@ -30,7 +31,7 @@ What it does: pick a category from one category group, then pick an entry in tha
 | `allow_nested` | `'y'`/`'n'` | `'y'` | No (`?? 'y'`) |
 | `field_required` | `'y'`/`'n'` | `'n'` | **Yes**: `validate()` indexes `$this->settings['field_required']` directly. Always write it |
 
-Existing field in `admin_immun`: `a:3:{channel_id "165"; cat_group_id "42"; allow_nested "y"}`.
+The field that existed in `admin_immun` (since dropped): `a:3:{channel_id "165"; cat_group_id "42"; allow_nested "y"}`.
 
 ## Storage
 
@@ -97,7 +98,7 @@ Or `run-fixtures.sh <site> category_entry_picker` once installed.
 ## Gotchas
 
 - Version mismatch: `addon.setup.php` and `upd` say 1.0.1, `ft.category_entry_picker.php` says 1.0.0; the
-  stale database holds 1.0.0. Treat any version-dependent claim as unverified (version sensitivity).
+  stale database (since dropped) held 1.0.0. Treat any version-dependent claim as unverified (version sensitivity).
 - `validate()` crash path: reads `$this->settings['field_required']` directly; always write `field_required`.
 - The module registers action `get_entries` with `csrf_exempt = 1` (`upd::install()`); the field's AJAX uses it.
   Anyone installing the add-on gets an unauthenticated-capable endpoint by design; review before enabling.
