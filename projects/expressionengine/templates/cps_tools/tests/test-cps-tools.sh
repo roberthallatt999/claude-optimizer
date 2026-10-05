@@ -5,6 +5,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sub=""; [[ -d ee/system/user ]] && sub="ee/"
 MIG="${sub}system/user/database/migrations"
+# Sites that have never had a migration have no folder yet; create it and remove it again if still empty.
+MADE_MIG=0; [[ -d "$MIG" ]] || { mkdir -p "$MIG"; MADE_MIG=1; }
 if [[ -n "${LOCAL_EECLI:-}" ]]; then :; elif [[ -n "$sub" ]]; then LOCAL_EECLI="ddev exec php artisan eecli"; else LOCAL_EECLI="ddev exec php system/ee/eecli.php"; fi
 EE() { $LOCAL_EECLI "$@" 2>&1; }
 EEJ() { $LOCAL_EECLI "$@" 2>/dev/null; }   # stdout only: JSON stays parseable when the command exits non-zero
@@ -26,7 +28,7 @@ FIXTURES=(
   2099_01_01_000031_cpstools_fx_bad_relationship_target
   2099_01_01_000032_cpstools_fx_missing_cat_group
 )
-cleanup() { for f in "${FIXTURES[@]}"; do rm -f "${MIG:?}/${f:?}.php"; done; rm -f "$BASE"; }
+cleanup() { for f in "${FIXTURES[@]}"; do rm -f "${MIG:?}/${f:?}.php"; done; rm -f "$BASE"; [[ $MADE_MIG -eq 1 ]] && rmdir "${MIG:?}" 2>/dev/null; return 0; }
 trap cleanup EXIT
 
 # --- migrate-status ---------------------------------------------------------
