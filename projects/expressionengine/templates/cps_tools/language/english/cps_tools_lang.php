@@ -15,4 +15,7 @@ $lang = [
     'cps_logs_option_deprecated' => 'Include deprecation notices (excluded by default)',
 
     'cps_tools_option_json' => 'Output machine-readable JSON',
+    'cps_tools_option_no_smoke' => 'Skip the fieldtype validate/display smoke test',
+    'cps_tools_option_baseline' => 'Write the results to this file as a baseline',
+    'cps_tools_option_compare' => 'Compare to a baseline file; only new failures count',
 ];

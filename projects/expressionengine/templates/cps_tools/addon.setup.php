@@ -11,7 +11,6 @@ return [
         'cps:logs' => CPS\Tools\Commands\CommandLogs::class,
         'cps:migrate-status' => CPS\Tools\Commands\CommandMigrateStatus::class,
         'cps:migrate-verify' => CPS\Tools\Commands\CommandMigrateVerify::class,
-        // cps:schema-check is registered by a later task,
-        // once their classes exist (EE fatals on `eecli list` if a registered class is missing).
+        'cps:schema-check' => CPS\Tools\Commands\CommandSchemaCheck::class,
     ],
 ];
