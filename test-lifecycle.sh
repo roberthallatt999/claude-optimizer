@@ -241,6 +241,21 @@ echo "stale" >> "$home/.claude/stacks/expressionengine.md"
 out=$(HOME="$home" "$SETUP_SCRIPT" --project="$ee" --doctor 2>&1)
 assert_true "stale stack import reported" contains "$out" "is out of date with claude-optimizer/stacks"
 
+# EE migration tooling drift
+ee=$(make_ee)
+run "$ee" --force --no-superpowers >/dev/null
+mkdir -p "$ee/system/user/addons/cps_tools" "$ee/.admin-scripts"
+echo "<?php return ['version' => '0.0.1'];" > "$ee/system/user/addons/cps_tools/addon.setup.php"
+printf '#!/usr/bin/env bash\nEE_MIGRATE_VERSION="0.0.1"\n' > "$ee/.admin-scripts/ee-migrate.sh"
+out=$("$SETUP_SCRIPT" --project="$ee" --doctor 2>&1)
+assert_true "stale cps_tools reported" contains "$out" "cps_tools 0.0.1 is older than the template"
+assert_true "stale runner reported" contains "$out" "ee-migrate.sh 0.0.1 is older than the template"
+cp "$SCRIPT_DIR/projects/expressionengine/templates/cps_tools/addon.setup.php" "$ee/system/user/addons/cps_tools/addon.setup.php"
+cp "$SCRIPT_DIR/projects/expressionengine/templates/ee-migrate/ee-migrate.sh" "$ee/.admin-scripts/ee-migrate.sh"
+out=$("$SETUP_SCRIPT" --project="$ee" --doctor 2>&1)
+assert_false "current cps_tools not reported" contains "$out" "older than the template"
+assert_true "ee-migrate skill deployed" test -f "$ee/.claude/skills/ee-migrate/SKILL.md"
+
 assert_eq "no stack template enables the undefined context7 server" "" \
   "$(grep -l '"context7"' "$SCRIPT_DIR"/projects/*/settings.local.json 2>/dev/null)"
 

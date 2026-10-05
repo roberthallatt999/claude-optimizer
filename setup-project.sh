@@ -2896,6 +2896,33 @@ verify_deployment() {
     fi
   done
 
+  # EE migration tooling: installed cps_tools add-on and runner copies must not lag the templates
+  local ee_tpl="$SCRIPT_DIR/projects/expressionengine/templates"
+  if [[ -d "$ee_tpl" ]]; then
+    local sub addon_file tpl_ver cur_ver runner
+    for sub in "" "ee/"; do
+      addon_file="$PROJECT_DIR/${sub}system/user/addons/cps_tools/addon.setup.php"
+      [[ -f "$addon_file" ]] || continue
+      tpl_ver=$(sed -n "s/.*'version'[[:space:]]*=>[[:space:]]*'\([^']*\)'.*/\1/p" "$ee_tpl/cps_tools/addon.setup.php" | head -n 1)
+      cur_ver=$(sed -n "s/.*'version'[[:space:]]*=>[[:space:]]*'\([^']*\)'.*/\1/p" "$addon_file" | head -n 1)
+      if [[ -n "$tpl_ver" && "$cur_ver" != "$tpl_ver" && "$(printf '%s\n%s\n' "$cur_ver" "$tpl_ver" | sort -V | head -n 1)" == "$cur_ver" ]]; then
+        hc_warn "cps_tools ${cur_ver:-unversioned} is older than the template ($tpl_ver) — run ee-migrate-install.sh"
+      else
+        hc_ok "cps_tools is current"
+      fi
+    done
+    runner="$PROJECT_DIR/.admin-scripts/ee-migrate.sh"
+    if [[ -f "$runner" ]]; then
+      tpl_ver=$(sed -n 's/^EE_MIGRATE_VERSION="\([^"]*\)".*/\1/p' "$ee_tpl/ee-migrate/ee-migrate.sh" | head -n 1)
+      cur_ver=$(sed -n 's/^EE_MIGRATE_VERSION="\([^"]*\)".*/\1/p' "$runner" | head -n 1)
+      if [[ -n "$tpl_ver" && "$cur_ver" != "$tpl_ver" && "$(printf '%s\n%s\n' "$cur_ver" "$tpl_ver" | sort -V | head -n 1)" == "$cur_ver" ]]; then
+        hc_warn "ee-migrate.sh ${cur_ver:-unversioned} is older than the template ($tpl_ver) — run ee-migrate-install.sh"
+      else
+        hc_ok "ee-migrate.sh is current"
+      fi
+    fi
+  fi
+
   # Project memory
   if [[ -f "$PROJECT_DIR/.okf/index.md" ]]; then
     if report=$(bash "$SCRIPT_DIR/projects/common/okf/okf-check.sh" "$PROJECT_DIR/.okf" 2>&1); then
@@ -4174,7 +4201,7 @@ if [[ -d "$STACK_DIR/skills" ]]; then
   do_mkdir "$PROJECT_DIR/.claude/skills"
 
   # Core skills - ALWAYS copy if they exist
-  for skill in ee-stash-optimizer ee-template-assistant; do
+  for skill in ee-stash-optimizer ee-template-assistant ee-migrate; do
     if [[ -d "$STACK_DIR/skills/$skill" ]]; then
       do_copy "$STACK_DIR/skills/$skill" "$PROJECT_DIR/.claude/skills/"
     fi
