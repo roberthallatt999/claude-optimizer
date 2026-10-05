@@ -13,8 +13,10 @@ fluid: yes
 Evidence: `system/ee/ExpressionEngine/Addons/rte/ft.rte.php`, `RteHelper.php`, `Model/Toolset.php`,
 `addon.setup.php`, `upd.rte.php`, `Model/Channel/ChannelEntry.php` (`updateFilesUsage()`),
 `Library/CP/FileManager/Traits/FileUsageTrait.php`, `Model/Content/FieldModel.php`, EE 7.5.27, and the passing
-fixture `fixtures/2099_02_01_000018_cpsref_rte.php` (`run-fixtures.sh <site> rte`; run on cfk, which has no
-`rte` fields of its own, only wygwam). Official docs: see `EE-DOCS-NOTES.md`.
+fixture `fixtures/2099_02_01_000018_cpsref_rte.php` (`run-fixtures.sh <site> rte`; passes on cfk and cps; cfk has no
+`rte` fields of its own, only wygwam). The fixture is portable: it prefers toolsets named Basic and Full and otherwise
+takes the lowest toolset ids, and takes its file from the first upload directory that holds an unused file, so it
+runs on every site; in a real migration resolve the toolset by name. Official docs: see `EE-DOCS-NOTES.md`.
 
 ## Settings contract
 

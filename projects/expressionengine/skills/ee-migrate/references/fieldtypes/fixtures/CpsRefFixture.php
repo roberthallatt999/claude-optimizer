@@ -296,6 +296,140 @@ class CpsRefFixture
         return $row[$column] ?? null;
     }
 
+    /**
+     * Make ee()->session and file_upload_preferences_model available. Under eecli there is no session, and
+     * file_upload_preferences_model::get_paths() (RTE save(), the entry's file-usage tracking, file fields)
+     * reads it. Safe to call repeatedly.
+     */
+    public static function ensureSession(): void
+    {
+        try {
+            ee()->session;
+        } catch (\Throwable $e) {
+            ee()->load->library('session');
+        }
+        ee()->load->model('file_upload_preferences_model');
+    }
+
+    /**
+     * Drop the data table(s) of a field id with plain SQL. A field deleted in the same request that created it
+     * leaves channel_data_field_N (and channel_grid_field_N for Grid) behind, because smartforge's
+     * table_exists() is cached per request and does not know a table created moments ago. Idempotent.
+     */
+    public static function dropDataTableIfExists(int $fieldId): void
+    {
+        if ($fieldId <= 0) {
+            return;
+        }
+        foreach (['channel_data_field_', 'channel_grid_field_'] as $prefix) {
+            ee()->db->query('DROP TABLE IF EXISTS `' . ee()->db->dbprefix . $prefix . $fieldId . '`');
+        }
+    }
+
+    /**
+     * Create an option field ($settings is field_settings; $columns are channel_fields columns the option
+     * fieldtypes read directly: field_pre_populate, field_list_items, field_pre_channel_id, field_pre_field_id).
+     */
+    public static function makeOptionField($group, string $name, string $type, array $settings, array $columns, int $order)
+    {
+        $field = self::makeField($group, $name, $type, $settings, $order);
+        foreach ($columns as $column => $value) {
+            $field->$column = $value;
+        }
+        $field->save();
+
+        return $field;
+    }
+
+    /** Lowest existing member id (alias of authorId(); fails clearly when the site has no members). */
+    public static function firstMemberId(): int
+    {
+        $id = self::authorId();
+        if ($id <= 0) {
+            throw new \RuntimeException('prerequisite missing: the site has no members');
+        }
+
+        return $id;
+    }
+
+    /** The $count lowest existing member ids, ascending. */
+    public static function firstMemberIds(int $count): array
+    {
+        $rows = ee()->db->select('member_id')->order_by('member_id')->limit($count)->get('members')->result_array();
+        if (count($rows) < $count) {
+            throw new \RuntimeException("prerequisite missing: need $count existing members, found " . count($rows));
+        }
+
+        return array_map('intval', array_column($rows, 'member_id'));
+    }
+
+    /** Primary role id of a member (members.role_id). */
+    public static function primaryRoleId(int $memberId): int
+    {
+        $row = ee()->db->select('role_id')->where('member_id', $memberId)->get('members')->row_array();
+        $roleId = (int) ($row['role_id'] ?? 0);
+        if ($roleId <= 0) {
+            throw new \RuntimeException("prerequisite missing: member $memberId has no primary role");
+        }
+
+        return $roleId;
+    }
+
+    /**
+     * RTE toolset id: the one named $preferred when it exists, else the lowest id not in $exclude.
+     * A real migration resolves its toolset by NAME; fixtures take what the site has so they run everywhere.
+     */
+    public static function firstRteToolsetId(string $preferred = 'Basic', array $exclude = []): int
+    {
+        $named = ee()->db->select('toolset_id')->where('toolset_name', $preferred)->get('rte_toolsets')->row_array();
+        if ($named && ! in_array((int) $named['toolset_id'], $exclude, true)) {
+            return (int) $named['toolset_id'];
+        }
+        $query = ee()->db->select('toolset_id')->order_by('toolset_id');
+        if ($exclude) {
+            $query->where_not_in('toolset_id', $exclude);
+        }
+        $row = $query->limit(1)->get('rte_toolsets')->row_array();
+        if (! $row) {
+            throw new \RuntimeException('prerequisite missing: no RTE toolset in exp_rte_toolsets');
+        }
+
+        return (int) $row['toolset_id'];
+    }
+
+    /**
+     * First upload directory (lowest id) that holds at least $unusedNeeded files nothing uses (no exp_file_usage
+     * row, total_records = 0), so a fixture can watch total_records go 0 -> 1 -> 0. Returns
+     * ['id' => int, 'name' => string, 'files' => [['file_id','upload_location_id','file_name'], ...]] with
+     * exactly $unusedNeeded files, lowest id first. Reads exp_files only; creates nothing.
+     */
+    public static function firstUploadDirectoryWithFile(int $unusedNeeded = 1): array
+    {
+        $candidates = ee()->db->query(
+            'SELECT f.upload_location_id AS id, COUNT(*) AS n FROM exp_files f'
+            . ' LEFT JOIN exp_file_usage u ON u.file_id = f.file_id'
+            . ' WHERE u.file_id IS NULL AND f.total_records = 0 GROUP BY f.upload_location_id'
+            . ' HAVING n >= ' . (int) $unusedNeeded . ' ORDER BY f.upload_location_id'
+        )->result_array();
+        foreach ($candidates as $candidate) {
+            $dir = ee()->db->select('id, name')->where('id', (int) $candidate['id'])->get('upload_prefs')->row_array();
+            if (! $dir) {
+                continue; // files pointing at a deleted upload directory
+            }
+            $files = ee()->db->query(
+                'SELECT f.file_id, f.upload_location_id, f.file_name FROM exp_files f'
+                . ' LEFT JOIN exp_file_usage u ON u.file_id = f.file_id'
+                . ' WHERE u.file_id IS NULL AND f.total_records = 0 AND f.upload_location_id = ' . (int) $dir['id']
+                . ' ORDER BY f.file_id LIMIT ' . (int) $unusedNeeded
+            )->result_array();
+
+            return ['id' => (int) $dir['id'], 'name' => $dir['name'], 'files' => $files];
+        }
+        throw new \RuntimeException(
+            "prerequisite missing: no upload directory with at least $unusedNeeded unused file(s) in exp_files"
+        );
+    }
+
     /** Append $message to $problems when $condition is false (verify() collects failures this way). */
     public static function check(array &$problems, bool $condition, string $message): void
     {
@@ -332,6 +466,8 @@ class CpsRefFixture
             $fieldId = (int) $field->field_id;
             $field->delete();
             ee()->db->where('field_id', $fieldId)->delete('grid_columns');
+            // Orphan data table when the field was created in this same request (cached table_exists()).
+            self::dropDataTableIfExists($fieldId);
         }
 
         $groups = ee('Model')->get('ChannelFieldGroup')->filter('group_name', 'LIKE', self::PREFIX . '%')->all();

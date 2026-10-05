@@ -9,7 +9,8 @@ require_once __DIR__ . '/CpsRefFixture.php';
  * directory resolved by NAME, show_existing, num_existing), the stored value formats ({file:ID:url},
  * {filedir_N}name, bare id) and the exp_file_usage rows the entry save writes (top level only; Grid and Fluid are not tracked), at top level, as a Grid column
  * and as a Fluid child. Reads existing exp_files rows only: no files or upload directories are created, moved
- * or deleted. down() removes everything cpsref*; entry delete removes the usage rows and recounts total_records.
+ * or deleted. Portable: the upload directory is the first one holding five unused files (a real migration resolves it
+ * by NAME). down() removes everything cpsref*; entry delete removes the usage rows and recounts total_records.
  */
 class CpsrefFile extends Migration
 {
@@ -21,7 +22,6 @@ class CpsrefFile extends Migration
     const COL = 'cpsref_file_col';
     const FLUID = 'cpsref_file_fluid';
     const ENTRY = 'cpsref-file';
-    const UPLOAD_DIRECTORY = 'Handout images';
 
     public function up()
     {
@@ -37,52 +37,19 @@ class CpsrefFile extends Migration
         }
     }
 
-    /**
-     * file_upload_preferences_model::get_paths(), called by every entry save (file-usage tracking), reads
-     * ee()->session, which does not exist under eecli. Private helper: candidate for promotion.
-     */
-    private static function ensureSession(): void
+    /** The first upload directory with five unused files (total_records 0 -> 1 -> 0): ['id', 'name', 'files']. */
+    private static function directory(): array
     {
-        try {
-            ee()->session;
-        } catch (\Throwable $e) {
-            ee()->load->library('session');
-        }
-        ee()->load->model('file_upload_preferences_model');
-    }
-
-    private static function uploadDirectoryId(): int
-    {
-        $dir = ee()->db->select('id')->where('name', self::UPLOAD_DIRECTORY)->get('upload_prefs')->row_array();
-        if (! $dir) {
-            throw new \RuntimeException('upload directory ' . self::UPLOAD_DIRECTORY . ' not found');
-        }
-
-        return (int) $dir['id'];
-    }
-
-    /** Lowest-id files in the directory that nothing uses (total_records goes 0 -> 1 -> 0). */
-    private static function unusedFiles(int $directoryId, int $count): array
-    {
-        $files = ee()->db->query(
-            'SELECT f.file_id, f.upload_location_id, f.file_name FROM exp_files f'
-            . ' LEFT JOIN exp_file_usage u ON u.file_id = f.file_id'
-            . ' WHERE u.file_id IS NULL AND f.total_records = 0 AND f.upload_location_id = ' . $directoryId
-            . ' ORDER BY f.file_id LIMIT ' . $count
-        )->result_array();
-        if (count($files) < $count) {
-            throw new \RuntimeException("need $count unused files in upload directory " . self::UPLOAD_DIRECTORY);
-        }
-
-        return $files;
+        return CpsRefFixture::firstUploadDirectoryWithFile(5);
     }
 
     private function build(): void
     {
-        self::ensureSession();
+        CpsRefFixture::ensureSession();
         $container = CpsRefFixture::createContainer();
         $group = $container['group'];
-        $directoryId = self::uploadDirectoryId();
+        $directory = self::directory();
+        $directoryId = $directory['id'];
 
         // The five settings save_settings() returns. allowed_directories is 'all' or ONE directory id as a string.
         $imagesOnly = [
@@ -104,7 +71,7 @@ class CpsrefFile extends Migration
         CpsRefFixture::makeFluidField($group, self::FLUID, [self::TAG], 6);
 
         // A: top-level {file:ID:url}; B: top-level {filedir_N}name; C: bare id; D: Grid; E: Fluid
-        [$a, $b, $c, $d, $e] = self::unusedFiles($directoryId, 5);
+        [$a, $b, $c, $d, $e] = $directory['files'];
         $tagFieldId = CpsRefFixture::fieldId(self::TAG);
         $col = CpsRefFixture::gridColumnId(self::GRID, self::COL);
         CpsRefFixture::makeEntry(self::ENTRY, [
@@ -121,12 +88,21 @@ class CpsrefFile extends Migration
         CpsRefFixture::removeAll();
     }
 
+    /** The directory up() picked, recovered from the stored {filedir_N} value (independent of the settings under test). */
+    private static function verifyDirectoryId(): int
+    {
+        $entryId = CpsRefFixture::entryId(self::ENTRY);
+        preg_match('/^\{filedir_(\d+)\}/', (string) CpsRefFixture::fieldValue(self::LEGACY, $entryId), $match);
+
+        return (int) ($match[1] ?? 0);
+    }
+
     public function verify(): array
     {
         CpsRefFixture::bootstrap();
-        self::ensureSession();
+        CpsRefFixture::ensureSession();
         $problems = [];
-        $directoryId = self::uploadDirectoryId();
+        $directoryId = self::verifyDirectoryId();
 
         // Settings contract
         $contract = ['field_content_type', 'allowed_directories', 'show_existing', 'num_existing', 'field_fmt'];

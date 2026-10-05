@@ -8,7 +8,9 @@ require_once __DIR__ . '/CpsRefFixture.php';
  * Fieldtype reference fixture: rte (Plan 2 Task 5). Proves the settings contract (toolset by NAME, defer,
  * db_column_type text vs mediumtext), what save() does to the HTML (file URLs become {file:ID:url}) and that
  * the entry save writes exp_file_usage rows, at top level, as a Grid column and as a Fluid child.
- * Reads one existing file row; creates no files and no upload directories. down() removes everything cpsref*.
+ * Portable: the toolsets and the file are resolved generically (a toolset named Basic/Full when present, else the
+ * lowest ids; the first upload directory holding an unused file), so it runs on every CPS site. Reads one existing
+ * file row; creates no files and no upload directories. down() removes everything cpsref*.
  */
 class CpsrefRte extends Migration
 {
@@ -19,7 +21,6 @@ class CpsrefRte extends Migration
     const COL = 'cpsref_rte_col';
     const FLUID = 'cpsref_rte_fluid';
     const ENTRY = 'cpsref-rte';
-    const UPLOAD_DIRECTORY = 'Handout images';
     const TOOLSET_BASIC = 'Basic';
     const TOOLSET_FULL = 'Full';
 
@@ -38,57 +39,34 @@ class CpsrefRte extends Migration
     }
 
     /**
-     * file_upload_preferences_model::get_paths() (used by RTE save() and by the entry's file-usage tracking)
-     * reads ee()->session, which does not exist under eecli. Private helper: candidate for promotion.
+     * Toolset ids: a real migration resolves a toolset by NAME; the fixture prefers Basic / Full and falls back to the
+     * first available toolsets so it runs on every site. Returns [basicId, fullId] (equal when only one toolset exists).
      */
-    private static function ensureSession(): void
+    private static function toolsetIds(): array
     {
+        $basic = CpsRefFixture::firstRteToolsetId(self::TOOLSET_BASIC);
         try {
-            ee()->session;
-        } catch (\Throwable $e) {
-            ee()->load->library('session');
-        }
-    }
-
-    /** Resolve an RTE toolset id by NAME (never hard-code the id; it differs per site). */
-    private static function toolsetId(string $name): int
-    {
-        $toolset = ee('Model')->get('rte:Toolset')->filter('toolset_name', $name)->first();
-        if (! $toolset) {
-            throw new \RuntimeException("RTE toolset '$name' not found");
+            $full = CpsRefFixture::firstRteToolsetId(self::TOOLSET_FULL, [$basic]);
+        } catch (\RuntimeException $e) {
+            $full = $basic;
         }
 
-        return (int) $toolset->toolset_id;
+        return [$basic, $full];
     }
 
-    /** Lowest-id file in the named upload directory that nothing uses (so total_records goes 0 -> 1 -> 0). */
+    /** One file nothing uses (so total_records goes 0 -> 1 -> 0), from the first upload directory that has one. */
     private static function unusedFile(): array
     {
-        $dir = ee()->db->select('id')->where('name', self::UPLOAD_DIRECTORY)->get('upload_prefs')->row_array();
-        if (! $dir) {
-            throw new \RuntimeException('upload directory ' . self::UPLOAD_DIRECTORY . ' not found');
-        }
-        $file = ee()->db->query(
-            'SELECT f.file_id, f.upload_location_id, f.file_name FROM exp_files f'
-            . ' LEFT JOIN exp_file_usage u ON u.file_id = f.file_id'
-            . ' WHERE u.file_id IS NULL AND f.total_records = 0 AND f.upload_location_id = ' . (int) $dir['id']
-            . ' ORDER BY f.file_id LIMIT 1'
-        )->row_array();
-        if (! $file) {
-            throw new \RuntimeException('no unused file in upload directory ' . self::UPLOAD_DIRECTORY);
-        }
-
-        return $file;
+        return CpsRefFixture::firstUploadDirectoryWithFile(1)['files'][0];
     }
 
     private function build(): void
     {
-        self::ensureSession();
+        CpsRefFixture::ensureSession();
         $container = CpsRefFixture::createContainer();
         $group = $container['group'];
 
-        $basic = self::toolsetId(self::TOOLSET_BASIC);
-        $full = self::toolsetId(self::TOOLSET_FULL);
+        [$basic, $full] = self::toolsetIds();
         $missing = (int) ee()->db->select_max('toolset_id', 'id')->get('rte_toolsets')->row()->id + 1000;
 
         // Top level, what save_settings() returns (plus the three display keys it adds)
@@ -112,9 +90,8 @@ class CpsrefRte extends Migration
         }
         $orphanId = CpsRefFixture::fieldId(self::ORPHAN);
         ee('Model')->get('ChannelField')->filter('field_name', self::ORPHAN)->first()->delete();
-        // Model delete() drops the data table through smartforge, whose table_exists() is cached per request and
-        // does not know a table created moments ago: drop it explicitly.
-        ee()->db->query('DROP TABLE IF EXISTS `' . ee()->db->dbprefix . 'channel_data_field_' . $orphanId . '`');
+        // Model delete() leaves the data table behind (cached table_exists()): drop it explicitly.
+        CpsRefFixture::dropDataTableIfExists($orphanId);
 
         // Grid column: grid_save_settings() returns the posted rte[] array as is (no field_* display keys)
         CpsRefFixture::makeGridField($group, self::GRID, [
@@ -125,7 +102,6 @@ class CpsrefRte extends Migration
         CpsRefFixture::makeFluidField($group, self::FLUID, [self::FIELD], 5);
 
         $file = self::unusedFile();
-        ee()->load->model('file_upload_preferences_model');
         $paths = ee()->file_upload_preferences_model->get_paths();
         $url = $paths[(int) $file['upload_location_id']] . $file['file_name'];
 
@@ -153,12 +129,11 @@ class CpsrefRte extends Migration
     public function verify(): array
     {
         CpsRefFixture::bootstrap();
-        self::ensureSession();
+        CpsRefFixture::ensureSession();
         $problems = [];
 
         // Settings contract (top level)
-        $basic = self::toolsetId(self::TOOLSET_BASIC);
-        $full = self::toolsetId(self::TOOLSET_FULL);
+        [$basic, $full] = self::toolsetIds();
         $top = CpsRefFixture::fieldSettings(self::FIELD);
         foreach (['toolset_id', 'defer', 'db_column_type', 'field_wide', 'field_fmt', 'field_show_fmt'] as $key) {
             CpsRefFixture::check($problems, array_key_exists($key, $top), "top-level settings missing $key");

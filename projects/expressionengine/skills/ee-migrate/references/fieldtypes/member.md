@@ -13,8 +13,9 @@ fluid: yes
 Evidence: `system/ee/ExpressionEngine/Addons/member/ft.member.php` and `addon.setup.php`, its parent
 `Addons/relationship/ft.relationship.php` (`save()`, `post_save()`, `delete()`, `validate()`,
 `accepts_content_type()`, `settings_modify_column()`), `legacy/fieldtypes/EE_Fieldtype.php`, EE 7.5.27, and the
-passing fixture `fixtures/2099_02_01_000020_cpsref_member.php` (`run-fixtures.sh <site> member`; run on cfk,
-which has no `member` fields of its own). Official docs: see `EE-DOCS-NOTES.md`.
+passing fixture `fixtures/2099_02_01_000020_cpsref_member.php` (`run-fixtures.sh <site> member`; passes on cfk and cps; cfk
+has no `member` fields of its own). The fixture is portable: it uses the two lowest existing members and the primary
+role of the lowest one, and fails with "prerequisite missing" if the site has fewer than two members. Official docs: see `EE-DOCS-NOTES.md`.
 
 `Member_ft extends Relationship_ft` with `$_table = 'member_relationships'`. Almost everything below is the
 relationship fieldtype pointed at members instead of entries.
@@ -47,7 +48,7 @@ $role = ee()->db->select('role_id')->where('name', 'Members')->get('roles')->row
 $settings['roles'] = [(string) $role['role_id']];
 ```
 
-(The fixture picks the primary role of the lowest member and looks it up by name; role names vary per site.)
+(Resolve by name in a real migration. The fixture picks the first available, the primary role of the lowest member and looks it up by name, so it runs on every site; role names vary per site.)
 
 ## Storage
 

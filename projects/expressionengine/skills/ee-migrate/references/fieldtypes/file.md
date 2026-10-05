@@ -15,7 +15,9 @@ Evidence: `system/ee/ExpressionEngine/Addons/file/ft.file.php` and `addon.setup.
 `Model/Channel/ChannelEntry.php` (`updateFilesUsage()`, the `EntryFiles` association on the `file_usage` pivot),
 `Library/CP/FileManager/Traits/FileUsageTrait.php`, `Service/File/Usage.php`, `Model/Content/ContentModel.php`
 (`updateFilesTotalRecords()`), EE 7.5.27, and the passing fixture `fixtures/2099_02_01_000019_cpsref_file.php`
-(`run-fixtures.sh <site> file`; run on cfk). Official docs: see `EE-DOCS-NOTES.md`.
+(`run-fixtures.sh <site> file`; passes on cfk and cps). The fixture is portable: it takes the
+first upload directory (lowest id) holding five unused files and fails with "prerequisite missing" if the site has
+none. In a real migration resolve the directory by name, as below. Official docs: see `EE-DOCS-NOTES.md`.
 
 ## Settings contract
 
@@ -35,7 +37,7 @@ agree on the four documented settings; `field_fmt` is source only. `show_existin
 for Channel Form (front-end) rendering; the control panel uses the drag-and-drop widget regardless.
 
 The directory must exist already (docs: "an upload directory must exist first"). **Resolve it by NAME**, never
-by a copied id:
+by a copied id (the fixture instead picks the first directory with files so it runs on every site):
 
 ```php
 $dir = ee()->db->select('id')->where('name', 'Handout images')->get('upload_prefs')->row_array();

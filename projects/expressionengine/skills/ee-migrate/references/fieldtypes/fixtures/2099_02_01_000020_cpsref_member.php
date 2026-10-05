@@ -35,23 +35,10 @@ class CpsrefMember extends Migration
         }
     }
 
-    /** The two lowest existing member ids (member 1 may not exist; on cfk the lowest is 43). Private helper. */
+    /** The two lowest existing member ids (the lowest id differs per site: absent member 1 on cps, 43 on cfk). */
     private static function memberIds(): array
     {
-        $rows = ee()->db->select('member_id')->order_by('member_id')->limit(2)->get('members')->result_array();
-        if (count($rows) < 2) {
-            throw new \RuntimeException('need two existing members');
-        }
-
-        return array_map('intval', array_column($rows, 'member_id'));
-    }
-
-    /** Role id by NAME, taken from the primary role of the lowest member so a real role is used. */
-    private static function roleIdOfMember(int $memberId): int
-    {
-        $member = ee()->db->select('role_id')->where('member_id', $memberId)->get('members')->row_array();
-
-        return (int) ($member['role_id'] ?? 0);
+        return CpsRefFixture::firstMemberIds(2);
     }
 
     /** The full settings shape (the nine keys save_settings() returns; booleans, not 'y'/'n'). */
@@ -69,12 +56,13 @@ class CpsrefMember extends Migration
         $container = CpsRefFixture::createContainer();
         $group = $container['group'];
         [$first, $second] = self::memberIds();
-        $roleId = self::roleIdOfMember($first);
+        $roleId = CpsRefFixture::primaryRoleId($first);
         $roleName = ee()->db->select('name')->where('role_id', $roleId)->get('roles')->row_array()['name'] ?? '';
         if ($roleName === '') {
             throw new \RuntimeException('primary role of the lowest member not found');
         }
-        // Resolve the role by NAME at migration time (ids differ per site)
+        // A real migration resolves the role by NAME (ids differ per site); the fixture takes the primary role of
+        // the lowest member so it runs on every site
         $roleByName = ee()->db->select('role_id')->where('name', $roleName)->get('roles')->row_array();
 
         CpsRefFixture::makeField($group, self::FIELD, 'member', self::settings(), 1);
