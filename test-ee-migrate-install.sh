@@ -22,6 +22,7 @@ SITE=""
 # <<< site config
 echo logic
 EOT
+echo "#!/usr/bin/env bash" > "$tpl/ee-migrate/eecli-local.sh"
 
 repo="$work/repo"
 mkdir -p "$repo/system/user/addons/cps_logs" "$repo/.admin-scripts"
@@ -45,6 +46,7 @@ check "cps_tools has no tests/" '[[ ! -d "$repo/system/user/addons/cps_tools/tes
 check "runner keeps SITE once" '[[ $(grep -c "SITE=\"kept-value\"" "$runner") -eq 1 ]]'
 check "runner has no empty SITE" '! grep -q "SITE=\"\"" "$runner"'
 check "runner uses template logic" 'grep -q "echo logic" "$runner"'
+check "eecli-local.sh installed and executable" '[[ -x "$repo/.admin-scripts/eecli-local.sh" ]]'
 check "gitignore entry once" '[[ $(grep -c "^\.admin-scripts/\.ee-migrate/" "$repo/.gitignore") -eq 1 ]]'
 
 # Existing runner without markers: exit 2, unchanged.

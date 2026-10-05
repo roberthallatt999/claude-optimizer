@@ -9,12 +9,15 @@ MIG="${sub}system/user/database/migrations"
 MADE_MIG=0; MADE_DB=0
 [[ -d "$(dirname "$MIG")" ]] || MADE_DB=1
 [[ -d "$MIG" ]] || { mkdir -p "$MIG"; MADE_MIG=1; }
-if [[ -n "${LOCAL_EECLI:-}" ]]; then :; elif [[ -n "$sub" ]]; then LOCAL_EECLI="ddev exec php artisan eecli"; else LOCAL_EECLI="ddev exec php system/ee/eecli.php"; fi
+if [[ -n "${LOCAL_EECLI:-}" ]]; then :; elif [[ -n "$sub" ]]; then LOCAL_EECLI="ddev exec .admin-scripts/eecli-local.sh"; else LOCAL_EECLI="ddev exec php system/ee/eecli.php"; fi
 # Local DB name: env, else the runner's config block, else admin_cps.
 if [[ -z "${LOCAL_DB:-}" ]]; then
   LOCAL_DB=$(sed -n 's/^LOCAL_DB="\([^"]*\)".*/\1/p' .admin-scripts/ee-migrate.sh 2>/dev/null | head -1)
   LOCAL_DB=${LOCAL_DB:-admin_cps}
 fi
+# Projects with Mutagen file sync lag behind host-side file changes; flush so the container sees
+# fixtures and the host sees files the container wrote. No-op without Mutagen.
+if ddev mutagen status 2>&1 | grep -qi 'not enabled'; then SYNC() { :; }; else SYNC() { ddev mutagen sync >/dev/null 2>&1; }; fi
 EE() { $LOCAL_EECLI "$@" 2>&1; }
 EEJ() { $LOCAL_EECLI "$@" 2>/dev/null; }   # stdout only: JSON stays parseable when the command exits non-zero
 STATE=".admin-scripts/.ee-migrate"
@@ -35,7 +38,7 @@ FIXTURES=(
   2099_01_01_000031_cpstools_fx_bad_relationship_target
   2099_01_01_000032_cpstools_fx_missing_cat_group
 )
-cleanup() { for f in "${FIXTURES[@]}"; do rm -f "${MIG:?}/${f:?}.php"; done; rm -f "$BASE"; }
+cleanup() { for f in "${FIXTURES[@]}"; do rm -f "${MIG:?}/${f:?}.php"; done; rm -f "$BASE"; SYNC; }
 # Only at exit: cleanup() also runs between tests, and the folder must survive those.
 final_cleanup() {
   cleanup
@@ -55,6 +58,7 @@ echo "$out" | jq -e '.pending and .missing_files and .counts.tables and .counts.
   && ok "status reports migrations_table true" || bad "migrations_table flag" "$out"
 
 cp "$HERE/fixtures/$STATUS_FIXTURE.php" "$MIG/"
+SYNC
 out=$(EE cps:migrate-status --json)
 [[ "$(echo "$out" | jq -r '.pending[-1]')" == "$STATUS_FIXTURE" ]] \
   && ok "fixture is last pending (EE order)" || bad "fixture last pending" "$out"
@@ -63,6 +67,7 @@ cleanup
 # --- migrate-verify ---------------------------------------------------------
 verify_case() { # <fixture> <expected exit> <expected output substring> <label>
   cp "$HERE/fixtures/$1.php" "$MIG/"
+  SYNC
   out=$(EE cps:migrate-verify "$1"); code=$?
   cleanup
   if [[ $code -eq $2 && "$out" == *"$3"* ]]; then ok "$4"; else bad "$4" "exit=$code out=$out"; fi
@@ -88,6 +93,7 @@ echo "$out" | jq -e '(.results|type)=="array" and (.results[0]|has("check","subj
   && ok "schema-check json shape" || bad "schema-check json shape" "exit=$code ${out:0:300}"
 
 EE cps:schema-check --no-smoke --json --baseline="$BASE" >/dev/null
+SYNC
 [[ -s "$BASE" ]] && ok "schema-check --baseline writes file" || bad "baseline file" "missing $BASE"
 
 out=$(EEJ cps:schema-check --no-smoke --json --compare="$BASE"); code=$?
@@ -108,12 +114,13 @@ fi
 # --- schema-check: settings contract (spec defects 1 and 2) -------------------
 run_fixture() {  # run_fixture <name>: copy in, migrate exactly one step
   cp "$HERE/fixtures/$1.php" "$MIG/"
+  SYNC
   local pend; pend=$(EEJ cps:migrate-status --json)
   [[ "$(echo "$pend" | jq -r '.pending|length')" == 1 ]] \
     || { echo "ABORT: other migrations pending locally - resolve first"; rm -f "$MIG/$1.php"; exit 3; }
   EE migrate --core --steps=1 >/dev/null
 }
-undo_fixture() { EE migrate:rollback --steps=1 >/dev/null; rm -f "$MIG/$1.php"; }
+undo_fixture() { EE migrate:rollback --steps=1 >/dev/null; rm -f "$MIG/$1.php"; SYNC; }
 
 FX_URL=${FIXTURES[4]}
 FX_REL=${FIXTURES[5]}

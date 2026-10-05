@@ -5,7 +5,7 @@
 # Note: the remote backup verification script (stat -c, ls -t, chmod) and the server-side
 # schema-check baseline are first exercised against a real server on the first real staging run.
 set -uo pipefail
-EE_MIGRATE_VERSION="1.2.0"
+EE_MIGRATE_VERSION="1.3.0"
 # >>> site config (preserved by ee-migrate-install.sh)
 SITE=""                 # e.g. cps
 SSH_HOST=""             # e.g. websvr-cps
@@ -22,7 +22,7 @@ PROD_BACKUP_DIR=""      # outside the release tree, e.g. /var/www/vhosts/cps.ca/
 STAGING_BACKUP_DIR=""
 LOCAL_DB=""             # DDEV database, e.g. admin_cps
 EE_SUBDIR=""            # "ee/" for diabetes and intranet-backend
-LOCAL_EECLI="ddev exec php system/ee/eecli.php"   # Coilpack sites: "ddev exec php artisan eecli" (their "ddev ee" wrapper may drop arguments)
+LOCAL_EECLI="ddev exec php system/ee/eecli.php"   # Coilpack (Laravel+EE) sites: "ddev exec .admin-scripts/eecli-local.sh"
 HAS_STAGING="yes"
 # <<< site config
 

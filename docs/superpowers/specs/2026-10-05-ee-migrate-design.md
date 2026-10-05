@@ -189,7 +189,7 @@ seconds earlier. That is why rehearsal on a target copy precedes every server ru
 
 Identical script in every repo; only a config block differs: SSH host, remote paths, PHP binary,
 database name, `BACKUP_DIR` (must resolve outside the release tree; the runner refuses to start if it
-is inside `httpdocs/current` or the releases directory), `EE_SUBDIR` (`ee/` for diabetes and intranet-backend), local CLI form (per site: `ddev exec php system/ee/eecli.php`, `ddev ee` or `ddev exec php artisan eecli` for the Coilpack sites; `REMOTE_ENV_EXPORT="yes"` exports the release dotenv before `eecli.php` on the server), `HAS_STAGING`, and the existing sync route for pulling a database copy.
+is inside `httpdocs/current` or the releases directory), `EE_SUBDIR` (`ee/` for diabetes and intranet-backend), local CLI form (per site: `ddev exec php system/ee/eecli.php`, `ddev exec .admin-scripts/eecli-local.sh` for the Coilpack sites, an installed wrapper that loads the dotenv and calls `eecli.php`; `REMOTE_ENV_EXPORT="yes"` exports the release dotenv before `eecli.php` on the server), `HAS_STAGING`, and the existing sync route for pulling a database copy.
 
 ### 7.0 How the runner drives EE's `migrate`
 

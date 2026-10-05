@@ -24,6 +24,10 @@ class CpstoolsFxRelationshipBadShape extends Migration
         $group = ee('Model')->make('ChannelFieldGroup');
         $group->site_id = $siteId;
         $group->group_name = self::GROUP;
+        // Newer EE schemas require a short_name on field groups; older ones have no such column.
+        if (ee()->db->field_exists('short_name', 'field_groups')) {
+            $group->short_name = self::GROUP;
+        }
         $group->save();
 
         $channel = ee('Model')->make('Channel');

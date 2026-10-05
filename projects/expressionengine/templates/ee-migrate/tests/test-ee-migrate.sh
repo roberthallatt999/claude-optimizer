@@ -140,7 +140,7 @@ check "backup dir inside releases -> exit 2" '[[ $RC -eq 2 && "$OUT" == *"outsid
 EQREL="$(make_runner eqrel PROD_BACKUP_DIR=/srv/prod/httpdocs/current)"
 run "$EQREL" prod status
 check "backup dir equal to release path -> exit 2" '[[ $RC -eq 2 && "$OUT" == *"outside the release tree"* ]]'
-grep -q '^EE_MIGRATE_VERSION="1.2.0"' "$TEMPLATE" && ok "EE_MIGRATE_VERSION present" || ko "EE_MIGRATE_VERSION present"
+grep -q '^EE_MIGRATE_VERSION="1.3.0"' "$TEMPLATE" && ok "EE_MIGRATE_VERSION present" || ko "EE_MIGRATE_VERSION present"
 EMPTY="$(make_runner empty SSH_HOST=)"
 run "$EMPTY" prod status
 check "empty config -> exit 2" '[[ $RC -eq 2 && "$OUT" == *"SSH_HOST is empty"* ]]'
@@ -504,6 +504,29 @@ check "REMOTE_ENV_EXPORT=no: no export step" '! grep -q "base64" "$STUB_LOG"'
 reset_stub
 run "$work/old.sh" prod apply --expect=a,b
 check "REMOTE_ENV_EXPORT unset: no export step" '[[ $RC -eq 0 ]] && ! grep -q "base64" "$STUB_LOG"'
+
+# ---- eecli-local.sh (Coilpack local wrapper) ----
+LOCALSH="$HERE/../eecli-local.sh"
+php_snippet() { sed -n "/^ *php_code='/,/PHP_EOL;}'/p" "$1" | sed "s/^ *php_code='//"; }
+check "eecli-local.sh PHP snippet identical to the runner's" \
+  '[[ -n "$(php_snippet "$LOCALSH")" && "$(php_snippet "$LOCALSH")" == "$(php_snippet "$TEMPLATE")" ]]'
+lroot="$work/lroot"
+mkdir -p "$lroot/ee/system/ee" "$lroot/system/ee"
+printf '<?php\nfwrite(STDOUT, "ARGS=" . implode("|", array_slice($argv, 1)) . " TAG=" . getenv("ZZ_TAG") . " DB=" . getenv("ZZ_DB") . " WHICH=ee\\n");\nexit((int) getenv("ZZ_EXIT"));\n' > "$lroot/ee/system/ee/eecli.php"
+printf '<?php\necho "WHICH=root\\n";\n' > "$lroot/system/ee/eecli.php"
+denv=".$(printf e)nv"
+printf '# comment\nZZ_TAG=one\nexport ZZ_DB="quoted value"\nbad line\nZZ_EXIT=7\n' > "$lroot/$denv"
+out="$(DDEV_COMPOSER_ROOT="$lroot" bash "$LOCALSH" cps:schema-check --json "--baseline=x y.json" 2>&1)"
+rc=$?
+check "eecli-local: args with options pass through, dotenv exported, ee/ preferred" \
+  '[[ "$out" == *"ARGS=cps:schema-check|--json|--baseline=x y.json TAG=one DB=quoted value WHICH=ee"* ]]'
+check "eecli-local: real exit code passes through" '[[ $rc -eq 7 ]]'
+rm -rf "$lroot/ee"
+out="$(DDEV_COMPOSER_ROOT="$lroot" bash "$LOCALSH" list 2>&1)"
+check "eecli-local: falls back to system/ee/eecli.php" '[[ "$out" == *"WHICH=root"* ]]'
+rm -f "$lroot/$denv"
+out="$(DDEV_COMPOSER_ROOT="$lroot" bash "$LOCALSH" list 2>&1)"
+check "eecli-local: works without a dotenv file" '[[ "$out" == *"WHICH=root"* ]]'
 
 echo
 echo "Passed: $pass  Failed: $fail"

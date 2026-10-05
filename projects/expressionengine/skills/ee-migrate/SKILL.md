@@ -99,11 +99,10 @@ never trusted. Any failure aborts before the first `migrate` call. There is no f
   local to Robert's machine and never deployed). Install or update it with
   `ee-migrate-install.sh <repo>` from claude-config-repo; the config block is preserved. On a fresh machine
   refill the block (names and paths only) from that site's `sync.sh`. diabetes and intranet-backend (Laravel + EE, Coilpack) use
-  `EE_SUBDIR="ee/"` and `REMOTE_ENV_EXPORT="yes"` (REMOTE_EECLI empty: the runner exports the release's
-  dotenv, then calls `eecli.php`, because older Coilpack rejects every option passed through
-  `artisan eecli`). Locally, diabetes uses `LOCAL_EECLI="ddev exec php artisan eecli"` (its `ddev ee`
-  wrapper drops arguments) and intranet-backend uses `LOCAL_EECLI="ddev ee"` (its wrapper exports the
-  env and passes all arguments).
+  `EE_SUBDIR="ee/"`, `REMOTE_ENV_EXPORT="yes"` (REMOTE_EECLI empty: the runner exports the release's
+  dotenv, then calls `eecli.php`) and `LOCAL_EECLI="ddev exec .admin-scripts/eecli-local.sh"`, the same
+  technique inside DDEV (the installer copies that script). `artisan eecli` rejects options on these
+  sites and the `ddev ee` wrapper flattens exit codes, so neither is used.
 
 ## `verify()` convention
 

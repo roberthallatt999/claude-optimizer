@@ -34,6 +34,9 @@ if [[ -f "$TPL/ee-migrate/ee-migrate.sh" ]]; then
     echo "NEW runner: fill in the site config block in $runner"
   fi
   chmod +x "$runner"
+  # DDEV-side eecli wrapper for Coilpack sites (LOCAL_EECLI="ddev exec .admin-scripts/eecli-local.sh").
+  cp "$TPL/ee-migrate/eecli-local.sh" "$repo/.admin-scripts/eecli-local.sh"
+  chmod +x "$repo/.admin-scripts/eecli-local.sh"
 fi
 grep -q '^\.admin-scripts/\.ee-migrate/' "$repo/.gitignore" 2>/dev/null \
   || printf '\n# ee-migrate rehearsal stamps (local only)\n.admin-scripts/.ee-migrate/\n' >> "$repo/.gitignore"
