@@ -140,7 +140,7 @@ check "backup dir inside releases -> exit 2" '[[ $RC -eq 2 && "$OUT" == *"outsid
 EQREL="$(make_runner eqrel PROD_BACKUP_DIR=/srv/prod/httpdocs/current)"
 run "$EQREL" prod status
 check "backup dir equal to release path -> exit 2" '[[ $RC -eq 2 && "$OUT" == *"outside the release tree"* ]]'
-grep -q '^EE_MIGRATE_VERSION="1.3.0"' "$TEMPLATE" && ok "EE_MIGRATE_VERSION present" || ko "EE_MIGRATE_VERSION present"
+grep -q '^EE_MIGRATE_VERSION="1.4.0"' "$TEMPLATE" && ok "EE_MIGRATE_VERSION present" || ko "EE_MIGRATE_VERSION present"
 EMPTY="$(make_runner empty SSH_HOST=)"
 run "$EMPTY" prod status
 check "empty config -> exit 2" '[[ $RC -eq 2 && "$OUT" == *"SSH_HOST is empty"* ]]'
@@ -186,7 +186,8 @@ check "backup uses absolute_path in out-of-release dir" 'grep -q "absolute_path=
 reset_stub
 run "$RUNNER" prod apply --expect=a,b
 expected="$(printf '%s\n' 'cps:migrate-status --json' pending-hash backup schema-baseline 'migrate --core --steps=1' \
-  'cps:migrate-verify a' 'migrate --core --steps=1' 'cps:migrate-verify b' \
+  'cps:migrate-status --json' 'cps:migrate-verify a' 'migrate --core --steps=1' 'cps:migrate-status --json' \
+  'cps:migrate-verify b' \
   'cps:schema-check --no-smoke --json --compare')"
 check "happy path exits 0" '[[ $RC -eq 0 ]]'
 check "happy path order exactly as spec" '[[ "$(calls)" == "$expected" ]]'
@@ -229,7 +230,7 @@ reset_stub
 echo 1 > "$STUB_DIR/migrate-exit"
 run "$RUNNER" prod apply --expect=a,b
 check "migrate step fails -> exit 1, stops at first, recovery printed" \
-  '[[ $RC -eq 1 && "$(calls | grep -c "migrate --core")" -eq 1 && "$OUT" == *"rollback:"* ]]'
+  '[[ $RC -eq 1 && "$(calls | grep -c "migrate --core")" -eq 1 && "$OUT" == *"restore (Robert runs this):"* && "$OUT" == *"do not run migrate:rollback"* ]] && ! grep -q "migrate:rollback --steps=1$" "$STUB_LOG"'
 
 reset_stub
 echo 2 > "$STUB_DIR/compare-exit"
@@ -422,8 +423,9 @@ check "local test passes" '[[ $RC -eq 0 && "$OUT" == *"local test PASS"* ]]'
 lcalls() { grep '^ddev ' "$STUB_LOG" | sed -E -e 's/^ddev exec php system\/ee\/eecli\.php //' -e 's/^ddev mysql .*/mysql-dump/' \
   -e 's/ --baseline=.*/ --baseline/' -e 's/ --compare=.*/ --compare/'; }
 expected_local="$(printf '%s\n' 'cps:migrate-status --json' backup:database 'cps:schema-check --json --baseline' mysql-dump \
-  'migrate --core --steps=1' 'cps:migrate-verify a' 'cps:schema-check --json --compare' 'migrate:rollback --steps=1' \
-  mysql-dump 'migrate --core --steps=1' 'cps:schema-check --json --compare')"
+  'migrate --core --steps=1' 'cps:migrate-status --json' 'cps:migrate-verify a' 'cps:schema-check --json --compare' \
+  'cps:migrate-status --json' 'migrate:rollback --steps=1' \
+  mysql-dump 'migrate --core --steps=1' 'cps:migrate-status --json' 'cps:schema-check --json --compare')"
 check "local test order per spec 7.1" '[[ "$(lcalls)" == "$expected_local" ]]'
 check "local test: settings dumps under .admin-scripts/.ee-migrate" \
   '[[ -s "$EE_MIGRATE_REPO_ROOT/.admin-scripts/.ee-migrate/local-settings-before.txt" ]]'
@@ -527,6 +529,55 @@ check "eecli-local: falls back to system/ee/eecli.php" '[[ "$out" == *"WHICH=roo
 rm -f "$lroot/$denv"
 out="$(DDEV_COMPOSER_ROOT="$lroot" bash "$LOCALSH" list 2>&1)"
 check "eecli-local: works without a dotenv file" '[[ "$out" == *"WHICH=root"* ]]'
+
+# ---- migrate exits 0 but up() failed part-way ----
+reset_stub
+touch "$STUB_DIR/migrate-noop"
+run "$RUNNER" prod apply --expect=a,b
+check "apply: not recorded -> FAIL with message" '[[ $RC -eq 1 && "$OUT" == *"migrate reported success but a was not recorded — up() failed part-way"* ]]'
+check "apply: not recorded -> no migrate:rollback anywhere in the log" '! grep -q "migrate:rollback" "$STUB_LOG"'
+check "apply: not recorded -> restore-only recovery, says do not roll back" \
+  '[[ "$OUT" == *"restore (Robert runs this):"* && "$OUT" == *"do not run migrate:rollback"* && "$OUT" != *"  rollback:"* ]]'
+check "apply: stops before verify and next file" '[[ "$(grep -c "migrate --core" "$STUB_LOG")" -eq 1 ]] && ! grep -q "migrate-verify" "$STUB_LOG"'
+reset_stub
+touch "$STUB_DIR/migrate-fatal"
+run "$RUNNER" prod apply --expect=a,b
+check "apply: Fatal error text with exit 0 -> FAIL, no rollback" \
+  '[[ $RC -eq 1 && "$OUT" == *"FAIL migrate step"* ]] && ! grep -q "migrate:rollback" "$STUB_LOG"'
+reset_stub
+run "$RUNNER" prod apply --expect=a,b
+check "apply: happy path still passes with recorded checks" '[[ $RC -eq 0 ]]'
+reset_stub
+echo 1 > "$STUB_DIR/verify-exit-b"
+run "$RUNNER" prod apply --expect=a,b
+check "verify-fail rollback hint names migration + check cps:migrate-status" \
+  '[[ "$OUT" == *"undoes b ONLY if cps:migrate-status shows last_applied=b"* ]]'
+
+# local test: not recorded, wrong last_applied
+reset_stub
+touch "$STUB_DIR/local-migrate-noop"
+run "$RUNNER" local test a
+check "local: not recorded -> FAIL message, no rollback" \
+  '[[ $RC -eq 1 && "$OUT" == *"migrate reported success but a was not recorded"* ]] && ! grep -q "migrate:rollback" "$STUB_LOG"'
+check "local: not recorded -> restore-only recovery" '[[ "$OUT" == *"restore (Robert runs this)"* && "$OUT" == *"do not run migrate:rollback"* ]]'
+reset_stub
+echo "some_other_migration" > "$STUB_DIR/local-last-applied-override"
+run "$RUNNER" local test a
+check "local: last_applied differs -> FAIL, no rollback" \
+  '[[ $RC -eq 1 && "$OUT" == *"refusing to roll back"* ]] && ! grep -q "migrate:rollback" "$STUB_LOG"'
+reset_stub
+run "$RUNNER" local test a
+check "local happy path unchanged" '[[ $RC -eq 0 ]] && grep -q "migrate:rollback --steps=1" "$STUB_LOG"'
+
+# rehearsal: not recorded locally
+reset_stub
+rm -f "$STAMPS/staging.json"
+echo '{"pending":["a"],"commit":"abc123","counts":{"tables":10,"channel_titles":5,"channel_fields":3}}' > "$STUB_DIR/migrate-status.json"
+echo '{"pending":["a"],"counts":{"tables":10,"channel_titles":5,"channel_fields":3}}' > "$STUB_DIR/local-status.json"
+touch "$STUB_DIR/local-migrate-noop"
+run "$RUNNER" staging rehearse
+check "rehearse: not recorded -> FAIL, snapshot restored, no stamp, no rollback" \
+  '[[ $RC -eq 1 && "$OUT" == *"was not recorded"* ]] && grep -q "ddev snapshot restore ee-migrate-" "$STUB_LOG" && [[ ! -f "$STAMPS/staging.json" ]] && ! grep -q "migrate:rollback" "$STUB_LOG"'
 
 echo
 echo "Passed: $pass  Failed: $fail"

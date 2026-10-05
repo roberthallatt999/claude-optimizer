@@ -203,6 +203,11 @@ therefore never calls `migrate` blind:
 3. It runs `migrate --core --steps=1` once per expected file, so each migration is its own group,
    and `migrate:rollback --steps=1` reverses exactly that one. `--core` is always passed (without a
    location flag EE prompts, which would hang a non-interactive run).
+   EE exits 0 even when a migration's `up()` throws (the file is then not recorded), so after every
+   `migrate` the runner re-reads `cps:migrate-status` and requires the file to be gone from `pending`;
+   otherwise it fails with restore-only recovery and **never** calls `migrate:rollback` (which would undo
+   the previous, real migration). Before any rollback the runner issues, `last_applied` must equal the
+   migration under test.
 
 Consequence for sites with deliberately-unrun migrations (cps's two antiracism files): they keep
 `apply` refusing until they are resolved with their existing runner (mark as applied, or delete) —

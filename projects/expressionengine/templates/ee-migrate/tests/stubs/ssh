@@ -10,7 +10,11 @@ case "$cmd" in
     ;;
   *cps:migrate-status*)
     if [[ -f "$d/status-missing" ]]; then echo "Command not found: cps:migrate-status"; exit 1; fi
-    cat "$d/migrate-status.json"
+    touch "$d/applied"
+    ap="$(jq -R . "$d/applied" | jq -s .)"
+    jq --argjson ap "$ap" --arg ov "$(cat "$d/last-applied-override" 2>/dev/null)" \
+      '.pending -= $ap | .last_applied = (if $ov != "" then $ov elif ($ap|length) > 0 then $ap[-1] else (.last_applied // null) end)' \
+      "$d/migrate-status.json"
     ;;
   *backup:database*)
     [[ -f "$d/backup-fail" ]] && { echo BACKUP_CMD_FAILED; exit 0; }
@@ -24,7 +28,16 @@ case "$cmd" in
     exit 0
     ;;
   *migrate:rollback*) exit 0 ;;
-  *"migrate --core"*) exit "$(cat "$d/migrate-exit" 2>/dev/null || echo 0)" ;;
+  *"migrate --core"*)
+    rc="$(cat "$d/migrate-exit" 2>/dev/null || echo 0)"
+    if [[ "$rc" == 0 && ! -f "$d/migrate-noop" ]]; then
+      touch "$d/applied"
+      next="$(jq -r --argjson ap "$(jq -R . "$d/applied" | jq -s .)" '(.pending - $ap)[0] // empty' "$d/migrate-status.json")"
+      [[ -z "$next" ]] || echo "$next" >> "$d/applied"
+    fi
+    [[ -f "$d/migrate-fatal" ]] && echo "PHP Fatal error: Uncaught Exception in up()"
+    exit "$rc"
+    ;;
   *cps:schema-check*--baseline=*)
     exit "$(cat "$d/baseline-exit" 2>/dev/null || echo 0)"
     ;;

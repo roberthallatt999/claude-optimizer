@@ -11,7 +11,11 @@ case "$args" in
     [[ -f "$d/snapshot-fail" ]] && [[ "$args" != *--cleanup* ]] && exit 1
     ;;
   *cps:migrate-status*)
-    cat "$d/local-status.json"
+    touch "$d/lapplied"
+    ap="$(jq -R . "$d/lapplied" | jq -s .)"
+    jq --argjson ap "$ap" --arg ov "$(cat "$d/local-last-applied-override" 2>/dev/null)" \
+      '.pending -= $ap | .last_applied = (if $ov != "" then $ov elif ($ap|length) > 0 then $ap[-1] else (.last_applied // null) end)' \
+      "$d/local-status.json"
     ;;
   *backup:database*)
     # EE writes the dump into <ee>system/user/cache of the project (cwd).
@@ -23,8 +27,19 @@ case "$args" in
     name="${args##*cps:migrate-verify }"
     [[ -f "$d/local-verify-exit-$name" ]] && exit "$(cat "$d/local-verify-exit-$name")"
     ;;
-  *migrate:rollback*) ;;
-  *"migrate --core"*) exit "$(cat "$d/local-migrate-exit" 2>/dev/null || echo 0)" ;;
+  *migrate:rollback*)
+    touch "$d/lapplied"
+    sed -i.bak '$d' "$d/lapplied" && rm -f "$d/lapplied.bak"
+    ;;
+  *"migrate --core"*)
+    rc="$(cat "$d/local-migrate-exit" 2>/dev/null || echo 0)"
+    if [[ "$rc" == 0 && ! -f "$d/local-migrate-noop" ]]; then
+      touch "$d/lapplied"
+      next="$(jq -r --argjson ap "$(jq -R . "$d/lapplied" | jq -s .)" '(.pending - $ap)[0] // empty' "$d/local-status.json")"
+      [[ -z "$next" ]] || echo "$next" >> "$d/lapplied"
+    fi
+    exit "$rc"
+    ;;
   *cps:schema-check*--baseline=*) exit "$(cat "$d/local-baseline-exit" 2>/dev/null || echo 0)" ;;
   *cps:schema-check*) exit "$(cat "$d/local-compare-exit" 2>/dev/null || echo 0)" ;;
   mysql*)

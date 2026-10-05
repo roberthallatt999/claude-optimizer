@@ -87,10 +87,23 @@ class CommandMigrateStatus extends Cli
             sort($pending);
         }
 
+        // Newest recorded migration: what `migrate:rollback --steps=1` would undo.
+        $lastApplied = null;
+        if ($hasTable) {
+            $row = ee()->db->select('migration')
+                ->where('migration_location', 'ExpressionEngine')
+                ->order_by('migration_id', 'DESC')
+                ->limit(1)
+                ->get('migrations')
+                ->row_array();
+            $lastApplied = $row['migration'] ?? null;
+        }
+
         $hashFile = \CPS\Tools\Library\ReleaseRoot::path() . '.commit_hash';
         $data = [
             'pending' => $pending,
             'missing_files' => $missing,
+            'last_applied' => $lastApplied,
             'migrations_table' => $hasTable,
             'commit' => is_file($hashFile) ? trim((string) file_get_contents($hashFile)) : null,
             'counts' => [

@@ -139,6 +139,8 @@ public function verify(): array
 
 ## Known EE pitfalls (each has shipped a defect)
 
+- `eecli migrate` exits 0 when `up()` throws — check `cps:migrate-status`, never roll back blindly (an unrecorded
+  migration has nothing to roll back; `migrate:rollback` would undo the previous, real one).
 - URL fields and Grid columns need `allowed_url_schemes` and `url_scheme_placeholder`; without them the save
   500s (`in_array()` on `false`, `ft.url.php`).
 - Relationship `channels` must be numeric strings, and `order_field` a real column name, or the publish

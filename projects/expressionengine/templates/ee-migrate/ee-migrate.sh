@@ -5,7 +5,7 @@
 # Note: the remote backup verification script (stat -c, ls -t, chmod) and the server-side
 # schema-check baseline are first exercised against a real server on the first real staging run.
 set -uo pipefail
-EE_MIGRATE_VERSION="1.3.0"
+EE_MIGRATE_VERSION="1.4.0"
 # >>> site config (preserved by ee-migrate-install.sh)
 SITE=""                 # e.g. cps
 SSH_HOST=""             # e.g. websvr-cps
@@ -37,6 +37,7 @@ EXPECT=""
 LOCAL_MIGRATION=""
 BACKUP_NAME=""
 BACKUP_FILE=""
+LOCAL_NO_ROLLBACK=0
 STATUS_JSON=""
 PENDING_HASH=""
 BASELINE_FILE=""
@@ -368,24 +369,69 @@ if [ -n \"\$prev\" ]; then echo \"PREV \$(stat -c %s \"\$prev\")\"; else echo 'P
 
 # --- apply loop (spec 7.0) --------------------------------------------------
 
+# Recovery text for a failure AFTER a migration was recorded (verify / post-check). The rollback
+# undoes only the most recently recorded migration, so the developer must check which that is.
 print_recovery() {
+  local name="${1:-${EXPECT##*,}}"
   echo "ee-migrate: recovery for $TARGET:" >&2
-  echo "  rollback: ssh $SSH_HOST \"cd '$(target_path)' && $(remote_eecli_cmd) migrate:rollback --steps=1\"" >&2
+  echo "  rollback: undoes $name ONLY if cps:migrate-status shows last_applied=$name (check first): ssh $SSH_HOST \"cd '$(target_path)' && $(remote_eecli_cmd) migrate:rollback --steps=1\"" >&2
+  print_remote_restore
+}
+
+print_remote_restore() {
   echo "  restore (Robert runs this): ssh $SSH_HOST \"mysql --defaults-extra-file='$(target_defaults)' '$(target_db)' < '${BACKUP_FILE}'\"" >&2
 }
 
+# A migrate step that failed or was not recorded: nothing reliable to roll back, restore only.
+print_restore_only() {
+  echo "ee-migrate: recovery for $TARGET: do not run migrate:rollback (it would undo the previous, real migration)." >&2
+  print_remote_restore
+}
+
+# Fatal text in a migrate call's output is a failure signal even when eecli exits 0.
+output_has_fatal() { grep -qE 'Fatal error|Uncaught|The following error occurred' <<<"$1"; }
+
+# run_migrate_step <eecli-fn> <status-fn> <name>: one `migrate --core --steps=1`, then proof it was
+# recorded. EE exits 0 when up() throws, so the status re-read is the authority. Returns:
+# 0 recorded, 1 failed (output printed), 2 reported success but not recorded.
+run_migrate_step() {
+  local eecli="$1" status="$2" name="$3" out rc st
+  out="$($eecli migrate --core --steps=1 2>&1)"
+  rc=$?
+  echo "$out"
+  [[ $rc -eq 0 ]] || return 1
+  output_has_fatal "$out" && return 1
+  st="$($status 2>/dev/null)"
+  jq -e '.pending | type == "array"' >/dev/null 2>&1 <<<"$st" || return 2
+  if jq -e --arg n "$name" '.pending | index($n) != null' >/dev/null <<<"$st"; then
+    return 2
+  fi
+  return 0
+}
+
+UNRECORDED_MSG="migrate reported success but %s was not recorded — up() failed part-way"
+
+remote_status_json() { remote_eecli cps:migrate-status --json; }
+
 apply_loop() {
-  local name
+  local name rc
   while IFS= read -r name; do
     echo "ee-migrate: migrating $name"
-    if ! remote_eecli migrate --core --steps=1; then
+    run_migrate_step remote_eecli remote_status_json "$name"
+    rc=$?
+    if [[ $rc -eq 2 ]]; then
+      # shellcheck disable=SC2059
+      echo "ee-migrate: FAIL $(printf "$UNRECORDED_MSG" "$name")" >&2
+      print_restore_only
+      exit 1
+    elif [[ $rc -ne 0 ]]; then
       echo "ee-migrate: FAIL migrate step for $name" >&2
-      print_recovery
+      print_restore_only
       exit 1
     fi
     if ! remote_eecli cps:migrate-verify "$name"; then
       echo "ee-migrate: FAIL verify for $name" >&2
-      print_recovery
+      print_recovery "$name"
       exit 1
     fi
   done < <(tr ',' '\n' <<<"$EXPECT")
@@ -443,6 +489,7 @@ preflight_sync_library() {
 }
 
 local_eecli() { $LOCAL_EECLI "$@"; }
+local_status_json() { local_eecli cps:migrate-status --json; }
 
 # Always runs once the snapshot exists: restores it, removes the snapshot and any leftover dump.
 rehearse_cleanup() {
@@ -521,7 +568,10 @@ cmd_rehearse() {
   [[ $rc -lt 2 ]] || fail "local schema-check baseline could not run"
   while IFS= read -r name; do
     echo "ee-migrate: rehearsing $name locally"
-    local_eecli migrate --core --steps=1 || fail "local migrate failed for $name"
+    run_migrate_step local_eecli local_status_json "$name"
+    rc=$?
+    [[ $rc -ne 2 ]] || fail "$(printf "$UNRECORDED_MSG" "$name") (local rehearsal copy; it is restored from the snapshot)"
+    [[ $rc -eq 0 ]] || fail "local migrate failed for $name"
     local_eecli cps:migrate-verify "$name" || fail "local verify failed for $name"
   done < <(tr ',' '\n' <<<"$EXPECT")
   local_eecli cps:schema-check --json "--compare=$EM_REL/rehearse-baseline.json" >/dev/null \
@@ -536,7 +586,11 @@ file_bytes() { wc -c < "$1" | tr -d ' '; }
 
 print_local_recovery() {
   echo "ee-migrate: recovery (local):" >&2
-  echo "  rollback: $LOCAL_EECLI migrate:rollback --steps=1" >&2
+  if [[ "${LOCAL_NO_ROLLBACK:-0}" == 1 ]]; then
+    echo "  do not run migrate:rollback (nothing was recorded; it would undo the previous, real migration)" >&2
+  else
+    echo "  rollback: undoes $LOCAL_MIGRATION ONLY if cps:migrate-status shows last_applied=$LOCAL_MIGRATION (check first): $LOCAL_EECLI migrate:rollback --steps=1" >&2
+  fi
   [[ -z "$BACKUP_FILE" ]] || echo "  restore (Robert runs this): ddev import-db --database=$LOCAL_DB --file=$BACKUP_FILE" >&2
 }
 
@@ -572,6 +626,31 @@ settings_dump() {
   [[ -s "$out" ]] || local_fail "settings snapshot is empty"
 }
 
+# One local migrate with the recorded check; an unrecorded result is restore-only.
+local_migrate_step() {
+  local rc
+  run_migrate_step local_eecli local_status_json "$LOCAL_MIGRATION"
+  rc=$?
+  [[ $rc -eq 0 ]] && return 0
+  LOCAL_NO_ROLLBACK=1
+  if [[ $rc -eq 2 ]]; then
+    # shellcheck disable=SC2059
+    local_fail "$(printf "$UNRECORDED_MSG" "$LOCAL_MIGRATION")"
+  fi
+  local_fail "$1"
+}
+
+# Never roll back unless the newest recorded migration is the one under test.
+assert_last_applied_local() {
+  local st last
+  st="$(local_status_json 2>/dev/null)"
+  last="$(jq -r '.last_applied // ""' 2>/dev/null <<<"$st")"
+  if [[ "$last" != "$LOCAL_MIGRATION" ]]; then
+    LOCAL_NO_ROLLBACK=1
+    local_fail "last applied migration is [${last:-none}], not $LOCAL_MIGRATION — refusing to roll back"
+  fi
+}
+
 cmd_local_test() {
   local out pending rc
   mkdir -p "$EM_DIR"
@@ -588,15 +667,16 @@ cmd_local_test() {
   [[ $rc -lt 2 ]] || local_fail "baseline schema-check could not run"
   settings_dump "$EM_DIR/local-settings-before.txt"
 
-  local_eecli migrate --core --steps=1 || local_fail "migrate failed"
+  local_migrate_step "migrate failed"
   local_eecli cps:migrate-verify "$LOCAL_MIGRATION" || local_fail "verify failed"
   local_eecli cps:schema-check --json "--compare=$EM_REL/local-baseline.json" >/dev/null \
     || local_fail "schema-check (smoke on) reports new failures after migrate"
+  assert_last_applied_local
   local_eecli migrate:rollback --steps=1 || local_fail "rollback failed"
   settings_dump "$EM_DIR/local-settings-after.txt"
   cmp -s "$EM_DIR/local-settings-before.txt" "$EM_DIR/local-settings-after.txt" \
     || local_fail "schema/settings differ after rollback (compare $EM_DIR/local-settings-*.txt)"
-  local_eecli migrate --core --steps=1 || local_fail "second migrate failed"
+  local_migrate_step "second migrate failed"
   local_eecli cps:schema-check --json "--compare=$EM_REL/local-baseline.json" >/dev/null \
     || local_fail "schema-check reports new failures after re-migrate"
   echo "ee-migrate: local test PASS for $LOCAL_MIGRATION (backup $BACKUP_FILE)"
