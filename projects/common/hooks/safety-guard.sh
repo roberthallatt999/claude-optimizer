@@ -491,6 +491,19 @@ if m "${S}(mkfs(\.[a-z0-9]+)?|fdisk|diskutil[[:space:]]+(erase|zero|partition))(
   decide deny "Blocked by ai-config safety guard: disk-level destructive command."
 fi
 
+# --- EE migration runner -----------------------------------------------------
+# .admin-scripts/ee-migrate.sh is the only sanctioned path for EE migrations to reach a
+# server (EE Migrate spec §8). Its own checks gate staging; production apply always asks.
+# Only a plain, canonical invocation is recognised — anything wrapped or chained asks.
+if [[ "$lc" == *ee-migrate.sh* ]]; then
+  EEM_CANON='^([[:space:]]*cd[[:space:]]+[^;&|`$()]+[[:space:]]*&&[[:space:]]*)?(bash[[:space:]]+)?\.admin-scripts/ee-migrate\.sh[[:space:]]+(local[[:space:]]+test[[:space:]]+[a-z0-9_]+|(staging|prod)[[:space:]]+(status|rehearse)|(staging|prod)[[:space:]]+apply[[:space:]]+--expect=[a-z0-9_,]+)[[:space:]]*$'
+  if [[ ! "$lc" =~ $EEM_CANON ]]; then
+    decide ask "ee-migrate.sh was called in a form the safety guard does not recognise (wrapped, chained, absolute path or unknown mode). Run it plainly from the repo root, or confirm this exact command."
+  elif [[ "$lc" =~ (^|[[:space:]])prod[[:space:]]+apply([[:space:]]|$) ]]; then
+    decide ask "Production migration: ee-migrate.sh will back up the production database and run the listed migrations. Approve only for this exact set."
+  fi
+fi
+
 # --- Remote servers and databases -------------------------------------------
 # An SSH alias is not a safety boundary: staging and production often share a host, a
 # login and a database server, so the only thing separating them is the path or database

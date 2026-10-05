@@ -389,6 +389,22 @@ bash_expect deny "git add $P && cat $P"
 bash_expect deny "cat $P"
 bash_expect deny "cp $P /tmp/x"
 
+echo -e "\n${CYAN}— EE migration runner —${NC}"
+bash_expect none '.admin-scripts/ee-migrate.sh local test 2026_10_05_090000_fix'
+bash_expect none '.admin-scripts/ee-migrate.sh staging status'
+bash_expect none '.admin-scripts/ee-migrate.sh prod rehearse'
+bash_expect none 'bash .admin-scripts/ee-migrate.sh staging apply --expect=2026_10_05_090000_fix'
+bash_expect none 'cd /Users/x/cps && .admin-scripts/ee-migrate.sh staging apply --expect=a,b'
+bash_expect ask  '.admin-scripts/ee-migrate.sh prod apply --expect=2026_10_05_090000_fix'
+bash_expect ask  'bash .admin-scripts/ee-migrate.sh prod apply --expect=a'
+bash_expect ask  'bash -c ".admin-scripts/ee-migrate.sh staging apply --expect=a"'
+bash_expect ask  '/Users/x/cps/.admin-scripts/ee-migrate.sh staging apply --expect=a'
+bash_expect ask  '.admin-scripts/ee-migrate.sh staging apply --expect=a; echo done'
+bash_expect ask  '.admin-scripts/ee-migrate.sh staging apply --expect=a | tee log'
+bash_expect ask  '.admin-scripts/ee-migrate.sh staging apply --expect=$(ls)'
+bash_expect ask  '.admin-scripts/ee-migrate.sh staging frobnicate'
+bash_expect ask  'eval .admin-scripts/ee-migrate.sh staging apply --expect=a'
+
 echo ""
 echo -e "${CYAN}================================${NC}"
 echo -e "  ${GREEN}PASS${NC}: $PASS"

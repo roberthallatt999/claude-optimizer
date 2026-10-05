@@ -121,6 +121,7 @@ expect none "mysql -h db.example.net -u app -e 'SHOW TABLES'"
 
 echo -e "${CYAN}--- Production writes are denied ---${NC}"
 expect deny "ssh websvr-members-prod 'wp --path=$PROD/web/wp option update blogname x'"
+expect deny "ssh websvr-members-prod 'cd $PROD/current && php system/ee/eecli.php migrate --core'"
 # The alias is not a boundary: the staging alias with the production path is production.
 expect deny "ssh websvr-members-stage 'wp --path=$PROD/web/wp option update blogname x'"
 expect deny "ssh websvr-members-stage 'mysql members_prod -e \"DELETE FROM wp_posts WHERE ID=1\"'"
