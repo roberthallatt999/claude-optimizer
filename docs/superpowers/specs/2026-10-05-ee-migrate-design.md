@@ -130,7 +130,7 @@ folder.
 
 Lists pending core migrations **in the order EE will run them** (files not in `exp_migrations`,
 sorted by filename) and recorded migrations whose file is missing. With `--json` it also reports
-the deployed commit (from the release's `REVISION` file, when present), the total `exp_*` table
+the deployed commit (from the release root's `.commit_hash` file, written by every deploy), the total `exp_*` table
 count and the row counts of `exp_channel_titles` and `exp_channel_fields`, which the rehearsal
 import check (§7.0b) compares against.
 
