@@ -6,8 +6,8 @@ use CPS\Tools\Library\Report;
 
 /**
  * Finds Grid, Fluid and relationship rows pointing at things that no longer exist.
- * A Grid column with no field_id and a Fluid row pointing at a missing field fail (they break saves);
- * leftovers from deleted things only warn (live sites accumulate them).
+ * A Grid column with no field_id fails (it breaks saves);
+ * leftovers (including Fluid rows pointing at deleted fields) from deleted things only warn (live sites accumulate them).
  */
 class Orphans
 {
@@ -87,7 +87,7 @@ class Orphans
                 $report->add(
                     self::CHECK,
                     'fluid_field_data.' . $column,
-                    'fail',
+                    'warn',
                     $n . ' fluid_field_data row(s) reference a deleted ' . $label
                 );
                 $count++;

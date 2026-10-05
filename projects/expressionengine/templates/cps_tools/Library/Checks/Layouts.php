@@ -6,7 +6,8 @@ use CPS\Tools\Library\Report;
 
 /**
  * Compares publish layouts with the fields actually attached to each channel.
- * A layout naming a detached field fails; an attached field the layout never places is a warn.
+ * Both a layout entry for a detached field and an attached field the layout never places are warns:
+ * EE ignores stale layout entries.
  */
 class Layouts
 {
@@ -58,7 +59,7 @@ class Layouts
                     $report->add(
                         self::CHECK,
                         $subject,
-                        'fail',
+                        'warn',
                         $name . ' is in the layout but not attached to the channel'
                     );
                     $problems++;

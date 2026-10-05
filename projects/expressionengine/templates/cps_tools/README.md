@@ -53,4 +53,4 @@ Canonical source: claude-config-repo `projects/expressionengine/templates/cps_to
   (e.g. `ee()->cp`) cannot be exercised; such errors are reported as `warn`, not `fail`.
 - Severity: `fail` means the field would break a publish screen, a save or a migration. Leftovers
   from deleting things (orphaned rows, pivot rows for deleted channels, relationship targets that no
-  longer exist) are `warn`. Gate migrations with `--compare` against a baseline: no *new* failures.
+  longer exist, stale publish-layout entries) are `warn`. Gate migrations with `--compare` against a baseline: no *new* failures.

@@ -10,6 +10,11 @@ MADE_MIG=0; MADE_DB=0
 [[ -d "$(dirname "$MIG")" ]] || MADE_DB=1
 [[ -d "$MIG" ]] || { mkdir -p "$MIG"; MADE_MIG=1; }
 if [[ -n "${LOCAL_EECLI:-}" ]]; then :; elif [[ -n "$sub" ]]; then LOCAL_EECLI="ddev exec php artisan eecli"; else LOCAL_EECLI="ddev exec php system/ee/eecli.php"; fi
+# Local DB name: env, else the runner's config block, else admin_cps.
+if [[ -z "${LOCAL_DB:-}" ]]; then
+  LOCAL_DB=$(sed -n 's/^LOCAL_DB="\([^"]*\)".*/\1/p' .admin-scripts/ee-migrate.sh 2>/dev/null | head -1)
+  LOCAL_DB=${LOCAL_DB:-admin_cps}
+fi
 EE() { $LOCAL_EECLI "$@" 2>&1; }
 EEJ() { $LOCAL_EECLI "$@" 2>/dev/null; }   # stdout only: JSON stays parseable when the command exits non-zero
 STATE=".admin-scripts/.ee-migrate"
@@ -169,9 +174,9 @@ n=$(jcount '.check=="storage" and .status=="fail" and (.message|test("col_id_"))
 fx_done "${FIXTURES[7]}" "grid missing-column fixture"
 
 fx_run "${FIXTURES[8]}"
-[[ $code -eq 1 ]] && ok "stale layout fixture -> exit 1" || bad "layout exit" "exit=$code"
-n=$(jcount '.check=="layouts" and .status=="fail" and (.message|test("cpstools_fx_b.*not attached"))')
-[[ "$n" -ge 1 ]] && ok "layouts: detached field B fails" || bad "layout B" "n=$n"
+ [[ $code -eq 0 ]] && ok "stale layout fixture -> warns only, exit 0" || bad "layout exit" "exit=$code"
+n=$(jcount '.check=="layouts" and .status=="warn" and (.message|test("cpstools_fx_b.*not attached"))')
+[[ "$n" -ge 1 ]] && ok "layouts: detached field B warns" || bad "layout B" "n=$n"
 n=$(jcount '.check=="layouts" and .status=="warn" and (.message|test("cpstools_fx_c.*not placed"))')
 [[ "$n" -ge 1 ]] && ok "layouts: unplaced field C warns" || bad "layout C" "n=$n"
 fx_done "${FIXTURES[8]}" "stale layout fixture"
@@ -191,7 +196,7 @@ n=$(jcount '.check=="references" and .status=="fail" and .subject=="cpstools_fix
 fx_done "${FIXTURES[10]}" "missing cat group fixture"
 
 # --- schema-check: smoke test ---------------------------------------------------
-count_rows() { ddev mysql admin_cps -N -e "SELECT CONCAT_WS(',',(SELECT COUNT(*) FROM exp_channel_titles),(SELECT COUNT(*) FROM exp_channel_data),(SELECT COUNT(*) FROM exp_relationships),(SELECT COUNT(*) FROM exp_grid_columns),(SELECT COUNT(*) FROM exp_channel_fields),(SELECT COUNT(*) FROM exp_migrations))" 2>&1; }
+count_rows() { ddev mysql "$LOCAL_DB" -N -e "SELECT CONCAT_WS(',',(SELECT COUNT(*) FROM exp_channel_titles),(SELECT COUNT(*) FROM exp_channel_data),(SELECT COUNT(*) FROM exp_relationships),(SELECT COUNT(*) FROM exp_grid_columns),(SELECT COUNT(*) FROM exp_channel_fields),(SELECT COUNT(*) FROM exp_migrations))" 2>&1; }
 
 run_fixture "$FX_URL"
 rows_before=$(count_rows)
@@ -211,7 +216,7 @@ n=$(jcount '.check=="smoke"')
 [[ "$n" -eq 0 ]] && ok "--no-smoke produces no smoke results" || bad "--no-smoke" "n=$n"
 undo_fixture "$FX_URL"
 
-left=$(ddev mysql admin_cps -N -e "SELECT (SELECT COUNT(*) FROM exp_channels WHERE channel_name LIKE 'cpstools%')+(SELECT COUNT(*) FROM exp_channel_fields WHERE field_name LIKE 'cpstools%')+(SELECT COUNT(*) FROM exp_grid_columns WHERE col_name LIKE 'cpstools%')+(SELECT COUNT(*) FROM exp_field_groups WHERE group_name LIKE 'cpstools%')+(SELECT COUNT(*) FROM exp_migrations WHERE migration LIKE '2099%')+(SELECT COUNT(*) FROM exp_layout_publish WHERE layout_name LIKE 'cpstools%')" 2>&1)
+left=$(ddev mysql "$LOCAL_DB" -N -e "SELECT (SELECT COUNT(*) FROM exp_channels WHERE channel_name LIKE 'cpstools%')+(SELECT COUNT(*) FROM exp_channel_fields WHERE field_name LIKE 'cpstools%')+(SELECT COUNT(*) FROM exp_grid_columns WHERE col_name LIKE 'cpstools%')+(SELECT COUNT(*) FROM exp_field_groups WHERE group_name LIKE 'cpstools%')+(SELECT COUNT(*) FROM exp_migrations WHERE migration LIKE '2099%')+(SELECT COUNT(*) FROM exp_layout_publish WHERE layout_name LIKE 'cpstools%')" 2>&1)
 [[ "$left" == "0" ]] && ok "no cpstools_ rows left behind" || bad "leftover rows" "$left"
 
 echo "---"; echo "$PASS passed, $FAIL failed"; [[ $FAIL -eq 0 ]]
