@@ -110,8 +110,9 @@ fixture is self-contained (creates and removes its own test channel) and is run 
   confirm schema-check passes on the existing fields. No create recipe is offered.
 - **structure** ships in EE 7.5.27 but the Structure add-on is not installed on any CPS site. Its
   reference documents the contract from source and states "requires the Structure module installed;
-  not fixture-verified on this fleet". The runner refuses a migration that creates a `structure`
-  field on a site without the module.
+  not fixture-verified on this fleet". The skill warns, and the
+  author agent must not create a `structure` field on a site without the module (documentation
+  rule, not a runner check).
 
 ## 6. `cps_tools` add-on
 
@@ -128,7 +129,10 @@ folder.
 ### 6.1 `cps:migrate-status`
 
 Lists pending core migrations **in the order EE will run them** (files not in `exp_migrations`,
-sorted by filename) and recorded migrations whose file is missing. `--json` for the runner.
+sorted by filename) and recorded migrations whose file is missing. With `--json` it also reports
+the deployed commit (from the release's `REVISION` file, when present), the total `exp_*` table
+count and the row counts of `exp_channel_titles` and `exp_channel_fields`, which the rehearsal
+import check (§7.0b) compares against.
 
 ### 6.1a `cps:migrate-verify <migration-name>`
 
@@ -176,7 +180,8 @@ seconds earlier. That is why rehearsal on a target copy precedes every server ru
 ## 7. `ee-migrate.sh` runner
 
 Identical script in every repo; only a config block differs: SSH host, remote paths, PHP binary,
-database name, `EE_SUBDIR` (`ee/` for diabetes and intranet-backend), local CLI form (`ddev exec php`
+database name, `BACKUP_DIR` (must resolve outside the release tree; the runner refuses to start if it
+is inside `httpdocs/current` or the releases directory), `EE_SUBDIR` (`ee/` for diabetes and intranet-backend), local CLI form (`ddev exec php`
 vs `ddev ee`), `HAS_STAGING`, and the existing sync route for pulling a database copy.
 
 ### 7.0 How the runner drives EE's `migrate`
@@ -226,8 +231,8 @@ counts in DDEV must match the same counts read from the target by `cps:migrate-s
 |---|---|
 | `local test <migration>` | Requires the named migration to be the only pending file locally (otherwise refuses and lists what is pending). Backup (`ddev ee backup:database`, verified by size) → schema-check baseline → `migrate --core --steps=1` → `cps:migrate-verify` → schema-check incl. smoke test (no new failures) → `migrate:rollback --steps=1` → schema + settings dump byte-identical to baseline → `migrate --core --steps=1` again → schema-check. Any failure stops with the restore command. |
 | `<staging\|prod> status` | Remote pending set + schema-check summary. Read-only. |
-| `<staging\|prod> rehearse` | `ddev snapshot` → import fresh copy of the target DB via the existing sync route → run the full pending set → `verify()` → schema-check → restore snapshot and delete the imported copy. Writes a rehearsal stamp (target, pending set, commit, time). |
-| `<staging\|prod> apply --expect=<names>` | Refuses unless: remote pending set equals `--expect` exactly; a passing rehearsal stamp for that set and commit exists, < 24 h old; the deployed release contains those files. Then: backup to the site's out-of-release backup directory, `chmod 600`, size compared to the previous dump → `migrate` → `verify()` → schema-check on the server → print backup name, rollback command and restore command. Records success in the stamp file. |
+| `<staging\|prod> rehearse` | `ddev snapshot` → import fresh copy of the target DB via the existing sync route → verify the import (§7.0b) → run the pending set with the §7.0 per-file loop, `cps:migrate-verify` after each → schema-check incl. smoke test → restore snapshot and delete the imported copy. Writes a rehearsal stamp (target, pending set, commit, time). |
+| `<staging\|prod> apply --expect=<names>` | Refuses unless: remote pending set equals `--expect` exactly; a passing rehearsal stamp for that set and commit exists, < 24 h old; the deployed release contains those files. Then: backup to the site's out-of-release backup directory, `chmod 600`, size compared to the previous dump → the §7.0 per-file loop (`migrate --core --steps=1`, then `cps:migrate-verify`, per file) → structural schema-check on the server (`--no-smoke`) → print backup name, rollback command and restore command. Records success in the stamp file. |
 
 ### 7.2 Production gate — sites with staging (cps, cpsp, cyntc)
 
@@ -313,15 +318,21 @@ Two implementation plans, so the safety tooling does not wait for the full resea
 
 Each phase is shippable on its own.
 
-1. **Fieldtype research** — 34 references, each proven by a fixture on cps.test. Largest phase
+1. **[Plan 2] Fieldtype research** — 34 references, each proven by a fixture on cps.test. Largest phase
    (~2–3 days of agent time, mostly Sonnet).
-2. **Add-on** — `cps_tools` with `migrate-status` and `schema-check`; first-run audit on all six sites,
+2. **[Plan 1] Add-on** — `cps_tools` with `migrate-status` and `schema-check`; first-run audit on all six sites,
    reported not fixed.
-3. **Runner** — `ee-migrate.sh`, its tests, guard rule and permissions.
-4. **Skill and agent.**
-5. **Fleet rollout** — cps first, then cfk, cpsp, cyntc, diabetes, intranet-backend.
+3. **[Plan 1] Runner** — `ee-migrate.sh`, its tests, guard rule and permissions.
+4. **[Plan 1] Skill and agent.**
+5. **[Plan 1] Fleet rollout** — first re-check, read-only, that no server has a `cps_logs` row in
+   `exp_modules` before its folder is removed; then cps first, then cfk, cpsp, cyntc, diabetes, intranet-backend.
 
 ## 13. Success criteria
+
+Plan 1 also proves, before relying on §7.0, that each `migrate --core --steps=1` call creates its
+own migration group and that `migrate:rollback --steps=1` reverses exactly one file (observed working
+on cps.test on 2026-10-05; to be covered by a runner test).
+
 
 - Each of the six defects in §1, reintroduced as a test migration, is caught before anything reaches
   a server, by the named detector:
@@ -346,7 +357,7 @@ Each phase is shippable on its own.
 
 | Risk | Mitigation |
 |---|---|
-| Smoke test calls fieldtype code with side effects | Only `validate()`/`display_field()`; transaction always rolled back; fixtures prove no writes. |
+| Smoke test calls fieldtype code with side effects | Runs only in DDEV (local and rehearsal copies), never on servers; only `validate()`/`display_field()`; DML transaction rolled back plus an `exp_*` row-count comparison (DDL commits implicitly). |
 | Third-party fieldtype behaviour undocumented | Source is the evidence; fixture must pass before the reference is trusted. |
 | Rehearsal stamp spoofed or stale | Stamp binds target, pending set, commit and time; runner re-checks all four. |
 | Baseline masks a real pre-existing defect | First-run audit is reported to Robert explicitly. |
