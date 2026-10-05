@@ -2,6 +2,7 @@
 
 namespace CPS\Tools\Library\Checks;
 
+use CPS\Tools\Library\Fieldtypes;
 use CPS\Tools\Library\Report;
 
 /**
@@ -31,9 +32,7 @@ class SettingsContract
             return;
         }
 
-        ee()->load->library('api');
-        ee()->legacy_api->instantiate('channel_fields');
-        ee()->api_channel_fields->fetch_installed_fieldtypes();
+        Fieldtypes::boot();
 
         $fields = ee()->db->select('field_id, field_name, field_type, field_settings')
             ->get('channel_fields')
@@ -169,7 +168,7 @@ class SettingsContract
         }
 
         $contract = null;
-        $packagePath = $this->packagePath($type);
+        $packagePath = Fieldtypes::packagePath($type);
         if ($packagePath !== null) {
             // Core settings forms load helper libraries (e.g. Relationships_ft_cp) from the add-on.
             ee()->load->add_package_path($packagePath);
@@ -208,20 +207,6 @@ class SettingsContract
 
         $this->contracts[$cacheKey] = $contract;
         return $contract;
-    }
-
-    /**
-     * @param string $type
-     * @return string|null
-     */
-    private function packagePath(string $type): ?string
-    {
-        foreach ([PATH_ADDONS, PATH_THIRD] as $base) {
-            if (is_dir($base . $type)) {
-                return $base . $type . '/';
-            }
-        }
-        return null;
     }
 
     /**

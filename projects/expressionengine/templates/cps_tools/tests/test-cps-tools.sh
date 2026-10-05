@@ -179,6 +179,27 @@ n=$(jcount '.check=="references" and .status=="fail" and .subject=="cpstools_fix
 [[ "$n" -ge 1 ]] && ok "references: missing category group fails naming channel" || bad "cat group fail" "n=$n"
 fx_done "${FIXTURES[10]}" "missing cat group fixture"
 
+# --- schema-check: smoke test ---------------------------------------------------
+count_rows() { ddev mysql admin_cps -N -e "SELECT CONCAT_WS(',',(SELECT COUNT(*) FROM exp_channel_titles),(SELECT COUNT(*) FROM exp_channel_data),(SELECT COUNT(*) FROM exp_relationships),(SELECT COUNT(*) FROM exp_grid_columns),(SELECT COUNT(*) FROM exp_channel_fields),(SELECT COUNT(*) FROM exp_migrations))" 2>&1; }
+
+run_fixture "$FX_URL"
+rows_before=$(count_rows)
+out=$(EEJ cps:schema-check --json); code=$?
+n=$(jcount '.check=="smoke" and .status=="fail" and .subject=="cpstools_fx_url" and (.message|test("in_array"))')
+[[ "$n" -ge 1 ]] && ok "smoke: URL field in_array crash caught" || bad "smoke url field" "n=$n"
+n=$(jcount '.check=="smoke" and .status=="fail" and .subject=="cpstools_fx_grid.cpstools_fx_link" and (.message|test("in_array"))')
+[[ "$n" -ge 1 ]] && ok "smoke: Grid URL column in_array crash caught" || bad "smoke grid column" "n=$n"
+EEJ cps:schema-check --json >/dev/null
+rows_after=$(count_rows)
+[[ "$rows_before" == "$rows_after" ]] && ok "smoke leaves row counts unchanged ($rows_after)" || bad "smoke changed rows" "$rows_before -> $rows_after"
+out=$(ddev exec env -u IS_DDEV_PROJECT php system/ee/eecli.php cps:schema-check --json 2>/dev/null)
+n=$(jcount '.check=="smoke" and .status=="warn" and .message=="smoke skipped: not DDEV"')
+[[ "$n" -eq 1 ]] && ok "smoke refuses to run off DDEV" || bad "smoke off-DDEV warn" "n=$n"
+out=$(EEJ cps:schema-check --no-smoke --json)
+n=$(jcount '.check=="smoke"')
+[[ "$n" -eq 0 ]] && ok "--no-smoke produces no smoke results" || bad "--no-smoke" "n=$n"
+undo_fixture "$FX_URL"
+
 left=$(ddev mysql admin_cps -N -e "SELECT (SELECT COUNT(*) FROM exp_channels WHERE channel_name LIKE 'cpstools%')+(SELECT COUNT(*) FROM exp_channel_fields WHERE field_name LIKE 'cpstools%')+(SELECT COUNT(*) FROM exp_grid_columns WHERE col_name LIKE 'cpstools%')+(SELECT COUNT(*) FROM exp_field_groups WHERE group_name LIKE 'cpstools%')+(SELECT COUNT(*) FROM exp_migrations WHERE migration LIKE '2099%')+(SELECT COUNT(*) FROM exp_layout_publish WHERE layout_name LIKE 'cpstools%')" 2>&1)
 [[ "$left" == "0" ]] && ok "no cpstools_ rows left behind" || bad "leftover rows" "$left"
 

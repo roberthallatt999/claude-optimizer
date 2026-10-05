@@ -137,6 +137,9 @@ class CommandSchemaCheck extends Cli
         foreach ($checks as $class) {
             (new $class())->run($report);
         }
+        if (!(bool) $this->option('--no-smoke', false)) {
+            (new \CPS\Tools\Library\SmokeTest())->run($report);
+        }
         return $report;
     }
 
