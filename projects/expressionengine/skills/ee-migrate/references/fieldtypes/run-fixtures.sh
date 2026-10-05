@@ -135,6 +135,7 @@ if [[ $FRESH_BACKUP -eq 0 && -n "$newest" && -s "$newest" ]]; then
 fi
 if [[ -z "$new" ]]; then
   eecli backup:database >/dev/null || die "backup:database failed, nothing run"
+  sync_files   # Mutagen sites: the dump is written in the container and reaches the host only after a sync
   after="$(ls -t "$cache"/*.sql* 2>/dev/null)"
   new="$(comm -13 <(sort <<<"$before") <(sort <<<"$after") | head -1)"
   [[ -n "$new" && -s "$new" ]] || die "backup produced no new file in $cache, nothing run"

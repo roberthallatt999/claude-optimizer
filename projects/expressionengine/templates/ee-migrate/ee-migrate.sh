@@ -490,6 +490,9 @@ preflight_sync_library() {
 
 local_eecli() { $LOCAL_EECLI "$@"; }
 local_status_json() { local_eecli cps:migrate-status --json; }
+# Mutagen sites (intranet-backend): a file written in the container reaches the host only after a sync.
+# A no-op where Mutagen is not enabled.
+local_sync() { ddev mutagen sync >/dev/null 2>&1 || true; }
 
 # Refuse when LOCAL_DB is not the database EE is connected to: the tooling would dump, import and
 # query one database while EE migrates another. Older add-ons omit the key; nothing to compare then.
@@ -619,6 +622,7 @@ backup_local() {
   cache="$REPO_ROOT/${EE_SUBDIR}system/user/cache"
   before="$(ls -t "$cache"/*"$DUMP_SUFFIX"* 2>/dev/null)"
   local_eecli backup:database || fail "local backup:database failed, nothing migrated"
+  local_sync
   after="$(ls -t "$cache"/*"$DUMP_SUFFIX"* 2>/dev/null)"
   new="$(comm -13 <(sort <<<"$before") <(sort <<<"$after") | head -1)"
   [[ -n "$new" && -s "$new" ]] || fail "local backup produced no new file in $cache, nothing migrated"

@@ -420,7 +420,9 @@ LOCALMIG=a
 reset_stub
 run "$RUNNER" local test "$LOCALMIG"
 check "local test passes" '[[ $RC -eq 0 && "$OUT" == *"local test PASS"* ]]'
-lcalls() { grep '^ddev ' "$STUB_LOG" | sed -E -e 's/^ddev exec php system\/ee\/eecli\.php //' -e 's/^ddev mysql .*/mysql-dump/' \
+check "local test flushes Mutagen right after the backup" \
+  '[[ "$(grep -n "^ddev " "$STUB_LOG" | grep -A1 "backup:database" | tail -1)" == *"ddev mutagen sync"* ]]'
+lcalls() { grep '^ddev ' "$STUB_LOG" | grep -v '^ddev mutagen ' | sed -E -e 's/^ddev exec php system\/ee\/eecli\.php //' -e 's/^ddev mysql .*/mysql-dump/' \
   -e 's/ --baseline=.*/ --baseline/' -e 's/ --compare=.*/ --compare/'; }
 expected_local="$(printf '%s\n' 'cps:migrate-status --json' backup:database 'cps:schema-check --json --baseline' mysql-dump \
   'migrate --core --steps=1' 'cps:migrate-status --json' 'cps:migrate-verify a' 'cps:schema-check --json --compare' \

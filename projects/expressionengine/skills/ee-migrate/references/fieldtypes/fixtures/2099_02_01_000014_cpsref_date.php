@@ -157,9 +157,12 @@ class CpsrefDate extends Migration
         $check(count($rows) === 1, 'expected 1 grid row');
         $check(($rows[0]['col_id_' . $localizedCol] ?? null) === (string) self::TIMESTAMP, 'localized grid value wrong');
         $fixedGrid = (string) ($rows[0]['col_id_' . $fixedCol] ?? '');
+        // The timezone half is whatever ft.date.php::grid_save() reads at write time; it is EMPTY on a site whose
+        // default_site_timezone is not set (diabetes), so assert the rule, not a non-empty zone.
+        $zone = (string) ee()->session->userdata('timezone', ee()->config->item('default_site_timezone'));
         $check(
-            preg_match('/^\d{10}\|[A-Za-z_\/+-]+$/', $fixedGrid) === 1,
-            "non-localized grid value is not 'timestamp|timezone': $fixedGrid"
+            preg_match('/^\d{10}\|/', $fixedGrid) === 1 && substr($fixedGrid, 11) === $zone,
+            "non-localized grid value is not 'timestamp|$zone': $fixedGrid"
         );
 
         $fluid = CpsRefFixture::fluidRows(self::FLUID, $entryId);
@@ -189,7 +192,10 @@ class CpsrefDate extends Migration
         $check($ft->grid_save((string) self::TIMESTAMP) === (string) self::TIMESTAMP, 'grid_save(localize) wrong');
         $ft->settings = ['localize' => false, 'show_time' => true];
         $pair = $ft->grid_save(self::TIMESTAMP);
-        $check(is_array($pair) && $pair[0] === self::TIMESTAMP && is_string($pair[1]) && $pair[1] !== '', 'grid_save(fixed) not [ts, tz]');
+        $check(
+            is_array($pair) && $pair[0] === self::TIMESTAMP && (string) $pair[1] === $zone,
+            'grid_save(fixed) not [ts, tz]: ' . json_encode($pair)
+        );
         $check($ft->grid_save('') === null, 'grid_save(empty) should be null');
         $check(
             $ft->grid_save_settings(['localize' => 'y', 'show_time' => 'n']) === ['localize' => true, 'show_time' => false],

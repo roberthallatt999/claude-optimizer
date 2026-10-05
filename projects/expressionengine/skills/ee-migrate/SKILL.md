@@ -19,10 +19,11 @@ the same gates. Do the steps in order; never skip one to save time.
    last baseline (`cps:schema-check --compare=<file>`) so nothing clicked in the CP is missed. Otherwise
    write the change as a spec.
 2. **Plan.** List the migrations, fieldtypes and content touched. One concern per migration; structure before
-   content. Load `references/fieldtypes/<type>.md` for each type involved, only those. Until a reference
-   exists for a type (see `references/fieldtypes/README.md`), instruct the author agent to read that
-   fieldtype's `ft.*.php` (`save_settings`, `grid_save_settings`, `settings_modify_column`, `validate`)
-   before writing settings. Fields of type `structure` need the Structure module, which no CPS site has;
+   content. Load `references/fieldtypes/<type>.md` for each type involved, only those; every fieldtype on the
+   fleet has one (status table in `references/fieldtypes/README.md`). Where a reference says `verified: no`,
+   the author agent also reads that fieldtype's `ft.*.php` (`save_settings`, `grid_save_settings`,
+   `settings_modify_column`, `validate`) before writing settings. playa, matrix and image_cropper are
+   read-and-migrate-away only. Fields of type `structure` need the Structure module, which no CPS site has;
    do not create one.
 3. **Author.** Give `ee-migration-author` a self-contained spec: repo path, change, reference files to
    load, migration name. It writes `up`, `down` and `verify` and runs the local gate.
@@ -83,7 +84,15 @@ never trusted. Any failure aborts before the first `migrate` call. There is no f
 - `apply` refuses while any unexpected file is pending, including deliberately unrun ones. Naming them in
   `--expect` is not an escape hatch; resolve them first.
 
-## cps_tools commands (add-on 2.0.0, no install needed)
+## Fixtures (after every EE upgrade)
+
+`references/fieldtypes/run-fixtures.sh <site-repo> [type...]` (run from claude-config-repo) proves the
+references against a site's DDEV: one verified backup, then per fixture migrate, `verify()`, schema-check,
+roll back, byte-identical schema. Run it with no type list after every EE upgrade; a FAIL means a reference is
+out of date for that version. It rolls back only a migration it recorded itself. If a run stops with
+"cpsref rows already exist locally", run it once with `--cleanup`.
+
+## cps_tools commands (add-on 2.1.0, no install needed)
 
 - `cps:logs`; `cps:migrate-status [--json]`; `cps:migrate-verify <name>` (name before options; exit 0/1/2).
 - `cps:schema-check [--json] [--no-smoke] [--baseline=F] [--compare=F]` (exit 0 pass, 1 new failures,

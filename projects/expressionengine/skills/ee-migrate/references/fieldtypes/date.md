@@ -61,7 +61,8 @@ uses it as `$localize`: empty means `true` (convert to the viewer's timezone), a
 Grid column (`grid_settings_modify_column()`): ONE column, `col_id_C varchar(60)` NULL default NULL. There is NO
 companion `col_dt_C` column (proved from `SHOW COLUMNS` on the Grid table). Localized column (`localize` true) stores the bare timestamp,
 `'1700000000'`; a non-localized column stores `'<timestamp>|<timezone>'`, e.g. `'1709652600|America/Toronto'`, the timezone
-being the session's `timezone` userdata or `default_site_timezone` at write time (proved).
+being the session's `timezone` userdata or `default_site_timezone` at write time (proved). On a site whose
+`default_site_timezone` is empty (diabetes, 2026-10-05) a CLI write stores `'<timestamp>|'` with NO timezone (proved).
 
 What empty is stored as (Model path, proved): top-level `''`, `0` and unparseable text such as `not a date` all store `0`
 (the column default). Grid `''` stores `NULL`; Fluid `''` stored `NULL` in the probe run. `save('')` returns PHP `null`.
@@ -148,6 +149,10 @@ timestamps, not strings.
 - Field key is `localization`, Grid key is `localize`; mixing them silently does nothing (field) or breaks `grid_save()` (Grid).
 - No `col_dt_C`: a non-localized Grid date carries its timezone INSIDE the value (`ts|tz`) in a `varchar(60)`, so `SUM`/range
   SQL on the column needs `SUBSTRING_INDEX(col_id_C, '|', 1)`.
+- Empty timezone: `ft.date.php::grid_save()` takes the zone from `session->userdata('timezone', default_site_timezone)`.
+  In a migration there is no member session, so a site with an empty `default_site_timezone` (diabetes) stores `ts|`.
+  Before writing non-localized Grid dates, check `ee()->config->item('default_site_timezone')` is set, and assert the
+  stored value in `verify()`.
 - Timestamp is timezone-dependent for human strings: `'2024-03-05 10:30 AM'` is 1709652600 on cps (America/Toronto), a
   different integer on another site timezone. Migrations should write integer timestamps.
 - Empty top-level dates are `0`, not NULL, via the Model path; Grid and Fluid empties are NULL. Filter both.
