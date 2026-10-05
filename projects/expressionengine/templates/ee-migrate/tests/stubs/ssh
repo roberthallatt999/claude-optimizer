@@ -4,6 +4,10 @@ echo "ssh $*" >> "$STUB_LOG"
 cmd="$2"
 d="$STUB_DIR"
 case "$cmd" in
+  *sha256sum*)
+    [[ -f "$d/hash-missing" ]] && { echo "MISSING a"; exit 12; }
+    cat "$d/pending-hash" 2>/dev/null || echo aaaa1111bbbb
+    ;;
   *cps:migrate-status*)
     if [[ -f "$d/status-missing" ]]; then echo "Command not found: cps:migrate-status"; exit 1; fi
     cat "$d/migrate-status.json"

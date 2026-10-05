@@ -36,6 +36,7 @@ LOCAL_MIGRATION=""
 BACKUP_NAME=""
 BACKUP_FILE=""
 STATUS_JSON=""
+PENDING_HASH=""
 BASELINE_FILE=""
 SNAPSHOT=""
 REPO_ROOT="${EE_MIGRATE_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -168,6 +169,29 @@ assert_pending_equals() {
   [[ -z "$missing" ]] || fail "recorded migrations have no file on $TARGET: $missing"
 }
 
+# --- pending hash (binds stamps to the migration files, spec 7.0a) ----------
+
+# sha256 over, in pending order, one line "<name> <sha256 of that file>" per migration, read from
+# the TARGET release (the code that will actually run). Sets PENDING_HASH.
+remote_pending_hash() {
+  local names="${1//,/ }" script out rc
+  script="cd '$(target_path)' || exit 13
+dir='${EE_SUBDIR}system/user/database/migrations'
+lines=''
+for n in ${names}; do
+  h=\$(sha256sum \"\$dir/\$n.php\" 2>/dev/null | cut -d' ' -f1)
+  [ -n \"\$h\" ] || { echo \"MISSING \$n\"; exit 12; }
+  lines=\"\$lines\$n \$h
+\"
+done
+printf '%s' \"\$lines\" | sha256sum | cut -d' ' -f1"
+  out="$(ssh "$SSH_HOST" "$script" 2>&1)"
+  rc=$?
+  [[ $rc -eq 0 && "$out" =~ ^[0-9a-f]{8,64}$ ]] \
+    || fail "could not hash pending migration files on $TARGET (exit $rc): $(head -c 200 <<<"$out")"
+  PENDING_HASH="$out"
+}
+
 # --- stamps (spec 7.0a) -----------------------------------------------------
 
 iso_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -189,9 +213,9 @@ write_rehearsal_stamp() {
   local commit
   commit="$(jq -r '.commit // ""' <<<"$STATUS_JSON")"
   mkdir -p "$STAMP_DIR"
-  jq -n --arg target "$TARGET" --arg commit "$commit" --argjson pending "$(jq -c '.pending' <<<"$STATUS_JSON")" \
+  jq -n --arg target "$TARGET" --arg commit "$commit" --arg hash "$PENDING_HASH" --argjson pending "$(jq -c '.pending' <<<"$STATUS_JSON")" \
     --arg at "$(iso_now)" \
-    '{target: $target, commit: $commit, pending: $pending, rehearsed_at: $at, rehearsal: "pass",
+    '{target: $target, commit: $commit, pending_hash: $hash, pending: $pending, rehearsed_at: $at, rehearsal: "pass",
       applied_at: null, apply: null, backup: null}' > "$(stamp_file "$TARGET")" \
     || fail "could not write stamp for $TARGET"
 }
@@ -204,15 +228,16 @@ record_apply() {
   [[ -f "$file" ]] && base="$(cat "$file")"
   commit="$(jq -r '.commit // ""' <<<"$STATUS_JSON")"
   jq --arg target "$TARGET" --arg commit "$commit" --arg expect "$EXPECT" --arg at "$(iso_now)" \
-    --arg backup "$BACKUP_FILE" \
-    '. + {target: $target, commit: $commit, pending: ($expect | split(",")), applied_at: $at,
+    --arg backup "$BACKUP_FILE" --arg hash "$PENDING_HASH" \
+    '. + {target: $target, commit: $commit, pending_hash: $hash, pending: ($expect | split(",")), applied_at: $at,
           apply: "pass", backup: $backup}' <<<"$base" > "$file.new" \
     && mv "$file.new" "$file" || fail "could not record apply in $file"
 }
 
-# check_stamp <stamp-target> <rehearsal|apply> — same commit and pending set as the remote.
+# check_stamp <stamp-target> <rehearsal|apply> — same pending set and pending_hash (file contents)
+# as the target release. The commit is informational only: a merge changes it without changing the files.
 check_stamp() {
-  local which="$1" kind="$2" file commit expect_commit at age
+  local which="$1" kind="$2" file at age
   file="$(stamp_file "$which")"
   if [[ ! -f "$file" ]]; then
     if [[ "$kind" == "rehearsal" ]]; then
@@ -225,13 +250,10 @@ check_stamp() {
   else
     [[ "$(jq -r '.apply // ""' "$file")" == "pass" ]] || fail "no recorded $which apply: stamp has apply != pass"
   fi
-  expect_commit="$(jq -r '.commit // ""' <<<"$STATUS_JSON")"
-  [[ -n "$expect_commit" ]] || fail "deployed commit of $TARGET is unknown (no .commit_hash)"
-  commit="$(jq -r '.commit // ""' "$file")"
-  [[ "$commit" == "$expect_commit" ]] \
-    || fail "$which stamp is for a different commit ($commit), $TARGET has $expect_commit"
   [[ "$(jq -r '.pending | join(",")' "$file")" == "$EXPECT" ]] \
     || fail "$which stamp is for a different pending set ($(jq -r '.pending | join(",")' "$file"))"
+  [[ "$(jq -r '.pending_hash // ""' "$file")" == "$PENDING_HASH" ]] \
+    || fail "$which stamp pending_hash differs: the migration files changed since the stamp was written"
   if [[ "$kind" == "rehearsal" ]]; then
     at="$(jq -r '.rehearsed_at // ""' "$file")"
     age=$(($(date -u +%s) - $(iso_to_epoch "$at" 2>/dev/null || echo 0)))
@@ -350,6 +372,7 @@ post_check() {
 cmd_apply() {
   remote_status
   assert_pending_equals
+  remote_pending_hash "$EXPECT"
   require_rehearsal_stamp
   backup_remote
   baseline_remote
@@ -394,15 +417,27 @@ rehearse_cleanup() {
 
 # Compare DDEV counts with the target's counts read just before the export (spec 7.0b).
 verify_import_counts() {
-  local local_out remote_counts local_counts
+  local local_out r_tables l_tables r_fields l_fields r_titles l_titles
   local_out="$(local_eecli cps:migrate-status --json 2>&1)"
   jq -e '.counts' >/dev/null 2>&1 <<<"$local_out" \
     || fail "import check: local cps:migrate-status unreadable: $(head -c 200 <<<"$local_out")"
-  remote_counts="$(jq -S -c '.counts' <<<"$STATUS_JSON")"
-  local_counts="$(jq -S -c '.counts' <<<"$local_out")"
-  [[ "$remote_counts" == "$local_counts" ]] \
-    || fail "import verification failed: counts differ (target $remote_counts, DDEV $local_counts)"
-  echo "ee-migrate: import verified ($local_counts)"
+  r_tables="$(jq -r '.counts.tables' <<<"$STATUS_JSON")"
+  l_tables="$(jq -r '.counts.tables' <<<"$local_out")"
+  r_fields="$(jq -r '.counts.channel_fields' <<<"$STATUS_JSON")"
+  l_fields="$(jq -r '.counts.channel_fields' <<<"$local_out")"
+  r_titles="$(jq -r '.counts.channel_titles' <<<"$STATUS_JSON")"
+  l_titles="$(jq -r '.counts.channel_titles' <<<"$local_out")"
+  [[ "$r_tables" == "$l_tables" ]] \
+    || fail "import verification failed: tables differ (target $r_tables, DDEV $l_tables)"
+  [[ "$r_fields" == "$l_fields" ]] \
+    || fail "import verification failed: channel_fields differ (target $r_fields, DDEV $l_fields)"
+  # Entries can be added on a live target between the status read and the export.
+  [[ "$r_titles" =~ ^[0-9]+$ && "$l_titles" =~ ^[0-9]+$ ]] \
+    || fail "import verification failed: channel_titles count unreadable"
+  if [[ $l_titles -lt $r_titles || $l_titles -gt $((r_titles + 100)) ]]; then
+    fail "import verification failed: channel_titles $l_titles outside $r_titles..$((r_titles + 100))"
+  fi
+  echo "ee-migrate: import verified (tables $l_tables, fields $l_fields, titles $l_titles)"
 }
 
 cmd_rehearse() {
@@ -413,6 +448,7 @@ cmd_rehearse() {
   remote_status
   [[ "$(jq -r '.pending | length' <<<"$STATUS_JSON")" -gt 0 ]] || die "nothing pending on $TARGET — nothing to rehearse"
   EXPECT="$(pending_csv)"
+  remote_pending_hash "$EXPECT"
   dump="$REPO_ROOT/.admin-scripts/$(target_db)"
   [[ ! -e "$dump.sql.gz" && ! -e "$dump.sql" ]] || die "stale dump at $dump.* — remove it first"
 

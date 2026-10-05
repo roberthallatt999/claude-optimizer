@@ -216,14 +216,18 @@ Stamps are local to the developer's machine:
 to the ai-config EE gitignore template). Format:
 
 ```json
-{ "target": "staging", "commit": "<sha>", "pending": ["2026_10_05_090000_…"],
+{ "target": "staging", "commit": "<sha>", "pending_hash": "<sha256>", "pending": ["2026_10_05_090000_…"],
   "rehearsed_at": "2026-10-05T13:30:00Z", "rehearsal": "pass",
   "applied_at": null, "apply": null }
 ```
 
-`apply` re-reads the remote pending list and the deployed commit and compares all of target, commit,
-pending set and age (< 24 h) against the stamp. Production on a staging site additionally requires a
-`staging.json` stamp with `"apply": "pass"` for the same pending set and commit.
+`pending_hash` is the sha256 over, in pending order, one line `<name> <sha256 of that file's contents>`
+per migration, computed on the **target server's** release (the code that will actually run) by both
+`rehearse` and `apply`. `commit` is informational only: a merge changes the commit without changing
+the files, so gating on it would refuse legitimate runs. `apply` re-reads the remote pending list and
+recomputes `pending_hash`, then compares target, pending set, `pending_hash` and age (< 24 h) against
+the stamp. Production on a staging site additionally requires a `staging.json` stamp with
+`"apply": "pass"` for the same pending set and `pending_hash`.
 
 ### 7.0b Database copies for rehearsal
 
@@ -236,8 +240,9 @@ temporary gzip beside the release), `download_db` (copy down, then delete the re
 library exists and exports those three functions before starting.
 
 Because the import can fail behind a zero exit code, it is verified independently: table count and
-`exp_channel_titles` / `exp_channel_fields` row counts in DDEV must match the same counts read from
-the target by `cps:migrate-status --json` (§6.1). Mismatch → rehearsal fails and the snapshot is
+`exp_channel_titles` / `exp_channel_fields` row counts in DDEV are compared with the counts read from
+the target by `cps:migrate-status --json` (§6.1): table and `channel_fields` counts must match exactly;
+`channel_titles` may be higher by up to 100 (entries added during the export) but never lower. Mismatch → rehearsal fails and the snapshot is
 restored. The downloaded dump is deleted after import.
 
 ### 7.1 Modes
@@ -246,8 +251,8 @@ restored. The downloaded dump is deleted after import.
 |---|---|
 | `local test <migration>` | Requires the named migration to be the only pending file locally (otherwise refuses and lists what is pending). Backup (`ddev ee backup:database`, verified by size) → schema-check baseline → `migrate --core --steps=1` → `cps:migrate-verify` → schema-check incl. smoke test (no new failures) → `migrate:rollback --steps=1` → schema + settings dump byte-identical to baseline → `migrate --core --steps=1` again → schema-check. Any failure stops with the restore command. |
 | `<staging\|prod> status` | Remote pending set + schema-check summary. Read-only. |
-| `<staging\|prod> rehearse` | `ddev snapshot` → import fresh copy of the target DB via the existing sync route → verify the import (§7.0b) → run the pending set with the §7.0 per-file loop, `cps:migrate-verify` after each → schema-check incl. smoke test → restore snapshot and delete the imported copy. Writes a rehearsal stamp (target, pending set, commit, time). |
-| `<staging\|prod> apply --expect=<names>` | Refuses unless: remote pending set equals `--expect` exactly; a passing rehearsal stamp for that set and commit exists, < 24 h old; the deployed release contains those files. Then: backup to the site's out-of-release backup directory, `chmod 600`, size compared to the previous dump → the §7.0 per-file loop (`migrate --core --steps=1`, then `cps:migrate-verify`, per file) → structural schema-check on the server (`--no-smoke`) → print backup name, rollback command and restore command. Records success in the stamp file. |
+| `<staging\|prod> rehearse` | `ddev snapshot` → import fresh copy of the target DB via the existing sync route → verify the import (§7.0b) → run the pending set with the §7.0 per-file loop, `cps:migrate-verify` after each → schema-check incl. smoke test → restore snapshot and delete the imported copy. Writes a rehearsal stamp (target, pending set, `pending_hash`, commit, time). |
+| `<staging\|prod> apply --expect=<names>` | Refuses unless: remote pending set equals `--expect` exactly; a passing rehearsal stamp for that set and `pending_hash` exists, < 24 h old; the deployed release contains those files. Then: backup to the site's out-of-release backup directory, `chmod 600`, size compared to the previous dump → the §7.0 per-file loop (`migrate --core --steps=1`, then `cps:migrate-verify`, per file) → structural schema-check on the server (`--no-smoke`) → print backup name, rollback command and restore command. Records success in the stamp file. |
 
 ### 7.1a Backup rule (all modes that change a database)
 
@@ -270,12 +275,12 @@ skip the backup.
 ### 7.2 Production gate — sites with staging (cps, cpsp, cyntc)
 
 Local gate → staging rehearsal → staging apply (recorded) → push code → production rehearsal is
-optional → production apply requires the staging success for the same set and commit.
+optional → production apply requires the staging success for the same set and `pending_hash`.
 
 ### 7.3 Production gate — production-only sites (cfk, diabetes, intranet-backend)
 
 `HAS_STAGING=no`. Staging modes are rejected. Local gate → **mandatory** rehearsal on a fresh
-production copy (same set, same commit, < 24 h) → production apply. All other checks are identical.
+production copy (same set, same `pending_hash`, < 24 h) → production apply. All other checks are identical.
 
 ### 7.4 Ordering
 
@@ -392,6 +397,6 @@ on cps.test on 2026-10-05; to be covered by a runner test).
 |---|---|
 | Smoke test calls fieldtype code with side effects | Runs only in DDEV (local and rehearsal copies), never on servers; only `validate()`/`display_field()`; DML transaction rolled back plus an `exp_*` row-count comparison (DDL commits implicitly). |
 | Third-party fieldtype behaviour undocumented | Source is the evidence; fixture must pass before the reference is trusted. |
-| Rehearsal stamp spoofed or stale | Stamp binds target, pending set, commit and time; runner re-checks all four. |
+| Rehearsal stamp spoofed or stale | Stamp binds target, pending set, `pending_hash` (migration file contents) and time; runner re-checks all four. |
 | Baseline masks a real pre-existing defect | First-run audit is reported to Robert explicitly. |
 | Runner and add-on copies drift between repos | Version in each; ai-config's existing `--doctor` health check gains a check that reports a copy older than the template. |

@@ -21,11 +21,12 @@ chmod +x "$STUBS/ssh" "$STUBS/ddev"
 iso_ago() { # iso_ago <seconds>
   if [[ "$(uname)" == "Darwin" ]]; then date -u -v-"$1"S +%Y-%m-%dT%H:%M:%SZ; else date -u -d "$1 seconds ago" +%Y-%m-%dT%H:%M:%SZ; fi
 }
-# write_stamp <target> <commit> <pending-json> <rehearsed_at> <rehearsal> <apply>
+# write_stamp <target> <commit> <pending-json> <rehearsed_at> <rehearsal> <apply> [pending_hash]
+HASH=aaaa1111bbbb
 write_stamp() {
   mkdir -p "$STAMPS"
-  jq -n --arg t "$1" --arg c "$2" --argjson p "$3" --arg at "$4" --arg r "$5" --arg a "$6" \
-    '{target:$t, commit:$c, pending:$p, rehearsed_at:$at, rehearsal:(if $r=="" then null else $r end),
+  jq -n --arg t "$1" --arg c "$2" --argjson p "$3" --arg at "$4" --arg r "$5" --arg a "$6" --arg h "${7:-$HASH}" \
+    '{target:$t, commit:$c, pending_hash:$h, pending:$p, rehearsed_at:$at, rehearsal:(if $r=="" then null else $r end),
       applied_at:null, apply:(if $a=="" then null else $a end), backup:null}' > "$STAMPS/$1.json"
 }
 seed_stamps() {
@@ -98,6 +99,7 @@ calls() {
     -e "s/.*\|\| exit 11$/backup/" \
     -e 's/^ssh [^ ]+ .*--baseline=.*/schema-baseline/' \
     -e 's/ --compare=.*/ --compare/' \
+    -e "s/.*\\|\\| exit 13$/pending-hash/" \
     -e 's/^ssh [^ ]+ .*eecli\.php //'
 }
 calls_backup() {
@@ -177,7 +179,7 @@ check "backup uses absolute_path in out-of-release dir" 'grep -q "absolute_path=
 # ---- Task 12: pending-set guard + loop ----
 reset_stub
 run "$RUNNER" prod apply --expect=a,b
-expected="$(printf '%s\n' 'cps:migrate-status --json' backup schema-baseline 'migrate --core --steps=1' \
+expected="$(printf '%s\n' 'cps:migrate-status --json' pending-hash backup schema-baseline 'migrate --core --steps=1' \
   'cps:migrate-verify a' 'migrate --core --steps=1' 'cps:migrate-verify b' \
   'cps:schema-check --no-smoke --json --compare')"
 check "happy path exits 0" '[[ $RC -eq 0 ]]'
@@ -264,7 +266,19 @@ check "no stamp: no backup, no migrate" '! calls_backup >/dev/null && ! grep -q 
 reset_stub
 write_stamp staging other '["a","b"]' "$(iso_ago 60)" pass ""
 run "$RUNNER" staging apply --expect=a,b
-check "stamp for other commit -> FAIL names commit" '[[ $RC -eq 1 && "$OUT" == *"different commit"* ]]'
+check "merge scenario: other commit, same files -> allowed" '[[ $RC -eq 0 ]]'
+reset_stub
+write_stamp staging abc123 '["a","b"]' "$(iso_ago 60)" pass "" deadbeef0000
+run "$RUNNER" staging apply --expect=a,b
+check "same names, one file content differs -> FAIL naming pending_hash" \
+  '[[ $RC -eq 1 && "$OUT" == *"pending_hash differs"* ]]'
+check "pending_hash mismatch: no backup, no migrate" '! calls_backup >/dev/null && ! grep -q "migrate --core" "$STUB_LOG"'
+reset_stub
+touch "$STUB_DIR/hash-missing"
+run "$RUNNER" staging apply --expect=a,b
+check "migration file missing on target -> FAIL before backup" '[[ $RC -eq 1 && "$OUT" == *"could not hash"* ]] && ! calls_backup >/dev/null'
+reset_stub
+write_stamp staging abc123 '["a","b"]' "$(iso_ago 60)" pass ""
 write_stamp staging abc123 '["a"]' "$(iso_ago 60)" pass ""
 run "$RUNNER" staging apply --expect=a,b
 check "stamp for other pending set -> FAIL names set" '[[ $RC -eq 1 && "$OUT" == *"different pending set"* ]]'
@@ -285,7 +299,11 @@ run "$RUNNER" prod apply --expect=a,b
 check "prod apply with staging rehearsal only (no apply) -> FAIL" '[[ $RC -eq 1 ]]'
 write_stamp staging other '["a","b"]' "$(iso_ago 60)" pass pass
 run "$RUNNER" prod apply --expect=a,b
-check "prod apply with staging apply for other commit -> FAIL" '[[ $RC -eq 1 && "$OUT" == *"different commit"* ]]'
+check "prod apply: staging apply with other commit, same files -> allowed" '[[ $RC -eq 0 ]]'
+reset_stub
+write_stamp staging abc123 '["a","b"]' "$(iso_ago 60)" pass pass deadbeef0000
+run "$RUNNER" prod apply --expect=a,b
+check "prod apply: staging apply for different file contents -> FAIL" '[[ $RC -eq 1 && "$OUT" == *"pending_hash differs"* ]]'
 reset_stub
 run "$RUNNER" prod apply --expect=a,b
 check "prod apply with staging apply pass -> OK" '[[ $RC -eq 0 ]]'
@@ -324,6 +342,8 @@ check "snapshot before import, restore after" \
 check "snapshot deleted afterwards" 'grep -q "ddev snapshot --cleanup --name ee-migrate-" "$STUB_LOG"'
 check "local loop runs migrate+verify per file with schema-check" \
   '[[ "$(grep -c "ddev .*migrate --core --steps=1" "$STUB_LOG")" -eq 2 ]] && grep -q "migrate-verify a" "$STUB_LOG" && grep -q "migrate-verify b" "$STUB_LOG" && grep -q "schema-check --json --compare" "$STUB_LOG"'
+check "rehearsal stamp stores target-computed pending_hash" '[[ "$(jq -r .pending_hash "$STAMPS/staging.json")" == "aaaa1111bbbb" ]]'
+check "rehearsal hashes the target release files (ssh), not local" 'grep -q "sha256sum" "$STUB_LOG"'
 check "rehearsal stamp written" \
   '[[ "$(jq -r .rehearsal "$STAMPS/staging.json")" == "pass" && "$(jq -r .commit "$STAMPS/staging.json")" == "abc123" && "$(jq -c .pending "$STAMPS/staging.json")" == "[\"a\",\"b\"]" && "$(jq -r .apply "$STAMPS/staging.json")" == "null" ]]'
 run "$RUNNER" staging apply --expect=a,b
@@ -337,6 +357,23 @@ run "$RUNNER" staging rehearse
 check "count mismatch -> FAIL" '[[ $RC -eq 1 && "$OUT" == *"import verification failed"* ]]'
 check "count mismatch: snapshot still restored" 'grep -q "ddev snapshot restore ee-migrate-" "$STUB_LOG"'
 check "count mismatch: no stamp, no local migrate" '[[ ! -f "$STAMPS/staging.json" ]] && ! grep -q "migrate --core" "$STUB_LOG"'
+
+for case_ in "5 5 ok" "6 5 ok" "105 5 ok" "4 5 fail" "106 5 fail"; do
+  read -r l_titles r_titles want <<<"$case_"
+  reset_stub
+  rm -f "$STAMPS/staging.json"
+  echo "{\"pending\":[\"a\"],\"commit\":\"abc123\",\"counts\":{\"tables\":10,\"channel_titles\":$r_titles,\"channel_fields\":3}}" > "$STUB_DIR/migrate-status.json"
+  echo "{\"pending\":[\"a\"],\"counts\":{\"tables\":10,\"channel_titles\":$l_titles,\"channel_fields\":3}}" > "$STUB_DIR/local-status.json"
+  run "$RUNNER" staging rehearse
+  if [[ $want == ok ]]; then check "titles local $l_titles vs remote $r_titles -> accepted" '[[ $RC -eq 0 ]]'
+  else check "titles local $l_titles vs remote $r_titles -> rejected" '[[ $RC -eq 1 && "$OUT" == *"channel_titles"* ]]'; fi
+done
+reset_stub
+rm -f "$STAMPS/staging.json"
+echo '{"pending":["a"],"commit":"abc123","counts":{"tables":10,"channel_titles":5,"channel_fields":3}}' > "$STUB_DIR/migrate-status.json"
+echo '{"pending":["a"],"counts":{"tables":10,"channel_titles":5,"channel_fields":4}}' > "$STUB_DIR/local-status.json"
+run "$RUNNER" staging rehearse
+check "channel_fields must match exactly" '[[ $RC -eq 1 && "$OUT" == *"channel_fields differ"* ]]'
 
 reset_stub
 rm -f "$STAMPS/staging.json"
