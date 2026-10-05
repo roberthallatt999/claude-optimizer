@@ -155,7 +155,15 @@ Exit codes: 0 pass, 1 new failures, 2 could not run. Pre-existing issues are exp
 so gating uses `--compare` against a baseline: **no new failures**. The first run on each site is
 reported to Robert as an audit and not fixed unasked.
 
-**Read-only guarantee.** The structural checks (every row above except the smoke test) are pure
+**Severity of the settings contract.** A missing key whose fieldtype default is an array is a
+`fail` (the crash class: `in_array()`/`implode()` on `false`, as with `allowed_url_schemes`); a
+missing scalar key is a `warn` (legacy fields routinely lack keys EE tolerates — cps has ~960); a
+stored value of the wrong shape where an array is expected is a `fail`. On the cps DB this gives 11
+fails, all relationship fields naming deleted channels.
+
+**Read-only guarantee.** The settings contract and smoke test call fieldtype code
+(`save_settings([])` — Toggle's writes site preferences unless `field_id` is 0), so both are
+**DDEV-only**; on servers each emits one `warn` "skipped: not DDEV". The remaining structural checks are pure
 `SELECT`s and run anywhere, including servers. The **smoke test** calls fieldtype code
 (`validate()` / `display_field()`, including third-party types such as wygwam and ansel, which may
 load models or touch caches), so it runs **only in DDEV** — the local gate and rehearsals on a target
