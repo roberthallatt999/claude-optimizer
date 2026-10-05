@@ -63,7 +63,7 @@ upgrades (stay with `ee-upgrade`), template changes.
 | Fieldtype references (34) | Per-type contract: settings, storage, create/change/remove, content writes, rollback, verification, gotchas | `…/ee-migrate/references/fieldtypes/<type>.md` | `--refresh` |
 | `ee-migration-author` agent | Writes `up`/`down`/`verify` from a spec | `projects/expressionengine/agents/` | `--refresh` |
 | `cps_tools` add-on | `cps:logs`, `cps:migrate-status`, `cps:schema-check` (read-only) | template in `projects/expressionengine/templates/cps_tools/`; committed per site under `system/user/addons/cps_tools/` | copied once, then updated by copy |
-| `ee-migrate.sh` runner | The only path a migration takes to a server | template; committed per site as `.admin-scripts/ee-migrate.sh` with a site config block | copied once, then updated by copy |
+| `ee-migrate.sh` runner | The only path a migration takes to a server | template; installed per site as `.admin-scripts/ee-migrate.sh` with a site config block. `/.admin-scripts` is gitignored on every site (like `sync.sh`/`upgrade.sh`, it names server paths), so the runner is local to Robert's machine and never deployed | `ee-migrate-install.sh`; config block preserved on re-install |
 | Guard rule + permissions + tests | Pre-approve / ask / deny the runner by mode and target | safety guard, EE `settings.local.json`, `test-safety-guard.sh` | `--refresh` |
 
 Each unit has one job and a stated interface; the skill composes them and none of them depends on the
