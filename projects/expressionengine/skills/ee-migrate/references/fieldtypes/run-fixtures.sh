@@ -7,6 +7,9 @@
 # Re-run after every EE upgrade. Exit 0 only when every fixture passed and nothing was left behind.
 #
 # Options: --fresh-backup   force a new database backup (default: see below)
+#          --cleanup        run no fixture: back up, then remove every cpsref* leftover of an earlier failed run
+#                           (the cleanup migration), and report what remains. Use when a run refuses to start
+#                           with "cpsref rows already exist locally".
 #
 # Behaviours:
 #  1. Cleans up after itself: if this run created the site's database/migrations folder (and/or its parent
@@ -31,8 +34,13 @@ SITE_REPO="$(cd "$1" 2>/dev/null && pwd)" || die "site repo not found: $1"
 shift
 TYPES=()
 FRESH_BACKUP=0
+CLEANUP_ONLY=0
 for arg in "$@"; do
-  if [[ "$arg" == "--fresh-backup" ]]; then FRESH_BACKUP=1; else TYPES+=("$arg"); fi
+  case "$arg" in
+    --fresh-backup) FRESH_BACKUP=1 ;;
+    --cleanup) CLEANUP_ONLY=1; FRESH_BACKUP=1 ;;
+    *) TYPES+=("$arg") ;;
+  esac
 done
 SITE_NAME="$(basename "$SITE_REPO")"
 MIG_CREATED=0
@@ -98,7 +106,8 @@ mkdir -p "$MIG"
 leftovers() {
   ddev mysql "$LOCAL_DB" -N -e "SELECT (SELECT COUNT(*) FROM exp_channels WHERE channel_name LIKE 'cpsref%')+(SELECT COUNT(*) FROM exp_channel_fields WHERE field_name LIKE 'cpsref%')+(SELECT COUNT(*) FROM exp_grid_columns WHERE col_name LIKE 'cpsref%')+(SELECT COUNT(*) FROM exp_field_groups WHERE group_name LIKE 'cpsref%')+(SELECT COUNT(*) FROM exp_channel_titles WHERE url_title LIKE 'cpsref%')+(SELECT COUNT(*) FROM exp_migrations WHERE migration LIKE '2099_02_01%')" 2>&1
 }
-[[ "$(leftovers)" == "0" ]] || die "cpsref rows already exist locally; remove them first"
+[[ $CLEANUP_ONLY -eq 1 || "$(leftovers)" == "0" ]] \
+  || die "cpsref rows already exist locally; remove them first (run-fixtures.sh <site-repo> --cleanup)"
 
 # One backup (size-checked like the runner)
 cache="$SITE_REPO/${EE_SUBDIR}system/user/cache"
@@ -136,12 +145,38 @@ settings_dump() {
     && [[ -s "$1" ]]
 }
 
+CLEANUP="2099_02_01_999999_cpsref_cleanup"
+newest_migration() {
+  ddev mysql "$LOCAL_DB" -N -e "SELECT migration FROM exp_migrations ORDER BY migration_id DESC LIMIT 1" 2>&1
+}
+ANCHOR="$(newest_migration)"   # the newest REAL migration; it must still be the newest after every fixture
+ABORTED=0
+
+if [[ $CLEANUP_ONLY -eq 1 ]]; then
+  echo "run-fixtures: cleanup only; $(leftovers) cpsref/2099_02_01 rows before"
+  cp "$FIXTURE_DIR/CpsRefFixture.php" "$FIXTURE_DIR/$CLEANUP.php" "$MIG/"
+  sync_files
+  eecli migrate --core --steps=1 2>&1 | tail -3
+  if [[ "$(newest_migration)" == "$CLEANUP" ]]; then
+    eecli migrate:rollback --steps=1 2>&1 | tail -2
+  else
+    echo "run-fixtures: cleanup migration was not recorded; nothing rolled back"
+  fi
+  rm -f "$MIG/$CLEANUP.php" "$MIG/CpsRefFixture.php"
+  sync_files
+  [[ "$(newest_migration)" == "$ANCHOR" ]] \
+    || die "newest recorded migration is now '$(newest_migration)', was '$ANCHOR'; restore from $new"
+  left="$(leftovers)"
+  echo "run-fixtures: cleanup done; $left cpsref/2099_02_01 rows remain (backup $new)"
+  [[ "$left" == "0" ]]
+  exit $?
+fi
+
 BASELINE="$EM_REL/fixtures-baseline.json"
 eecli cps:schema-check --json "--baseline=$BASELINE" >/dev/null
 [[ $? -lt 2 ]] || die "baseline schema-check could not run"
 settings_dump "$EM_DIR/fixtures-settings-before.txt" || die "settings snapshot failed"
 
-CLEANUP="2099_02_01_999999_cpsref_cleanup"
 PASSED=0
 SKIPPED=0
 INSTALLED_TYPES="$(ddev mysql "$LOCAL_DB" -N -e "SELECT name FROM exp_fieldtypes" 2>/dev/null)"
@@ -179,15 +214,26 @@ run_fixture() {
     fi
   fi
 
+  # Never roll back on an exit code: eecli migrate exits 0 when up() throws, and --steps=1 then undoes whatever
+  # is newest, i.e. a real migration. Roll back only when the newest recorded migration is the one we just ran.
   if [[ $migrated -eq 1 ]]; then
-    # Roll back only what we migrated: --steps=1 on a failed migrate would undo someone else's migration.
-    eecli migrate:rollback --steps=1 >>"$log" 2>&1 || { echo "  rollback failed"; ok=0; }
+    if [[ "$(newest_migration)" == "$name" ]]; then
+      eecli migrate:rollback --steps=1 >>"$log" 2>&1 || { echo "  rollback failed"; ok=0; }
+    else
+      echo "  rollback refused: newest recorded migration is '$(newest_migration)', not the fixture"; ok=0
+    fi
   else
     # A failed up() has no migration row, so it cannot be rolled back; a cleanup migration removes cpsref*.
+    # The failed fixture must leave the folder first: it sorts before the cleanup, so --steps=1 would re-run it.
+    rm -f "$MIG/$name.php"
     cp "$FIXTURE_DIR/$CLEANUP.php" "$MIG/"
     sync_files
-    eecli migrate --core --steps=1 >>"$log" 2>&1 && eecli migrate:rollback --steps=1 >>"$log" 2>&1 \
-      || echo "  cleanup migration failed"
+    eecli migrate --core --steps=1 >>"$log" 2>&1
+    if [[ "$(newest_migration)" == "$CLEANUP" ]]; then
+      eecli migrate:rollback --steps=1 >>"$log" 2>&1 || echo "  cleanup rollback failed"
+    else
+      echo "  cleanup migration was not recorded; nothing rolled back"
+    fi
     rm -f "$MIG/$CLEANUP.php"
   fi
   rm -f "$MIG/$name.php" "$MIG/CpsRefFixture.php"
@@ -199,6 +245,12 @@ run_fixture() {
     ok=0
   fi
 
+  if [[ "$(newest_migration)" != "$ANCHOR" ]]; then
+    echo "  ABORT: newest recorded migration is now '$(newest_migration)', was '$ANCHOR' before the run."
+    echo "  A real migration may have been rolled back. Restore from $new or re-apply it; no further fixtures run."
+    ok=0; ABORTED=1
+  fi
+
   if [[ $ok -eq 1 ]]; then
     echo "PASS $type"; PASSED=$((PASSED + 1))
   else
@@ -206,7 +258,10 @@ run_fixture() {
   fi
 }
 
-for name in "${FIXTURES[@]}"; do run_fixture "$name"; done
+for name in "${FIXTURES[@]}"; do
+  run_fixture "$name"
+  [[ $ABORTED -eq 0 ]] || break
+done
 
 left="$(leftovers)"
 if [[ "$left" != "0" ]]; then
