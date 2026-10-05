@@ -112,7 +112,11 @@ restore the backup taken seconds earlier.
 public function verify(): array
 {
     $failures = [];
-    $count = ee('Model')->get('ChannelEntry')->filter('channel_id', $this->channelId('events'))->count();
+    $channel = ee('Model')->get('Channel')->filter('channel_name', 'events')->first();
+    if (! $channel) {
+        return ['channel events does not exist'];
+    }
+    $count = ee('Model')->get('ChannelEntry')->filter('channel_id', $channel->channel_id)->count();
     if ($count !== 4) {
         $failures[] = "expected 4 events entries, found {$count}";
     }
