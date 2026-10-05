@@ -664,12 +664,12 @@ class CpsrefFluidField extends Migration
             CpsRefFixture::columnType('channel_data_field_' . $fluidId, 'field_id_' . $fluidId) === 'mediumtext',
             'Fluid field column field_id_N should be mediumtext'
         );
-        foreach ([
-            'id' => 'int(11) unsigned', 'fluid_field_id' => 'int(11) unsigned', 'entry_id' => 'int(11) unsigned',
-            'field_id' => 'int(11) unsigned', 'field_data_id' => 'int(11) unsigned', 'order' => 'int(5) unsigned',
-            'field_group_id' => 'int(10) unsigned', 'group' => 'int(10) unsigned',
-        ] as $column => $type) {
-            $check(CpsRefFixture::columnType('fluid_field_data', $column) === $type, "fluid_field_data.$column type");
+        // Display width is ignored: this table predates the fixture and an older EE created some columns as
+        // int(11) where 7.5 uses int(10) (intranet-backend); width does not change storage.
+        foreach (['id', 'fluid_field_id', 'entry_id', 'field_id', 'field_data_id', 'order', 'field_group_id', 'group']
+            as $column) {
+            $actual = preg_replace('/\(\d+\)/', '', (string) CpsRefFixture::columnType('fluid_field_data', $column));
+            $check($actual === 'int unsigned', "fluid_field_data.$column type is $actual");
         }
 
         // KEEP entry: the initial write, untouched

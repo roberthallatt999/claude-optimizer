@@ -46,7 +46,8 @@ That list is only enforced by the control panel. `validate()` and `save()` accep
   compiled search text, not the rows. Type ASSERTED. (PROBE: the column read back as an empty string for an entry.)
 - `exp_fluid_field_data` (model `Model/FluidField.php`), column types ASSERTED: `id` int(11) unsigned, `fluid_field_id`,
   `entry_id`, `field_id`, `field_data_id` int(11) unsigned, `order` int(5) unsigned, `field_group_id` and `group`
-  int(10) unsigned (nullable). One row per child value.
+  int(10) unsigned (nullable; int(11) on a table an older EE created, e.g. intranet-backend). One row per child
+  value.
 - Row meaning ASSERTED on a 6-row entry: `fluid_field_id` = the Fluid field, `entry_id` = the entry, `field_id` = the
   child field, `field_data_id` = the `id` of the child's own data row, `order` 1..n and `group` 1..n in write order,
   `field_group_id` NULL when no Fluid field group is used. (SOURCE: `post_save()` increments `group` per row when
