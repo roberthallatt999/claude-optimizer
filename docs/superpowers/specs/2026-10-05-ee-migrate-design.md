@@ -326,10 +326,10 @@ generic `data-migration-specialist` is left unchanged for cross-CMS work.
 
 ## 11. Existing migrations
 
-The 28 cps migrations are already applied everywhere they should be. Rollout records them as the
-baseline (no re-run). The two antiracism migrations that cps deliberately never ran stay handled by
-their existing runner until Robert decides; `migrate-status` will keep surfacing them and `apply`
-refuses while they are pending (§7.0) — they must be resolved first, never run as a side effect.
+The cps migrations are already applied everywhere they should be; nothing is pending locally
+(checked 2026-10-05) and the two antiracism migration files once left deliberately unrun no longer
+exist in the repo. Should a deliberately-unrun file ever reappear, `apply` refuses while it is
+pending (§7.0) — it must be resolved first, never run as a side effect.
 
 ## 12. Build phases
 
