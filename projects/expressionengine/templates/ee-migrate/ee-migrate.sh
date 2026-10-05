@@ -2,6 +2,8 @@
 # ee-migrate.sh — the only path an EE migration takes to a server. See the EE Migrate spec.
 #   local test <migration>
 #   <staging|prod> status | rehearse | apply --expect=<m1,m2,…>
+# Note: the remote backup verification script (stat -c, ls -t, chmod) and the server-side
+# schema-check baseline are first exercised against a real server on the first real staging run.
 set -uo pipefail
 EE_MIGRATE_VERSION="1.0.0"
 # >>> site config (preserved by ee-migrate-install.sh)
@@ -34,6 +36,13 @@ LOCAL_MIGRATION=""
 BACKUP_NAME=""
 BACKUP_FILE=""
 STATUS_JSON=""
+BASELINE_FILE=""
+SNAPSHOT=""
+REPO_ROOT="${EE_MIGRATE_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+EM_DIR="$REPO_ROOT/.admin-scripts/.ee-migrate"
+EM_REL=".admin-scripts/.ee-migrate"    # same dir as seen from the DDEV project root
+STAMP_DIR="$EM_DIR/stamps"
+STAMP_MAX_AGE=86400
 
 die() { echo "ee-migrate: $*" >&2; exit 2; }
 fail() { echo "ee-migrate: FAIL $*" >&2; exit 1; }
@@ -159,9 +168,85 @@ assert_pending_equals() {
   [[ -z "$missing" ]] || fail "recorded migrations have no file on $TARGET: $missing"
 }
 
-# Task 13: stamp + rehearsal gate (target, commit, pending set, age; staging.json for prod).
+# --- stamps (spec 7.0a) -----------------------------------------------------
+
+iso_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+# iso_to_epoch <YYYY-MM-DDTHH:MM:SSZ> — UTC epoch seconds, BSD and GNU date.
+iso_to_epoch() {
+  if [[ "$(uname)" == "Darwin" ]]; then
+    date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s
+  else
+    date -u -d "$1" +%s
+  fi
+}
+
+stamp_file() { echo "$STAMP_DIR/$1.json"; }
+
+pending_csv() { jq -r '.pending | join(",")' <<<"$STATUS_JSON"; }
+
+write_rehearsal_stamp() {
+  local commit
+  commit="$(jq -r '.commit // ""' <<<"$STATUS_JSON")"
+  mkdir -p "$STAMP_DIR"
+  jq -n --arg target "$TARGET" --arg commit "$commit" --argjson pending "$(jq -c '.pending' <<<"$STATUS_JSON")" \
+    --arg at "$(iso_now)" \
+    '{target: $target, commit: $commit, pending: $pending, rehearsed_at: $at, rehearsal: "pass",
+      applied_at: null, apply: null, backup: null}' > "$(stamp_file "$TARGET")" \
+    || fail "could not write stamp for $TARGET"
+}
+
+record_apply() {
+  local file base commit
+  file="$(stamp_file "$TARGET")"
+  mkdir -p "$STAMP_DIR"
+  base='{}'
+  [[ -f "$file" ]] && base="$(cat "$file")"
+  commit="$(jq -r '.commit // ""' <<<"$STATUS_JSON")"
+  jq --arg target "$TARGET" --arg commit "$commit" --arg expect "$EXPECT" --arg at "$(iso_now)" \
+    --arg backup "$BACKUP_FILE" \
+    '. + {target: $target, commit: $commit, pending: ($expect | split(",")), applied_at: $at,
+          apply: "pass", backup: $backup}' <<<"$base" > "$file.new" \
+    && mv "$file.new" "$file" || fail "could not record apply in $file"
+}
+
+# check_stamp <stamp-target> <rehearsal|apply> — same commit and pending set as the remote.
+check_stamp() {
+  local which="$1" kind="$2" file commit expect_commit at age
+  file="$(stamp_file "$which")"
+  if [[ ! -f "$file" ]]; then
+    if [[ "$kind" == "rehearsal" ]]; then
+      fail "no rehearsal stamp for $which — run: ee-migrate.sh $which rehearse"
+    fi
+    fail "no recorded $which apply — apply on $which first ($file)"
+  fi
+  if [[ "$kind" == "rehearsal" ]]; then
+    [[ "$(jq -r '.rehearsal // ""' "$file")" == "pass" ]] || fail "no rehearsal: $which stamp is not a pass"
+  else
+    [[ "$(jq -r '.apply // ""' "$file")" == "pass" ]] || fail "no recorded $which apply: stamp has apply != pass"
+  fi
+  expect_commit="$(jq -r '.commit // ""' <<<"$STATUS_JSON")"
+  [[ -n "$expect_commit" ]] || fail "deployed commit of $TARGET is unknown (no .commit_hash)"
+  commit="$(jq -r '.commit // ""' "$file")"
+  [[ "$commit" == "$expect_commit" ]] \
+    || fail "$which stamp is for a different commit ($commit), $TARGET has $expect_commit"
+  [[ "$(jq -r '.pending | join(",")' "$file")" == "$EXPECT" ]] \
+    || fail "$which stamp is for a different pending set ($(jq -r '.pending | join(",")' "$file"))"
+  if [[ "$kind" == "rehearsal" ]]; then
+    at="$(jq -r '.rehearsed_at // ""' "$file")"
+    age=$(($(date -u +%s) - $(iso_to_epoch "$at" 2>/dev/null || echo 0)))
+    [[ $age -lt $STAMP_MAX_AGE ]] || fail "$which rehearsal stamp is older than 24 h ($at) — rehearse again"
+  fi
+}
+
+# Staging sites: prod needs a recorded staging apply (spec 7.2). Everything else needs
+# a rehearsal stamp for the target itself (spec 7.0a, 7.3).
 require_rehearsal_stamp() {
-  return 0
+  if [[ "$TARGET" == "prod" && "$HAS_STAGING" == "yes" ]]; then
+    check_stamp staging apply
+  else
+    check_stamp "$TARGET" rehearsal
+  fi
 }
 
 # --- backup (spec 7.1a) -----------------------------------------------------
@@ -185,13 +270,14 @@ backup_remote() {
   stamp="$(date -u +%Y%m%d_%H%M%S)"
   BACKUP_NAME="pre_migrate_${stamp}"
   file="${dir}/${BACKUP_NAME}${DUMP_SUFFIX}"
+  BASELINE_FILE="${dir}/${BACKUP_NAME}.baseline.json"
   # POSIX sh on the server; every step prints a tagged line the checks below read.
   script="cd '$(target_path)' || exit 11
 '$REMOTE_PHP' ${EE_SUBDIR}system/ee/eecli.php backup:database --absolute_path='${dir}/' --file_name='${BACKUP_NAME}${DUMP_SUFFIX}' || { echo BACKUP_CMD_FAILED; exit 0; }
 [ -f '${file}' ] || { echo NEW_MISSING; exit 0; }
 chmod 600 '${file}'
 echo \"NEW \$(stat -c '%s %a' '${file}')\"
-prev=\$(ls -t '${dir}'/pre_* 2>/dev/null | grep -vxF '${file}' | head -1)
+prev=\$(ls -t '${dir}'/pre_* 2>/dev/null | grep -vxF '${file}' | grep -v '\\.baseline\\.json\$' | head -1)
 if [ -n \"\$prev\" ]; then echo \"PREV \$(stat -c %s \"\$prev\")\"; else echo 'PREV none'; fi"
   out="$(ssh "$SSH_HOST" "$script" 2>&1)"
   rc=$?
@@ -218,7 +304,7 @@ if [ -n \"\$prev\" ]; then echo \"PREV \$(stat -c %s \"\$prev\")\"; else echo 'P
 print_recovery() {
   echo "ee-migrate: recovery for $TARGET:" >&2
   echo "  rollback: ssh $SSH_HOST \"cd '$(target_path)' && '$REMOTE_PHP' ${EE_SUBDIR}system/ee/eecli.php migrate:rollback --steps=1\"" >&2
-  echo "  restore:  ssh $SSH_HOST \"mysql --defaults-extra-file='$(target_defaults)' '$(target_db)' < '${BACKUP_FILE}'\"" >&2
+  echo "  restore (Robert runs this): ssh $SSH_HOST \"mysql --defaults-extra-file='$(target_defaults)' '$(target_db)' < '${BACKUP_FILE}'\"" >&2
 }
 
 apply_loop() {
@@ -238,21 +324,27 @@ apply_loop() {
   done < <(tr ',' '\n' <<<"$EXPECT")
 }
 
-# Structural only (--no-smoke is forced on servers). No baseline exists on the server, so
-# exit 1 (failures, possibly pre-existing) is reported, not fatal; exit 2 (could not run) is.
+# Server-side structural baseline taken after the backup and before the first migrate, so the
+# post-check can demand "no new failures". Kept out of pre_* size comparisons (see backup_remote).
+baseline_remote() {
+  local file="$BASELINE_FILE" out rc
+  out="$(ssh "$SSH_HOST" "cd '$(target_path)' && '$REMOTE_PHP' ${EE_SUBDIR}system/ee/eecli.php cps:schema-check --no-smoke --json --baseline='${file}' >/dev/null; rc=\$?; [ \$rc -ge 2 ] && exit \$rc; [ -s '${file}' ] || exit 12; chmod 600 '${file}'" 2>&1)"
+  rc=$?
+  [[ $rc -eq 0 ]] || fail "schema-check baseline failed on $TARGET (exit $rc), nothing migrated: $(head -c 200 <<<"$out")"
+}
+
+# Strict: any new failure versus the baseline, or a check that could not run, is a FAIL.
 post_check() {
   local out rc
-  out="$(remote_eecli cps:schema-check --no-smoke --json 2>&1)"
+  out="$(remote_eecli cps:schema-check --no-smoke --json "--compare=${BASELINE_FILE}" 2>&1)"
   rc=$?
-  if [[ $rc -ge 2 ]]; then
-    echo "ee-migrate: FAIL post-migration schema-check could not run (exit $rc)" >&2
+  if [[ $rc -ne 0 ]]; then
+    echo "ee-migrate: FAIL post-migration schema-check exit $rc (1 = new failures, 2 = could not run)" >&2
+    head -c 2000 <<<"$out" >&2
     print_recovery
     exit 1
   fi
-  echo "ee-migrate: schema-check exit $rc: $(jq -c '.summary' 2>/dev/null <<<"$out")"
-  if [[ $rc -ne 0 ]]; then
-    echo "ee-migrate: WARN schema-check reports failures; compare with 'status' output from before the run" >&2
-  fi
+  echo "ee-migrate: schema-check OK: $(jq -c '.summary' 2>/dev/null <<<"$out")"
 }
 
 cmd_apply() {
@@ -260,23 +352,188 @@ cmd_apply() {
   assert_pending_equals
   require_rehearsal_stamp
   backup_remote
+  baseline_remote
   apply_loop
   post_check
+  record_apply
   echo "ee-migrate: apply OK on $TARGET"
   echo "  backup: $BACKUP_FILE"
   print_recovery
+}
+
+# --- rehearsal (spec 7.0b) --------------------------------------------------
+
+preflight_sync_library() {
+  local lib fn
+  lib="${EE_MIGRATE_FUNCTIONS:-$HOME/Web/code/_scripts/functions-websavers.sh}"
+  [[ -f "$lib" ]] || die "shared sync library not found: $lib"
+  # shellcheck disable=SC1090
+  source "$lib"
+  for fn in export_db download_db import_db; do
+    declare -F "$fn" >/dev/null || die "shared sync library $lib does not define $fn"
+  done
+}
+
+local_eecli() { $LOCAL_EECLI "$@"; }
+
+# Always runs once the snapshot exists: restores it, removes the snapshot and any leftover dump.
+rehearse_cleanup() {
+  local rc=$?
+  trap - EXIT
+  rm -f "$REPO_ROOT/.admin-scripts/$(target_db).sql.gz" "$REPO_ROOT/.admin-scripts/$(target_db).sql"
+  if [[ -n "$SNAPSHOT" ]]; then
+    if ddev snapshot restore "$SNAPSHOT"; then
+      ddev snapshot --cleanup --name "$SNAPSHOT" -y || echo "ee-migrate: WARN could not delete snapshot $SNAPSHOT" >&2
+    else
+      echo "ee-migrate: FAIL could not restore local snapshot — run: ddev snapshot restore $SNAPSHOT" >&2
+      rc=1
+    fi
+  fi
+  exit "$rc"
+}
+
+# Compare DDEV counts with the target's counts read just before the export (spec 7.0b).
+verify_import_counts() {
+  local local_out remote_counts local_counts
+  local_out="$(local_eecli cps:migrate-status --json 2>&1)"
+  jq -e '.counts' >/dev/null 2>&1 <<<"$local_out" \
+    || fail "import check: local cps:migrate-status unreadable: $(head -c 200 <<<"$local_out")"
+  remote_counts="$(jq -S -c '.counts' <<<"$STATUS_JSON")"
+  local_counts="$(jq -S -c '.counts' <<<"$local_out")"
+  [[ "$remote_counts" == "$local_counts" ]] \
+    || fail "import verification failed: counts differ (target $remote_counts, DDEV $local_counts)"
+  echo "ee-migrate: import verified ($local_counts)"
+}
+
+cmd_rehearse() {
+  local name dump rc
+  preflight_sync_library
+  [[ -n "$(target_defaults)" ]] || die "config: $TARGET MySQL defaults path is empty (refusing the login fallback)"
+  [[ -n "$(target_db)" && -n "$LOCAL_DB" ]] || die "config: target and local database names are required"
+  remote_status
+  [[ "$(jq -r '.pending | length' <<<"$STATUS_JSON")" -gt 0 ]] || die "nothing pending on $TARGET — nothing to rehearse"
+  EXPECT="$(pending_csv)"
+  dump="$REPO_ROOT/.admin-scripts/$(target_db)"
+  [[ ! -e "$dump.sql.gz" && ! -e "$dump.sql" ]] || die "stale dump at $dump.* — remove it first"
+
+  SNAPSHOT="ee-migrate-$(date -u +%Y%m%d_%H%M%S)"
+  if ! ddev snapshot --name "$SNAPSHOT"; then
+    SNAPSHOT=""
+    fail "ddev snapshot failed, nothing imported"
+  fi
+  trap rehearse_cleanup EXIT
+  trap 'exit 130' INT TERM
+
+  # Only these three library functions are ever called; never sync.sh or any dev_* function.
+  export MYSQL_DEFAULTS_FILE
+  MYSQL_DEFAULTS_FILE="$(target_defaults)"
+  SITE_NAME="${SITE}"
+  export_db "$SSH_HOST" "" "" "$(target_db)" "$(target_path)" || fail "export_db failed"
+  download_db "$SSH_HOST" "$(target_path)" "$(target_db)" "$(basename "$REPO_ROOT")" || fail "download_db failed"
+  import_db "$(target_db)" "$LOCAL_DB" || fail "import_db failed"
+  rm -f "$dump.sql.gz" "$dump.sql"
+  verify_import_counts
+
+  mkdir -p "$EM_DIR"
+  local_eecli cps:schema-check --json "--baseline=$EM_REL/rehearse-baseline.json" >/dev/null
+  rc=$?
+  [[ $rc -lt 2 ]] || fail "local schema-check baseline could not run"
+  while IFS= read -r name; do
+    echo "ee-migrate: rehearsing $name locally"
+    local_eecli migrate --core --steps=1 || fail "local migrate failed for $name"
+    local_eecli cps:migrate-verify "$name" || fail "local verify failed for $name"
+  done < <(tr ',' '\n' <<<"$EXPECT")
+  local_eecli cps:schema-check --json "--compare=$EM_REL/rehearse-baseline.json" >/dev/null \
+    || fail "rehearsal schema-check (smoke on) reports new failures or could not run"
+  write_rehearsal_stamp
+  echo "ee-migrate: rehearsal PASS for $TARGET ($EXPECT); local database will be restored from the snapshot"
+}
+
+# --- local round-trip gate (spec 7.1) ---------------------------------------
+
+file_bytes() { wc -c < "$1" | tr -d ' '; }
+
+print_local_recovery() {
+  echo "ee-migrate: recovery (local):" >&2
+  echo "  rollback: $LOCAL_EECLI migrate:rollback --steps=1" >&2
+  [[ -z "$BACKUP_FILE" ]] || echo "  restore (Robert runs this): ddev import-db --database=$LOCAL_DB --file=$BACKUP_FILE" >&2
+}
+
+local_fail() {
+  echo "ee-migrate: FAIL $*" >&2
+  print_local_recovery
+  exit 1
+}
+
+backup_local() {
+  local cache before after new prev new_size prev_size
+  cache="$REPO_ROOT/${EE_SUBDIR}system/user/cache"
+  before="$(ls -t "$cache"/*"$DUMP_SUFFIX"* 2>/dev/null)"
+  local_eecli backup:database || fail "local backup:database failed, nothing migrated"
+  after="$(ls -t "$cache"/*"$DUMP_SUFFIX"* 2>/dev/null)"
+  new="$(comm -13 <(sort <<<"$before") <(sort <<<"$after") | head -1)"
+  [[ -n "$new" && -s "$new" ]] || fail "local backup produced no new file in $cache, nothing migrated"
+  prev="$(head -1 <<<"$before")"
+  new_size="$(file_bytes "$new")"
+  prev_size="none"
+  [[ -z "$prev" ]] || prev_size="$(file_bytes "$prev")"
+  size_ok "$new_size" "$prev_size" \
+    || fail "backup too small: $new_size bytes (previous: $prev_size) at $new, nothing migrated"
+  BACKUP_FILE="$new"
+  echo "ee-migrate: local backup OK $new ($new_size bytes)"
+}
+
+# Schema and settings snapshot written to $1 (spec 7.1: identical after rollback).
+settings_dump() {
+  local out="$1"
+  ddev mysql "$LOCAL_DB" -N -e "SELECT field_id, field_name, field_type, field_settings FROM exp_channel_fields ORDER BY field_id; SELECT col_id, field_id, col_name, col_type, col_settings FROM exp_grid_columns ORDER BY col_id; SHOW TABLES;" > "$out" \
+    || local_fail "settings snapshot failed"
+  [[ -s "$out" ]] || local_fail "settings snapshot is empty"
+}
+
+cmd_local_test() {
+  local out pending rc
+  mkdir -p "$EM_DIR"
+  out="$(local_eecli cps:migrate-status --json 2>&1)"
+  jq -e '.pending | type == "array"' >/dev/null 2>&1 <<<"$out" \
+    || die "local cps:migrate-status unreadable: $(head -c 200 <<<"$out")"
+  pending="$(jq -r '.pending | join(",")' <<<"$out")"
+  [[ "$pending" == "$LOCAL_MIGRATION" ]] \
+    || fail "local pending set is [$pending], expected only [$LOCAL_MIGRATION] — resolve the others first"
+
+  backup_local
+  local_eecli cps:schema-check --json "--baseline=$EM_REL/local-baseline.json" >/dev/null
+  rc=$?
+  [[ $rc -lt 2 ]] || local_fail "baseline schema-check could not run"
+  settings_dump "$EM_DIR/local-settings-before.txt"
+
+  local_eecli migrate --core --steps=1 || local_fail "migrate failed"
+  local_eecli cps:migrate-verify "$LOCAL_MIGRATION" || local_fail "verify failed"
+  local_eecli cps:schema-check --json "--compare=$EM_REL/local-baseline.json" >/dev/null \
+    || local_fail "schema-check (smoke on) reports new failures after migrate"
+  local_eecli migrate:rollback --steps=1 || local_fail "rollback failed"
+  settings_dump "$EM_DIR/local-settings-after.txt"
+  cmp -s "$EM_DIR/local-settings-before.txt" "$EM_DIR/local-settings-after.txt" \
+    || local_fail "schema/settings differ after rollback (compare $EM_DIR/local-settings-*.txt)"
+  local_eecli migrate --core --steps=1 || local_fail "second migrate failed"
+  local_eecli cps:schema-check --json "--compare=$EM_REL/local-baseline.json" >/dev/null \
+    || local_fail "schema-check reports new failures after re-migrate"
+  echo "ee-migrate: local test PASS for $LOCAL_MIGRATION (backup $BACKUP_FILE)"
 }
 
 main() {
   parse_args "$@"
   require_config
   check_backup_dir
+  cd "$REPO_ROOT" || die "cannot enter $REPO_ROOT"
   case "$MODE/$ACTION" in
     remote/apply) cmd_apply ;;
+    remote/rehearse) cmd_rehearse ;;
     remote/status)
       remote_status
       echo "$STATUS_JSON"
       ;;
+    local/test) cmd_local_test ;;
     *) die "$MODE $ACTION is not implemented yet" ;;
   esac
 }

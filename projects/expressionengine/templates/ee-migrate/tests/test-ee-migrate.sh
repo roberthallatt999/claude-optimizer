@@ -14,7 +14,24 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 export STUB_DIR="$work/stub" STUB_LOG="$work/stub.log"
 export EE_MIGRATE_FUNCTIONS="$STUBS/functions-websavers.sh"
+export EE_MIGRATE_REPO_ROOT="$work/repo"
+STAMPS="$EE_MIGRATE_REPO_ROOT/.admin-scripts/.ee-migrate/stamps"
 chmod +x "$STUBS/ssh" "$STUBS/ddev"
+
+iso_ago() { # iso_ago <seconds>
+  if [[ "$(uname)" == "Darwin" ]]; then date -u -v-"$1"S +%Y-%m-%dT%H:%M:%SZ; else date -u -d "$1 seconds ago" +%Y-%m-%dT%H:%M:%SZ; fi
+}
+# write_stamp <target> <commit> <pending-json> <rehearsed_at> <rehearsal> <apply>
+write_stamp() {
+  mkdir -p "$STAMPS"
+  jq -n --arg t "$1" --arg c "$2" --argjson p "$3" --arg at "$4" --arg r "$5" --arg a "$6" \
+    '{target:$t, commit:$c, pending:$p, rehearsed_at:$at, rehearsal:(if $r=="" then null else $r end),
+      applied_at:null, apply:(if $a=="" then null else $a end), backup:null}' > "$STAMPS/$1.json"
+}
+seed_stamps() {
+  write_stamp staging abc123 '["a","b"]' "$(iso_ago 60)" pass pass
+  write_stamp prod abc123 '["a","b"]' "$(iso_ago 60)" pass ""
+}
 
 # make_runner <name> [VAR=value ...] — copy the template with the site config block replaced.
 make_runner() {
@@ -56,6 +73,10 @@ reset_stub() {
   rm -rf "$STUB_DIR"
   mkdir -p "$STUB_DIR"
   : > "$STUB_LOG"
+  rm -rf "$EE_MIGRATE_REPO_ROOT"
+  mkdir -p "$EE_MIGRATE_REPO_ROOT/.admin-scripts"
+  seed_stamps
+  echo '{"pending":["a"],"counts":{"tables":10,"channel_titles":5,"channel_fields":3}}' > "$STUB_DIR/local-status.json"
   cat > "$STUB_DIR/migrate-status.json" <<'JSON'
 {"pending":["a","b"],"missing_files":[],"migrations_table":true,"commit":"abc123",
  "counts":{"tables":10,"channel_titles":5,"channel_fields":3}}
@@ -75,6 +96,8 @@ run() {
 calls() {
   grep '^ssh ' "$STUB_LOG" | sed -E \
     -e "s/.*\|\| exit 11$/backup/" \
+    -e 's/^ssh [^ ]+ .*--baseline=.*/schema-baseline/' \
+    -e 's/ --compare=.*/ --compare/' \
     -e 's/^ssh [^ ]+ .*eecli\.php //'
 }
 calls_backup() {
@@ -154,11 +177,12 @@ check "backup uses absolute_path in out-of-release dir" 'grep -q "absolute_path=
 # ---- Task 12: pending-set guard + loop ----
 reset_stub
 run "$RUNNER" prod apply --expect=a,b
-expected="$(printf '%s\n' 'cps:migrate-status --json' backup 'migrate --core --steps=1' 'cps:migrate-verify a' \
-  'migrate --core --steps=1' 'cps:migrate-verify b' 'cps:schema-check --no-smoke --json')"
+expected="$(printf '%s\n' 'cps:migrate-status --json' backup schema-baseline 'migrate --core --steps=1' \
+  'cps:migrate-verify a' 'migrate --core --steps=1' 'cps:migrate-verify b' \
+  'cps:schema-check --no-smoke --json --compare')"
 check "happy path exits 0" '[[ $RC -eq 0 ]]'
 check "happy path order exactly as spec" '[[ "$(calls)" == "$expected" ]]'
-check "success prints rollback and restore" '[[ "$OUT" == *"rollback:"* && "$OUT" == *"restore:"* ]]'
+check "success prints rollback and restore" '[[ "$OUT" == *"rollback:"* && "$OUT" == *"restore (Robert runs this):"* ]]'
 
 reset_stub
 run "$RUNNER" prod apply --expect=a
@@ -189,8 +213,8 @@ echo 1 > "$STUB_DIR/verify-exit-b"
 run "$RUNNER" prod apply --expect=a,b
 check "verify b fails -> exit 1" '[[ $RC -eq 1 && "$OUT" == *"verify for b"* ]]'
 check "verify failure prints rollback + restore" \
-  '[[ "$OUT" == *"rollback:"*"migrate:rollback --steps=1"* && "$OUT" == *"restore:"* ]]'
-check "no schema-check after failed verify" '! grep -q "cps:schema-check" "$STUB_LOG"'
+  '[[ "$OUT" == *"rollback:"*"migrate:rollback --steps=1"* && "$OUT" == *"restore (Robert runs this):"* ]]'
+check "no post-check after failed verify" '! grep -q -- "--compare" "$STUB_LOG"'
 check "a ran fully before b failed" '[[ "$(calls | grep -c "migrate --core")" -eq 2 ]]'
 
 reset_stub
@@ -200,9 +224,25 @@ check "migrate step fails -> exit 1, stops at first, recovery printed" \
   '[[ $RC -eq 1 && "$(calls | grep -c "migrate --core")" -eq 1 && "$OUT" == *"rollback:"* ]]'
 
 reset_stub
-echo 2 > "$STUB_DIR/schema-exit"
+echo 2 > "$STUB_DIR/compare-exit"
 run "$RUNNER" prod apply --expect=a,b
-check "post-check could-not-run -> exit 1 with recovery" '[[ $RC -eq 1 && "$OUT" == *"restore:"* ]]'
+check "post-check could-not-run -> exit 1 with recovery" '[[ $RC -eq 1 && "$OUT" == *"restore (Robert runs this):"* ]]'
+reset_stub
+echo 1 > "$STUB_DIR/compare-exit"
+run "$RUNNER" prod apply --expect=a,b
+check "post-check new failures -> exit 1, rollback+restore" \
+  '[[ $RC -eq 1 && "$OUT" == *"new failures"* && "$OUT" == *"rollback:"* && "$OUT" == *"restore (Robert runs this):"* ]]'
+check "failed post-check does not record apply" '[[ "$(jq -r .apply "$STAMPS/prod.json")" == "null" ]]'
+reset_stub
+echo 2 > "$STUB_DIR/baseline-exit"
+run "$RUNNER" prod apply --expect=a,b
+check "baseline failure -> exit 1 before any migrate" '[[ $RC -eq 1 ]] && ! grep -q "migrate --core" "$STUB_LOG"'
+reset_stub
+run "$RUNNER" prod apply --expect=a,b
+check "baseline file named from backup ts, outside pre_ size glob" \
+  'grep -Eq "baseline=./srv/prod/db-backups/pre_migrate_[0-9]{8}_[0-9]{6}\.baseline\.json" "$STUB_LOG" && grep -q "baseline.json" "$STUB_LOG"'
+check "baseline chmod 600 in same ssh call" 'grep "baseline=" "$STUB_LOG" | grep -q "chmod 600"'
+check "previous-dump lookup ignores baseline files" 'grep -qF "baseline" "$STUB_LOG" && grep -F "ls -t" "$STUB_LOG" | grep -qF "json"'
 
 reset_stub
 run "$RUNNER" staging apply --expect=a,b
@@ -213,6 +253,165 @@ reset_stub
 EE="$(make_runner eesub EE_SUBDIR=ee/)"
 run "$EE" prod status
 check "EE_SUBDIR applied to eecli path" 'grep -q "ee/system/ee/eecli.php" "$STUB_LOG"'
+
+# ---- Task 13: stamps and production gate ----
+reset_stub
+rm -f "$STAMPS/staging.json"
+run "$RUNNER" staging apply --expect=a,b
+check "staging apply without stamp -> FAIL no rehearsal" '[[ $RC -eq 1 && "$OUT" == *"no rehearsal"* ]]'
+check "no stamp: no backup, no migrate" '! calls_backup >/dev/null && ! grep -q "migrate --core" "$STUB_LOG"'
+
+reset_stub
+write_stamp staging other '["a","b"]' "$(iso_ago 60)" pass ""
+run "$RUNNER" staging apply --expect=a,b
+check "stamp for other commit -> FAIL names commit" '[[ $RC -eq 1 && "$OUT" == *"different commit"* ]]'
+write_stamp staging abc123 '["a"]' "$(iso_ago 60)" pass ""
+run "$RUNNER" staging apply --expect=a,b
+check "stamp for other pending set -> FAIL names set" '[[ $RC -eq 1 && "$OUT" == *"different pending set"* ]]'
+write_stamp staging abc123 '["a","b"]' "$(iso_ago 90000)" pass ""
+run "$RUNNER" staging apply --expect=a,b
+check "stamp older than 24h -> FAIL names age" '[[ $RC -eq 1 && "$OUT" == *"older than 24 h"* ]]'
+write_stamp staging abc123 '["a","b"]' "$(iso_ago 60)" "" ""
+run "$RUNNER" staging apply --expect=a,b
+check "stamp without rehearsal pass -> FAIL" '[[ $RC -eq 1 && "$OUT" == *"no rehearsal"* ]]'
+check "all stamp failures: no migrate" '! grep -q "migrate --core" "$STUB_LOG"'
+
+reset_stub
+rm -f "$STAMPS/staging.json"
+run "$RUNNER" prod apply --expect=a,b
+check "prod apply (has staging) without staging stamp -> FAIL" '[[ $RC -eq 1 && "$OUT" == *"staging apply"* ]]'
+write_stamp staging abc123 '["a","b"]' "$(iso_ago 60)" pass ""
+run "$RUNNER" prod apply --expect=a,b
+check "prod apply with staging rehearsal only (no apply) -> FAIL" '[[ $RC -eq 1 ]]'
+write_stamp staging other '["a","b"]' "$(iso_ago 60)" pass pass
+run "$RUNNER" prod apply --expect=a,b
+check "prod apply with staging apply for other commit -> FAIL" '[[ $RC -eq 1 && "$OUT" == *"different commit"* ]]'
+reset_stub
+run "$RUNNER" prod apply --expect=a,b
+check "prod apply with staging apply pass -> OK" '[[ $RC -eq 0 ]]'
+check "apply records applied_at, apply, backup" \
+  '[[ "$(jq -r .apply "$STAMPS/prod.json")" == "pass" && "$(jq -r .applied_at "$STAMPS/prod.json")" != "null" && "$(jq -r .backup "$STAMPS/prod.json")" == */srv/prod/db-backups/pre_migrate_* ]]'
+check "recorded stamp keeps rehearsal fields" '[[ "$(jq -r .rehearsal "$STAMPS/prod.json")" == "pass" ]]'
+
+reset_stub
+run "$NOSTG" prod apply --expect=a,b
+check "HAS_STAGING=no: prod rehearsal stamp suffices" '[[ $RC -eq 0 ]]'
+reset_stub
+rm -f "$STAMPS/prod.json"
+run "$NOSTG" prod apply --expect=a,b
+check "HAS_STAGING=no: no prod rehearsal -> FAIL" '[[ $RC -eq 1 && "$OUT" == *"no rehearsal"* ]]'
+reset_stub
+run "$NOSTG" prod apply --expect=a,b
+check "stamp file written for success even w/o prior apply" '[[ -f "$STAMPS/prod.json" ]]'
+
+# rehearse
+reset_stub
+rm -f "$STAMPS/prod.json" "$STAMPS/staging.json"
+echo '{"pending":["a","b"],"missing_files":[],"commit":"abc123","counts":{"tables":10,"channel_titles":5,"channel_fields":3}}' \
+  > "$STUB_DIR/migrate-status.json"
+echo '{"pending":["a","b"],"counts":{"tables":10,"channel_titles":5,"channel_fields":3}}' > "$STUB_DIR/local-status.json"
+run "$RUNNER" staging rehearse
+check "rehearse passes" '[[ $RC -eq 0 && "$OUT" == *"rehearsal PASS"* ]]'
+check "rehearse uses export/download/import only" \
+  'grep -q "^export_db " "$STUB_LOG" && grep -q "^download_db " "$STUB_LOG" && grep -q "^import_db " "$STUB_LOG"'
+check "rehearse never calls dev_*" '! grep -q "^dev_" "$STUB_LOG"'
+check "rehearse never calls sync.sh" '! grep -q "sync\.sh" "$STUB_LOG"'
+check "export_db gets defaults file, no login args" \
+  'grep "^export_db " "$STUB_LOG" | grep -q "stub-host   stgdb /srv/stg/httpdocs/current MYSQL_DEFAULTS_FILE=/srv/stg/defaults"'
+check "import_db targets the local DB" 'grep -q "^import_db stgdb localdb" "$STUB_LOG"'
+check "snapshot before import, restore after" \
+  '[[ "$(grep -n "ddev snapshot --name ee-migrate-" "$STUB_LOG" | cut -d: -f1)" -lt "$(grep -n "^import_db" "$STUB_LOG" | cut -d: -f1)" && "$(grep -n "^import_db" "$STUB_LOG" | cut -d: -f1)" -lt "$(grep -n "ddev snapshot restore ee-migrate-" "$STUB_LOG" | cut -d: -f1)" ]]'
+check "snapshot deleted afterwards" 'grep -q "ddev snapshot --cleanup --name ee-migrate-" "$STUB_LOG"'
+check "local loop runs migrate+verify per file with schema-check" \
+  '[[ "$(grep -c "ddev .*migrate --core --steps=1" "$STUB_LOG")" -eq 2 ]] && grep -q "migrate-verify a" "$STUB_LOG" && grep -q "migrate-verify b" "$STUB_LOG" && grep -q "schema-check --json --compare" "$STUB_LOG"'
+check "rehearsal stamp written" \
+  '[[ "$(jq -r .rehearsal "$STAMPS/staging.json")" == "pass" && "$(jq -r .commit "$STAMPS/staging.json")" == "abc123" && "$(jq -c .pending "$STAMPS/staging.json")" == "[\"a\",\"b\"]" && "$(jq -r .apply "$STAMPS/staging.json")" == "null" ]]'
+run "$RUNNER" staging apply --expect=a,b
+check "rehearse stamp then satisfies staging apply" '[[ $RC -eq 0 ]]'
+
+reset_stub
+rm -f "$STAMPS/staging.json"
+echo '{"pending":["a"],"commit":"abc123","counts":{"tables":11,"channel_titles":5,"channel_fields":3}}' > "$STUB_DIR/migrate-status.json"
+echo '{"pending":["a"],"counts":{"tables":10,"channel_titles":5,"channel_fields":3}}' > "$STUB_DIR/local-status.json"
+run "$RUNNER" staging rehearse
+check "count mismatch -> FAIL" '[[ $RC -eq 1 && "$OUT" == *"import verification failed"* ]]'
+check "count mismatch: snapshot still restored" 'grep -q "ddev snapshot restore ee-migrate-" "$STUB_LOG"'
+check "count mismatch: no stamp, no local migrate" '[[ ! -f "$STAMPS/staging.json" ]] && ! grep -q "migrate --core" "$STUB_LOG"'
+
+reset_stub
+rm -f "$STAMPS/staging.json"
+touch "$STUB_DIR/import-fail"
+run "$RUNNER" staging rehearse
+check "import failure -> FAIL, snapshot restored" '[[ $RC -eq 1 ]] && grep -q "ddev snapshot restore ee-migrate-" "$STUB_LOG"'
+
+reset_stub
+echo '{"pending":["a"],"commit":"abc123","counts":{"tables":10,"channel_titles":5,"channel_fields":3}}' > "$STUB_DIR/migrate-status.json"
+rm -f "$STAMPS/staging.json"
+echo 1 > "$STUB_DIR/local-verify-exit-a"
+run "$RUNNER" staging rehearse
+check "local verify failure -> FAIL, restored, no stamp" \
+  '[[ $RC -eq 1 ]] && grep -q "ddev snapshot restore ee-migrate-" "$STUB_LOG" && [[ ! -f "$STAMPS/staging.json" || "$(jq -r .rehearsal "$STAMPS/staging.json")" != "pass" ]]'
+
+reset_stub
+touch "$STUB_DIR/restore-fail"
+echo '{"pending":["a"],"commit":"abc123","counts":{"tables":10,"channel_titles":5,"channel_fields":3}}' > "$STUB_DIR/migrate-status.json"
+run "$RUNNER" staging rehearse
+check "restore failure is loud and exits 1" '[[ $RC -eq 1 && "$OUT" == *"could not restore local snapshot"* ]]'
+
+# preflight
+reset_stub
+EE_MIGRATE_FUNCTIONS="$work/missing-lib.sh" run "$RUNNER" staging rehearse
+check "missing library -> exit 2" '[[ $RC -eq 2 && "$OUT" == *"shared sync library not found"* ]]'
+check "missing library: no snapshot" '! grep -q "ddev snapshot" "$STUB_LOG"'
+printf 'export_db() { :; }\nimport_db() { :; }\n' > "$work/lib-partial.sh"
+EE_MIGRATE_FUNCTIONS="$work/lib-partial.sh" run "$RUNNER" staging rehearse
+check "library lacking download_db -> exit 2 naming it" '[[ $RC -eq 2 && "$OUT" == *"does not define download_db"* ]]'
+check "partial library: no snapshot, no ssh" '! grep -q "ddev snapshot" "$STUB_LOG" && ! grep -q "^ssh" "$STUB_LOG"'
+EMPTYDEF="$(make_runner emptydef STAGING_MYSQL_DEFAULTS=)"
+run "$EMPTYDEF" staging rehearse
+check "empty defaults path -> exit 2, no snapshot" '[[ $RC -eq 2 ]] && ! grep -q "ddev snapshot" "$STUB_LOG"'
+
+# ---- Task 14: local test ----
+LOCALMIG=a
+reset_stub
+run "$RUNNER" local test "$LOCALMIG"
+check "local test passes" '[[ $RC -eq 0 && "$OUT" == *"local test PASS"* ]]'
+lcalls() { grep '^ddev ' "$STUB_LOG" | sed -E -e 's/^ddev exec php system\/ee\/eecli\.php //' -e 's/^ddev mysql .*/mysql-dump/' \
+  -e 's/ --baseline=.*/ --baseline/' -e 's/ --compare=.*/ --compare/'; }
+expected_local="$(printf '%s\n' 'cps:migrate-status --json' backup:database 'cps:schema-check --json --baseline' mysql-dump \
+  'migrate --core --steps=1' 'cps:migrate-verify a' 'cps:schema-check --json --compare' 'migrate:rollback --steps=1' \
+  mysql-dump 'migrate --core --steps=1' 'cps:schema-check --json --compare')"
+check "local test order per spec 7.1" '[[ "$(lcalls)" == "$expected_local" ]]'
+check "local test: settings dumps under .admin-scripts/.ee-migrate" \
+  '[[ -s "$EE_MIGRATE_REPO_ROOT/.admin-scripts/.ee-migrate/local-settings-before.txt" ]]'
+
+reset_stub
+echo '{"pending":["a","z"]}' > "$STUB_DIR/local-status.json"
+run "$RUNNER" local test a
+check "other pending locally -> FAIL listing them" '[[ $RC -eq 1 && "$OUT" == *"[a,z]"* ]]'
+check "other pending: nothing run" '! grep -q "backup:database\|migrate --core" "$STUB_LOG"'
+
+reset_stub
+echo 100 > "$STUB_DIR/local-backup-size"
+run "$RUNNER" local test a
+check "tiny local backup -> FAIL before migrate" '[[ $RC -eq 1 && "$OUT" == *"backup too small"* ]] && ! grep -q "migrate --core" "$STUB_LOG"'
+
+reset_stub
+echo 1 > "$STUB_DIR/local-verify-exit-a"
+run "$RUNNER" local test a
+check "verify failure -> FAIL with rollback+restore" \
+  '[[ $RC -eq 1 && "$OUT" == *"rollback:"* && "$OUT" == *"restore (Robert runs this):"* ]] && ! grep -q "migrate:rollback --steps=1$" "$STUB_LOG"'
+
+reset_stub
+echo 1 > "$STUB_DIR/local-compare-exit"
+run "$RUNNER" local test a
+check "new schema failures -> FAIL" '[[ $RC -eq 1 && "$OUT" == *"new failures"* ]]'
+
+reset_stub
+echo "schema-state-2" > "$STUB_DIR/mysql-after"
+run "$RUNNER" local test a
+check "dump differs after rollback -> FAIL, no second migrate" \
+  '[[ $RC -eq 1 && "$OUT" == *"differ after rollback"* && "$(grep -c "migrate --core" "$STUB_LOG")" -eq 1 ]]'
 
 echo
 echo "Passed: $pass  Failed: $fail"

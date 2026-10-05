@@ -21,9 +21,12 @@ case "$cmd" in
     ;;
   *migrate:rollback*) exit 0 ;;
   *"migrate --core"*) exit "$(cat "$d/migrate-exit" 2>/dev/null || echo 0)" ;;
+  *cps:schema-check*--baseline=*)
+    exit "$(cat "$d/baseline-exit" 2>/dev/null || echo 0)"
+    ;;
   *cps:schema-check*)
     echo '{"results":[],"summary":{"pass":1,"warn":0,"fail":0}}'
-    exit "$(cat "$d/schema-exit" 2>/dev/null || echo 0)"
+    exit "$(cat "$d/compare-exit" 2>/dev/null || echo 0)"
     ;;
 esac
 exit 0

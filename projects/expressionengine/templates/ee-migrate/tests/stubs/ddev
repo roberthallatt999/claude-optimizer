@@ -1,4 +1,37 @@
 #!/usr/bin/env bash
-# Stub ddev: logs the call; real ddev is never used by the tests.
+# Stub ddev: logs the call and answers from canned files in $STUB_DIR. Real ddev is never used.
 echo "ddev $*" >> "$STUB_LOG"
+d="$STUB_DIR"
+args="$*"
+case "$args" in
+  "snapshot restore"*)
+    [[ -f "$d/restore-fail" ]] && exit 1
+    ;;
+  snapshot*)
+    [[ -f "$d/snapshot-fail" ]] && [[ "$args" != *--cleanup* ]] && exit 1
+    ;;
+  *cps:migrate-status*)
+    cat "$d/local-status.json"
+    ;;
+  *backup:database*)
+    # EE writes the dump into <ee>system/user/cache of the project (cwd).
+    mkdir -p "$PWD/system/user/cache"
+    n="$(cat "$d/local-backup-size" 2>/dev/null || echo 2097152)"
+    head -c "$n" /dev/zero > "$PWD/system/user/cache/backup_$(date +%s)_$RANDOM.sql"
+    ;;
+  *cps:migrate-verify*)
+    name="${args##*cps:migrate-verify }"
+    [[ -f "$d/local-verify-exit-$name" ]] && exit "$(cat "$d/local-verify-exit-$name")"
+    ;;
+  *migrate:rollback*) ;;
+  *"migrate --core"*) exit "$(cat "$d/local-migrate-exit" 2>/dev/null || echo 0)" ;;
+  *cps:schema-check*--baseline=*) exit "$(cat "$d/local-baseline-exit" 2>/dev/null || echo 0)" ;;
+  *cps:schema-check*) exit "$(cat "$d/local-compare-exit" 2>/dev/null || echo 0)" ;;
+  mysql*)
+    # First call = state before the migration, later calls = state after rollback.
+    n="$(cat "$d/mysql-count" 2>/dev/null || echo 0)"
+    echo $((n + 1)) > "$d/mysql-count"
+    if [[ $n -ge 1 && -f "$d/mysql-after" ]]; then cat "$d/mysql-after"; else echo "schema-state-1"; fi
+    ;;
+esac
 exit 0
