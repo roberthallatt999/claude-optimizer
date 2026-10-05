@@ -5,7 +5,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sub=""; [[ -d ee/system/user ]] && sub="ee/"
 MIG="${sub}system/user/database/migrations"
-if [[ -n "${LOCAL_EECLI:-}" ]]; then :; elif [[ -n "$sub" ]]; then LOCAL_EECLI="ddev ee"; else LOCAL_EECLI="ddev exec php system/ee/eecli.php"; fi
+if [[ -n "${LOCAL_EECLI:-}" ]]; then :; elif [[ -n "$sub" ]]; then LOCAL_EECLI="ddev exec php artisan eecli"; else LOCAL_EECLI="ddev exec php system/ee/eecli.php"; fi
 EE() { $LOCAL_EECLI "$@" 2>&1; }
 EEJ() { $LOCAL_EECLI "$@" 2>/dev/null; }   # stdout only: JSON stays parseable when the command exits non-zero
 STATE=".admin-scripts/.ee-migrate"
@@ -192,7 +192,7 @@ n=$(jcount '.check=="smoke" and .status=="fail" and .subject=="cpstools_fx_grid.
 EEJ cps:schema-check --json >/dev/null
 rows_after=$(count_rows)
 [[ "$rows_before" == "$rows_after" ]] && ok "smoke leaves row counts unchanged ($rows_after)" || bad "smoke changed rows" "$rows_before -> $rows_after"
-out=$(ddev exec env -u IS_DDEV_PROJECT php system/ee/eecli.php cps:schema-check --json 2>/dev/null)
+out=$(${LOCAL_EECLI/ddev exec /ddev exec env -u IS_DDEV_PROJECT } cps:schema-check --json 2>/dev/null)
 n=$(jcount '.check=="smoke" and .status=="warn" and .message=="smoke skipped: not DDEV"')
 [[ "$n" -eq 1 ]] && ok "smoke refuses to run off DDEV" || bad "smoke off-DDEV warn" "n=$n"
 out=$(EEJ cps:schema-check --no-smoke --json)

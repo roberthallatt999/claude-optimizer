@@ -5,11 +5,12 @@
 # Note: the remote backup verification script (stat -c, ls -t, chmod) and the server-side
 # schema-check baseline are first exercised against a real server on the first real staging run.
 set -uo pipefail
-EE_MIGRATE_VERSION="1.0.0"
+EE_MIGRATE_VERSION="1.1.0"
 # >>> site config (preserved by ee-migrate-install.sh)
 SITE=""                 # e.g. cps
 SSH_HOST=""             # e.g. websvr-cps
 REMOTE_PHP=""           # e.g. /opt/plesk/php/8.2/bin/php
+REMOTE_EECLI=''         # empty = "$REMOTE_PHP" ${EE_SUBDIR}system/ee/eecli.php; Coilpack sites: "$REMOTE_PHP" artisan eecli
 PROD_PATH=""            # release symlink, e.g. /var/www/vhosts/cps.ca/httpdocs/current
 STAGING_PATH=""         # empty when HAS_STAGING=no
 PROD_DB=""              # database name (for export_db)
@@ -20,7 +21,7 @@ PROD_BACKUP_DIR=""      # outside the release tree, e.g. /var/www/vhosts/cps.ca/
 STAGING_BACKUP_DIR=""
 LOCAL_DB=""             # DDEV database, e.g. admin_cps
 EE_SUBDIR=""            # "ee/" for diabetes and intranet-backend
-LOCAL_EECLI="ddev exec php system/ee/eecli.php"   # "ddev ee" for diabetes and intranet-backend
+LOCAL_EECLI="ddev exec php system/ee/eecli.php"   # Coilpack sites: "ddev exec php artisan eecli" (their "ddev ee" wrapper may drop arguments)
 HAS_STAGING="yes"
 # <<< site config
 
@@ -141,9 +142,21 @@ check_backup_dir() {
 
 # --- remote helpers ---------------------------------------------------------
 
+# The remote eecli prefix, run from the release root. REMOTE_EECLI comes from the config block;
+# only the literal $REMOTE_PHP is substituted (string replace, never eval) so nothing else in the
+# value is ever executed locally.
+remote_eecli_cmd() {
+  local cmd="${REMOTE_EECLI:-}"
+  if [[ -z "$cmd" ]]; then
+    echo "'$REMOTE_PHP' ${EE_SUBDIR}system/ee/eecli.php"
+    return
+  fi
+  echo "${cmd//\$REMOTE_PHP/$REMOTE_PHP}"
+}
+
 # Run an eecli command in the target release dir. Output goes to stdout, rc is ssh's.
 remote_eecli() {
-  ssh "$SSH_HOST" "cd '$(target_path)' && '$REMOTE_PHP' ${EE_SUBDIR}system/ee/eecli.php $*"
+  ssh "$SSH_HOST" "cd '$(target_path)' && $(remote_eecli_cmd) $*"
 }
 
 remote_status() {
@@ -175,6 +188,11 @@ assert_pending_equals() {
 # the TARGET release (the code that will actually run). Sets PENDING_HASH.
 remote_pending_hash() {
   local names="${1//,/ }" script out rc
+  if [[ -z "$names" ]]; then
+    # Sites that have never had a migration have no directory; nothing to hash.
+    PENDING_HASH="none"
+    return 0
+  fi
   script="cd '$(target_path)' || exit 13
 dir='${EE_SUBDIR}system/user/database/migrations'
 lines=''
@@ -295,7 +313,7 @@ backup_remote() {
   BASELINE_FILE="${dir}/${BACKUP_NAME}.baseline.json"
   # POSIX sh on the server; every step prints a tagged line the checks below read.
   script="cd '$(target_path)' || exit 11
-'$REMOTE_PHP' ${EE_SUBDIR}system/ee/eecli.php backup:database --absolute_path='${dir}/' --file_name='${BACKUP_NAME}${DUMP_SUFFIX}' || { echo BACKUP_CMD_FAILED; exit 0; }
+$(remote_eecli_cmd) backup:database --absolute_path='${dir}/' --file_name='${BACKUP_NAME}${DUMP_SUFFIX}' || { echo BACKUP_CMD_FAILED; exit 0; }
 [ -f '${file}' ] || { echo NEW_MISSING; exit 0; }
 chmod 600 '${file}'
 echo \"NEW \$(stat -c '%s %a' '${file}')\"
@@ -325,7 +343,7 @@ if [ -n \"\$prev\" ]; then echo \"PREV \$(stat -c %s \"\$prev\")\"; else echo 'P
 
 print_recovery() {
   echo "ee-migrate: recovery for $TARGET:" >&2
-  echo "  rollback: ssh $SSH_HOST \"cd '$(target_path)' && '$REMOTE_PHP' ${EE_SUBDIR}system/ee/eecli.php migrate:rollback --steps=1\"" >&2
+  echo "  rollback: ssh $SSH_HOST \"cd '$(target_path)' && $(remote_eecli_cmd) migrate:rollback --steps=1\"" >&2
   echo "  restore (Robert runs this): ssh $SSH_HOST \"mysql --defaults-extra-file='$(target_defaults)' '$(target_db)' < '${BACKUP_FILE}'\"" >&2
 }
 
@@ -350,7 +368,7 @@ apply_loop() {
 # post-check can demand "no new failures". Kept out of pre_* size comparisons (see backup_remote).
 baseline_remote() {
   local file="$BASELINE_FILE" out rc
-  out="$(ssh "$SSH_HOST" "cd '$(target_path)' && '$REMOTE_PHP' ${EE_SUBDIR}system/ee/eecli.php cps:schema-check --no-smoke --json --baseline='${file}' >/dev/null; rc=\$?; [ \$rc -ge 2 ] && exit \$rc; [ -s '${file}' ] || exit 12; chmod 600 '${file}'" 2>&1)"
+  out="$(ssh "$SSH_HOST" "cd '$(target_path)' && $(remote_eecli_cmd) cps:schema-check --no-smoke --json --baseline='${file}' >/dev/null; rc=\$?; [ \$rc -ge 2 ] && exit \$rc; [ -s '${file}' ] || exit 12; chmod 600 '${file}'" 2>&1)"
   rc=$?
   [[ $rc -eq 0 ]] || fail "schema-check baseline failed on $TARGET (exit $rc), nothing migrated: $(head -c 200 <<<"$out")"
 }

@@ -44,6 +44,7 @@ make_runner() {
 SITE="testsite"
 SSH_HOST="stub-host"
 REMOTE_PHP="/usr/bin/php"
+REMOTE_EECLI=''
 PROD_PATH="/srv/prod/httpdocs/current"
 STAGING_PATH="/srv/stg/httpdocs/current"
 PROD_DB="proddb"
@@ -62,7 +63,11 @@ CFG
   for override in "$@"; do
     var="${override%%=*}"
     val="${override#*=}"
-    sed -i.bak "s|^${var}=.*|${var}=\"${val}\"|" "$cfg" && rm -f "$cfg.bak"
+    if [[ "$var" == "REMOTE_EECLI" ]]; then   # stored single-quoted, as in a real config block
+      sed -i.bak "s|^${var}=.*|${var}='${val}'|" "$cfg" && rm -f "$cfg.bak"
+    else
+      sed -i.bak "s|^${var}=.*|${var}=\"${val}\"|" "$cfg" && rm -f "$cfg.bak"
+    fi
   done
   sed -e "/^# >>> site config/r $cfg" -e '/^# >>> site config/,/^# <<< site config/d' \
     "$TEMPLATE" > "$work/$name.sh"
@@ -134,7 +139,7 @@ check "backup dir inside releases -> exit 2" '[[ $RC -eq 2 && "$OUT" == *"outsid
 EQREL="$(make_runner eqrel PROD_BACKUP_DIR=/srv/prod/httpdocs/current)"
 run "$EQREL" prod status
 check "backup dir equal to release path -> exit 2" '[[ $RC -eq 2 && "$OUT" == *"outside the release tree"* ]]'
-grep -q '^EE_MIGRATE_VERSION="1.0.0"' "$TEMPLATE" && ok "EE_MIGRATE_VERSION present" || ko "EE_MIGRATE_VERSION present"
+grep -q '^EE_MIGRATE_VERSION="1.1.0"' "$TEMPLATE" && ok "EE_MIGRATE_VERSION present" || ko "EE_MIGRATE_VERSION present"
 EMPTY="$(make_runner empty SSH_HOST=)"
 run "$EMPTY" prod status
 check "empty config -> exit 2" '[[ $RC -eq 2 && "$OUT" == *"SSH_HOST is empty"* ]]'
@@ -449,6 +454,40 @@ echo "schema-state-2" > "$STUB_DIR/mysql-after"
 run "$RUNNER" local test a
 check "dump differs after rollback -> FAIL, no second migrate" \
   '[[ $RC -eq 1 && "$OUT" == *"differ after rollback"* && "$(grep -c "migrate --core" "$STUB_LOG")" -eq 1 ]]'
+
+# ---- Coilpack: REMOTE_EECLI ----
+COIL="$(make_runner coil 'REMOTE_EECLI="$REMOTE_PHP" artisan eecli')"
+reset_stub
+run "$COIL" prod apply --expect=a,b
+check "REMOTE_EECLI: apply passes" '[[ $RC -eq 0 ]]'
+check "REMOTE_EECLI: artisan eecli for status/migrate/backup/verify/schema" \
+  'grep -q "\"/usr/bin/php\" artisan eecli cps:migrate-status --json" "$STUB_LOG" && grep -q "artisan eecli migrate --core --steps=1" "$STUB_LOG" && grep -q "artisan eecli backup:database" "$STUB_LOG" && grep -q "artisan eecli cps:migrate-verify a" "$STUB_LOG" && grep -q "artisan eecli cps:schema-check --no-smoke --json --baseline" "$STUB_LOG"'
+check "REMOTE_EECLI: no system/ee/eecli.php anywhere" '! grep -q "system/ee/eecli.php" "$STUB_LOG"'
+reset_stub
+echo 1 > "$STUB_DIR/verify-exit-a"
+run "$COIL" prod apply --expect=a,b
+check "REMOTE_EECLI: rollback hint uses artisan" '[[ "$OUT" == *"artisan eecli migrate:rollback --steps=1"* ]]'
+reset_stub
+run "$RUNNER" prod apply --expect=a,b
+check "REMOTE_EECLI empty: default eecli.php path unchanged" 'grep -q "/usr/bin/php. system/ee/eecli.php" "$STUB_LOG" && ! grep -q "artisan" "$STUB_LOG"'
+
+# runner installed before REMOTE_EECLI existed: variable absent from the config block
+sed '/^REMOTE_EECLI=/d' "$RUNNER" > "$work/old.sh"; chmod +x "$work/old.sh"
+reset_stub
+run "$work/old.sh" prod apply --expect=a,b
+check "config block without REMOTE_EECLI still works" '[[ $RC -eq 0 ]]'
+
+# pending hash: empty pending list never touches the migrations directory
+reset_stub
+echo '{"pending":[],"missing_files":[],"commit":"abc123","counts":{}}' > "$STUB_DIR/migrate-status.json"
+run "$RUNNER" prod status
+check "empty pending list: status ok, no hash call" '[[ $RC -eq 0 ]] && ! grep -q sha256sum "$STUB_LOG"'
+check "empty pending: PENDING_HASH computed without ssh" \
+  '(source <(sed -n "/^remote_pending_hash() {/,/^}/p" "$TEMPLATE"); target_path() { :; }; remote_pending_hash ""; [[ "$PENDING_HASH" == none ]])'
+reset_stub
+touch "$STUB_DIR/hash-missing"
+run "$RUNNER" prod apply --expect=a,b
+check "non-empty pending with missing file still fails" '[[ $RC -eq 1 && "$OUT" == *"could not hash"* ]]'
 
 echo
 echo "Passed: $pass  Failed: $fail"

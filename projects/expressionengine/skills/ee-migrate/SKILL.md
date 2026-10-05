@@ -99,7 +99,7 @@ never trusted. Any failure aborts before the first `migrate` call. There is no f
   local to Robert's machine and never deployed). Install or update it with
   `ee-migrate-install.sh <repo>` from claude-config-repo; the config block is preserved. On a fresh machine
   refill the block (names and paths only) from that site's `sync.sh`. diabetes and intranet-backend use
-  `EE_SUBDIR="ee/"` and `LOCAL_EECLI="ddev ee"`.
+  `EE_SUBDIR="ee/"` and `LOCAL_EECLI="ddev exec php artisan eecli"` and `REMOTE_EECLI='"$REMOTE_PHP" artisan eecli'` (Coilpack: direct eecli.php has no DB config).
 
 ## `verify()` convention
 

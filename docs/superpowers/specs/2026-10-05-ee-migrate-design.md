@@ -190,7 +190,7 @@ seconds earlier. That is why rehearsal on a target copy precedes every server ru
 Identical script in every repo; only a config block differs: SSH host, remote paths, PHP binary,
 database name, `BACKUP_DIR` (must resolve outside the release tree; the runner refuses to start if it
 is inside `httpdocs/current` or the releases directory), `EE_SUBDIR` (`ee/` for diabetes and intranet-backend), local CLI form (`ddev exec php`
-vs `ddev ee`), `HAS_STAGING`, and the existing sync route for pulling a database copy.
+vs `ddev exec php artisan eecli` for Coilpack sites, plus `REMOTE_EECLI` for the server side), `HAS_STAGING`, and the existing sync route for pulling a database copy.
 
 ### 7.0 How the runner drives EE's `migrate`
 
@@ -249,7 +249,7 @@ restored. The downloaded dump is deleted after import.
 
 | Mode | Behaviour |
 |---|---|
-| `local test <migration>` | Requires the named migration to be the only pending file locally (otherwise refuses and lists what is pending). Backup (`ddev ee backup:database`, verified by size) → schema-check baseline → `migrate --core --steps=1` → `cps:migrate-verify` → schema-check incl. smoke test (no new failures) → `migrate:rollback --steps=1` → schema + settings dump byte-identical to baseline → `migrate --core --steps=1` again → schema-check. Any failure stops with the restore command. |
+| `local test <migration>` | Requires the named migration to be the only pending file locally (otherwise refuses and lists what is pending). Backup (`<LOCAL_EECLI> backup:database`, verified by size) → schema-check baseline → `migrate --core --steps=1` → `cps:migrate-verify` → schema-check incl. smoke test (no new failures) → `migrate:rollback --steps=1` → schema + settings dump byte-identical to baseline → `migrate --core --steps=1` again → schema-check. Any failure stops with the restore command. |
 | `<staging\|prod> status` | Remote pending set + schema-check summary. Read-only. |
 | `<staging\|prod> rehearse` | `ddev snapshot` → import fresh copy of the target DB via the existing sync route → verify the import (§7.0b) → run the pending set with the §7.0 per-file loop, `cps:migrate-verify` after each → schema-check incl. smoke test → restore snapshot and delete the imported copy. Writes a rehearsal stamp (target, pending set, `pending_hash`, commit, time). |
 | `<staging\|prod> apply --expect=<names>` | Refuses unless: remote pending set equals `--expect` exactly; a passing rehearsal stamp for that set and `pending_hash` exists, < 24 h old; the deployed release contains those files. Then: backup to the site's out-of-release backup directory, `chmod 600`, size compared to the previous dump → the §7.0 per-file loop (`migrate --core --steps=1`, then `cps:migrate-verify`, per file) → structural schema-check on the server (`--no-smoke`) → print backup name, rollback command and restore command. Records success in the stamp file. |
@@ -261,7 +261,7 @@ taken and verified in the same run:
 
 | Mode | Database changed | Backup taken first |
 |---|---|---|
-| `local test` | DDEV | `ddev ee backup:database` |
+| `local test` | DDEV | `<LOCAL_EECLI> backup:database` |
 | `rehearse` | DDEV (replaced by the target copy) | `ddev snapshot` of the local DB, restored at the end |
 | `staging apply` / `prod apply` | the server | `eecli.php backup:database --absolute_path=<BACKUP_DIR>` |
 
