@@ -44,3 +44,13 @@ stripped). File logs: only the 7 most recent files are read, and the match total
 
 Canonical source: claude-config-repo `projects/expressionengine/templates/cps_tools`; install with
 `ee-migrate-install.sh`. Bump the version in `addon.setup.php` when changing it.
+
+## cps:schema-check limits
+
+- The settings contract and the smoke test call fieldtype code, so they run only in DDEV
+  (local gate and rehearsals on a target copy). On servers each reports one `warn` "skipped: not DDEV".
+- The smoke test runs from the CLI, not a Control Panel request. Field behaviour that needs the CP
+  (e.g. `ee()->cp`) cannot be exercised; such errors are reported as `warn`, not `fail`.
+- Severity: `fail` means the field would break a publish screen, a save or a migration. Leftovers
+  from deleting things (orphaned rows, pivot rows for deleted channels, relationship targets that no
+  longer exist) are `warn`. Gate migrations with `--compare` against a baseline: no *new* failures.
