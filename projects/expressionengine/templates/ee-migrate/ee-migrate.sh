@@ -491,6 +491,16 @@ preflight_sync_library() {
 local_eecli() { $LOCAL_EECLI "$@"; }
 local_status_json() { local_eecli cps:migrate-status --json; }
 
+# Refuse when LOCAL_DB is not the database EE is connected to: the tooling would dump, import and
+# query one database while EE migrates another. Older add-ons omit the key; nothing to compare then.
+# assert_local_db <local cps:migrate-status --json output>
+assert_local_db() {
+  local actual
+  actual="$(jq -r '.database // ""' <<<"$1")"
+  [[ -z "$actual" || "$actual" == "$LOCAL_DB" ]] \
+    || die "LOCAL_DB is [$LOCAL_DB] but EE is connected to [$actual] — fix LOCAL_DB in .admin-scripts/ee-migrate.sh"
+}
+
 # Always runs once the snapshot exists: restores it, removes the snapshot and any leftover dump.
 rehearse_cleanup() {
   local rc=$?
@@ -533,10 +543,14 @@ verify_import_counts() {
 }
 
 cmd_rehearse() {
-  local name dump rc
+  local name dump rc local_out
   preflight_sync_library
   [[ -n "$(target_defaults)" ]] || die "config: $TARGET MySQL defaults path is empty (refusing the login fallback)"
   [[ -n "$(target_db)" && -n "$LOCAL_DB" ]] || die "config: target and local database names are required"
+  local_out="$(local_status_json 2>&1)"
+  jq -e 'type == "object"' >/dev/null 2>&1 <<<"$local_out" \
+    || die "local cps:migrate-status unreadable: $(head -c 200 <<<"$local_out")"
+  assert_local_db "$local_out"
   remote_status
   [[ "$(jq -r '.pending | length' <<<"$STATUS_JSON")" -gt 0 ]] || die "nothing pending on $TARGET — nothing to rehearse"
   EXPECT="$(pending_csv)"
@@ -657,6 +671,7 @@ cmd_local_test() {
   out="$(local_eecli cps:migrate-status --json 2>&1)"
   jq -e '.pending | type == "array"' >/dev/null 2>&1 <<<"$out" \
     || die "local cps:migrate-status unreadable: $(head -c 200 <<<"$out")"
+  assert_local_db "$out"
   pending="$(jq -r '.pending | join(",")' <<<"$out")"
   [[ "$pending" == "$LOCAL_MIGRATION" ]] \
     || fail "local pending set is [$pending], expected only [$LOCAL_MIGRATION] — resolve the others first"

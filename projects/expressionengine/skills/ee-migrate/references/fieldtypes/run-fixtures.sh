@@ -98,6 +98,9 @@ fi
 # Refuse if anything is pending or a previous run left fixture rows
 out="$(eecli cps:migrate-status --json 2>&1)"
 jq -e '.pending | type == "array"' >/dev/null 2>&1 <<<"$out" || die "cps:migrate-status unreadable: $(head -c 200 <<<"$out")"
+db_name="$(jq -r '.database // ""' <<<"$out")"
+[[ -z "$db_name" || "$db_name" == "$LOCAL_DB" ]] \
+  || die "LOCAL_DB is [$LOCAL_DB] but EE is connected to [$db_name] — fix LOCAL_DB in .admin-scripts/ee-migrate.sh"
 [[ "$(jq -r '.pending | length' <<<"$out")" -eq 0 ]] || die "migrations are pending locally ($(jq -r '.pending | join(",")' <<<"$out")); resolve first"
 [[ -d "$(dirname "$MIG")" ]] || DB_DIR_CREATED=1
 [[ -d "$MIG" ]] || MIG_CREATED=1

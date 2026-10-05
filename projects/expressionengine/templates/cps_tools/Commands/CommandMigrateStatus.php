@@ -105,6 +105,8 @@ class CommandMigrateStatus extends Cli
             'missing_files' => $missing,
             'last_applied' => $lastApplied,
             'migrations_table' => $hasTable,
+            // The database EE itself is connected to; the runner compares it with its LOCAL_DB.
+            'database' => (string) ee()->db->query('SELECT DATABASE() AS n')->row('n'),
             'commit' => is_file($hashFile) ? trim((string) file_get_contents($hashFile)) : null,
             'counts' => [
                 'tables' => (int) ee()->db->query(
@@ -134,6 +136,7 @@ class CommandMigrateStatus extends Cli
             $data['counts']['channel_titles'],
             $data['counts']['channel_fields']
         ));
+        $this->write('Database: ' . $data['database']);
         $this->write('Commit: ' . ($data['commit'] ?? 'unknown'));
     }
 

@@ -569,6 +569,35 @@ reset_stub
 run "$RUNNER" local test a
 check "local happy path unchanged" '[[ $RC -eq 0 ]] && grep -q "migrate:rollback --steps=1" "$STUB_LOG"'
 
+# LOCAL_DB guard: the local status "database" must match LOCAL_DB (localdb in the test config).
+# Status without the key (older add-on) is the happy path above and must keep passing.
+reset_stub
+echo '{"pending":["a"],"database":"otherdb","counts":{"tables":10,"channel_titles":5,"channel_fields":3}}' \
+  > "$STUB_DIR/local-status.json"
+run "$RUNNER" local test a
+check "local test: LOCAL_DB mismatch -> exit 2 naming both databases" \
+  '[[ $RC -eq 2 && "$OUT" == *"LOCAL_DB is [localdb]"* && "$OUT" == *"EE is connected to [otherdb]"* ]]'
+check "local test: LOCAL_DB mismatch -> no backup, no migrate" '! grep -q "backup:database\|migrate --core" "$STUB_LOG"'
+reset_stub
+echo '{"pending":["a"],"database":"localdb","counts":{"tables":10,"channel_titles":5,"channel_fields":3}}' \
+  > "$STUB_DIR/local-status.json"
+run "$RUNNER" local test a
+check "local test: matching database passes" '[[ $RC -eq 0 && "$OUT" == *"local test PASS"* ]]'
+
+reset_stub
+rm -f "$STAMPS/staging.json"
+echo '{"pending":["a"],"database":"otherdb","counts":{"tables":10,"channel_titles":5,"channel_fields":3}}' \
+  > "$STUB_DIR/local-status.json"
+run "$RUNNER" staging rehearse
+check "rehearse: LOCAL_DB mismatch -> exit 2 naming both databases" \
+  '[[ $RC -eq 2 && "$OUT" == *"LOCAL_DB is [localdb]"* && "$OUT" == *"EE is connected to [otherdb]"* ]]'
+check "rehearse: LOCAL_DB mismatch -> no snapshot, no import" '! grep -q "ddev snapshot\|^import_db" "$STUB_LOG"'
+reset_stub
+echo 'not json' > "$STUB_DIR/local-status.json"
+run "$RUNNER" staging rehearse
+check "rehearse: unreadable local status -> exit 2, no snapshot" \
+  '[[ $RC -eq 2 && "$OUT" == *"local cps:migrate-status unreadable"* ]] && ! grep -q "ddev snapshot" "$STUB_LOG"'
+
 # rehearsal: not recorded locally
 reset_stub
 rm -f "$STAMPS/staging.json"

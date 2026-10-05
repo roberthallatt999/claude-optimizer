@@ -48,6 +48,8 @@ Run from the repo root, plainly (see "Guard and permissions"):
 - `local test` needs the named migration to be the only pending local file. It backs up, baselines
   schema-check, migrates, runs `verify()`, schema-checks (with smoke test), rolls back, requires a
   byte-identical schema, migrates again and re-checks.
+- `local test`, `rehearse` and `run-fixtures.sh` refuse (exit 2) when `LOCAL_DB` is not the database EE is
+  connected to (the `database` key of `cps:migrate-status --json`).
 - `status` is read-only: the remote pending list plus a structural schema-check summary.
 - `rehearse` snapshots the local DB, imports a fresh copy of the target database, runs the pending set one
   file at a time with `verify()` after each, schema-checks, then restores the snapshot. It writes a stamp
