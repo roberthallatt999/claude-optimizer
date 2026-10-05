@@ -219,11 +219,18 @@ pending set and age (< 24 h) against the stamp. Production on a staging site add
 
 ### 7.0b Database copies for rehearsal
 
-Every site already has `.admin-scripts/sync.sh`, the route Robert uses today. Rehearsal calls it for
-the database only, then — because `sync.sh` can mask a failed import behind a zero exit code — it
-verifies the import independently: table count and `exp_channel_titles` / `exp_channel_fields` row
-counts in DDEV must match the same counts read from the target by `cps:migrate-status --json`
-(which reports them). Mismatch → rehearsal fails and the snapshot is restored.
+**Never `sync.sh`.** Its `dev` mode *uploads* the local database to staging (`dev_upload_db`), so it
+is unsafe for rehearsal. Instead the runner sources the shared library every `sync.sh` already uses
+(`~/Web/code/_scripts/functions-websavers.sh`) and calls only its three read-only-to-the-server
+functions: `export_db` (remote `mysqldump` through the server-side MySQL defaults file into a
+temporary gzip beside the release), `download_db` (copy down, then delete the remote temp file) and
+`import_db` (into the site's DDEV database). `dev_*` functions are never called. The runner checks the
+library exists and exports those three functions before starting.
+
+Because the import can fail behind a zero exit code, it is verified independently: table count and
+`exp_channel_titles` / `exp_channel_fields` row counts in DDEV must match the same counts read from
+the target by `cps:migrate-status --json` (§6.1). Mismatch → rehearsal fails and the snapshot is
+restored. The downloaded dump is deleted after import.
 
 ### 7.1 Modes
 
