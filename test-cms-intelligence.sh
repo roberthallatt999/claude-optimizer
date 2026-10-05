@@ -221,8 +221,19 @@ fi
 exit 0
 SH
 chmod +x "$bin/intelephense" "$bin/claude"
+# Hermetic "no intelephense" PATH: the fake claude plus every tool already on PATH except
+# intelephense, so a copy installed on the developer's machine cannot leak into the sandbox.
 nobin=$(tmp_dir)
 cp "$bin/claude" "$nobin/claude"
+IFS=: read -ra path_dirs <<< "$PATH"
+for dir in "${path_dirs[@]}"; do
+  [[ -d "$dir" ]] || continue
+  for tool in "$dir"/*; do
+    name="${tool##*/}"
+    [[ "$name" == "intelephense" || -e "$nobin/$name" || ! -x "$tool" ]] && continue
+    ln -s "$tool" "$nobin/$name"
+  done
+done
 installs() { if [[ -f "$FAKE_CLAUDE_LOG" ]]; then grep -c '^plugin install php-lsp@claude-plugins-official --scope local$' "$FAKE_CLAUDE_LOG"; else echo 0; fi; }
 
 wp=$(tmp_dir); mkdir -p "$wp/wp-content/themes"
@@ -240,15 +251,18 @@ PATH="$bin:$PATH" run "$wp2" --force
 assert_eq "explicit false in project settings respected" "0|false" \
   "$(installs)|$(jq -r '.enabledPlugins["php-lsp@claude-plugins-official"]' "$wp2/.claude/settings.local.json")"
 
+rm -f "$FAKE_CLAUDE_LOG"
 wp3=$(tmp_dir); mkdir -p "$wp3/wp-content"
-PATH="$nobin:$PATH" run "$wp3" --force
+PATH="$nobin" run "$wp3" --force
 assert_eq "no intelephense → nothing installed" "0" "$(installs)"
 
+rm -f "$FAKE_CLAUDE_LOG"
 user=$(tmp_dir); echo '{"enabledPlugins":{"php-lsp@claude-plugins-official":true}}' > "$user/settings.json"
 wp4=$(tmp_dir); mkdir -p "$wp4/wp-content"
 AI_CONFIG_USER_SETTINGS="$user/settings.json" PATH="$bin:$PATH" run "$wp4" --force
 assert_eq "enabled in user settings → not installed per project" "0" "$(installs)"
 
+rm -f "$FAKE_CLAUDE_LOG"
 next2=$(tmp_dir)
 touch "$next2/next.config.js"; echo '{"dependencies":{"next":"14","react":"18"}}' > "$next2/package.json"
 PATH="$bin:$PATH" run "$next2" --force
