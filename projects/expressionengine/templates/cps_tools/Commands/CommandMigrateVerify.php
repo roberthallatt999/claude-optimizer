@@ -48,8 +48,25 @@ class CommandMigrateVerify extends Cli
      */
     public function handle()
     {
-        $name = (string) ($this->arguments[0] ?? '');
-        if (preg_match('/^\d{4}_\d{2}_\d{2}_\d{6}_[a-z0-9_]+$/', $name) !== 1) {
+        // Under `artisan eecli` the arguments start with the command name, so scan for the name.
+        $pattern = '/^\d{4}_\d{2}_\d{2}_\d{6}_[a-z0-9_]+$/';
+        $name = '';
+        foreach ($this->arguments as $argument) {
+            if (preg_match($pattern, (string) $argument) === 1) {
+                $name = (string) $argument;
+                break;
+            }
+        }
+        if ($name === '') {
+            foreach ($this->arguments as $argument) {
+                $argument = (string) $argument;
+                if ($argument !== '' && $argument[0] !== '-' && $argument !== $this->signature) {
+                    $name = $argument;
+                    break;
+                }
+            }
+        }
+        if (preg_match($pattern, $name) !== 1) {
             $this->error('Invalid migration name: ' . $name);
             exit(2);
         }

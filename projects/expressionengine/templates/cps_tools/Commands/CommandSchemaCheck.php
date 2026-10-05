@@ -2,6 +2,7 @@
 
 namespace CPS\Tools\Commands;
 
+use CPS\Tools\Library\ReleaseRoot;
 use CPS\Tools\Library\Report;
 use ExpressionEngine\Cli\Cli;
 
@@ -69,8 +70,8 @@ class CommandSchemaCheck extends Cli
 
         try {
             $report = $this->runChecks();
-            $baselinePath = (string) $this->option('--baseline', '');
-            $comparePath = (string) $this->option('--compare', '');
+            $baselinePath = ReleaseRoot::resolve((string) $this->option('--baseline', ''));
+            $comparePath = ReleaseRoot::resolve((string) $this->option('--compare', ''));
             $json = (bool) $this->option('--json', false);
 
             if ($baselinePath !== '') {

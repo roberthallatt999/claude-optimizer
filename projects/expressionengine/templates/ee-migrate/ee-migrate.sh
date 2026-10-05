@@ -5,12 +5,13 @@
 # Note: the remote backup verification script (stat -c, ls -t, chmod) and the server-side
 # schema-check baseline are first exercised against a real server on the first real staging run.
 set -uo pipefail
-EE_MIGRATE_VERSION="1.1.0"
+EE_MIGRATE_VERSION="1.2.0"
 # >>> site config (preserved by ee-migrate-install.sh)
 SITE=""                 # e.g. cps
 SSH_HOST=""             # e.g. websvr-cps
 REMOTE_PHP=""           # e.g. /opt/plesk/php/8.2/bin/php
 REMOTE_EECLI=''         # empty = "$REMOTE_PHP" ${EE_SUBDIR}system/ee/eecli.php; Coilpack sites: "$REMOTE_PHP" artisan eecli
+REMOTE_ENV_EXPORT="no"  # "yes" on Laravel+EE (Coilpack) sites: export the release's dotenv before eecli
 PROD_PATH=""            # release symlink, e.g. /var/www/vhosts/cps.ca/httpdocs/current
 STAGING_PATH=""         # empty when HAS_STAGING=no
 PROD_DB=""              # database name (for export_db)
@@ -148,10 +149,36 @@ check_backup_dir() {
 remote_eecli_cmd() {
   local cmd="${REMOTE_EECLI:-}"
   if [[ -z "$cmd" ]]; then
-    echo "'$REMOTE_PHP' ${EE_SUBDIR}system/ee/eecli.php"
-    return
+    cmd="'$REMOTE_PHP' ${EE_SUBDIR}system/ee/eecli.php"
+  else
+    cmd="${cmd//\$REMOTE_PHP/$REMOTE_PHP}"
   fi
-  echo "${cmd//\$REMOTE_PHP/$REMOTE_PHP}"
+  if [[ "${REMOTE_ENV_EXPORT:-no}" == "yes" ]]; then
+    cmd="$(remote_env_export_step) && $cmd"
+  fi
+  echo "$cmd"
+}
+
+# Laravel+EE (Coilpack) sites get EE's DB config from the dotenv file, which eecli.php alone
+# does not read. Same technique as the sites' upgrade.sh: export the release's dotenv into the
+# shell, then call eecli.php. The PHP is shipped base64-encoded so no quoting survives ssh, and the
+# file name is assembled at runtime. Runs from the release root (after the cd).
+remote_env_export_step() {
+  local php_code b64
+  php_code='$f=getcwd()."/".".".  "env";
+if(!is_readable($f)){fwrite(STDERR,"missing\n");exit(2);}
+foreach(file($f,FILE_IGNORE_NEW_LINES) as $l){
+$l=trim($l);
+if($l===""||$l[0]==="#"||strpos($l,"=")===false){continue;}
+[$k,$v]=explode("=",$l,2);
+$k=trim($k);
+if(strpos($k,"export ")===0){$k=trim(substr($k,7));}
+if(!preg_match("/^[A-Za-z_][A-Za-z0-9_]*$/",$k)){continue;}
+$v=trim($v);
+if(strlen($v)>=2&&($v[0]==="\""||$v[0]==="\x27")&&substr($v,-1)===$v[0]){$v=substr($v,1,-1);}
+echo "export ".$k."=".escapeshellarg($v).PHP_EOL;}'
+  b64="$(printf '%s' "$php_code" | base64 | tr -d '\n')"
+  echo "{ __p=\"\$(echo $b64 | base64 -d)\" && __e=\"\$('$REMOTE_PHP' -r \"\$__p\")\" && eval \"\$__e\"; } || { echo 'ee-migrate: could not load the release environment' >&2; exit 2; }"
 }
 
 # Run an eecli command in the target release dir. Output goes to stdout, rc is ssh's.

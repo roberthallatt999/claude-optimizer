@@ -30,6 +30,8 @@ class Fieldtypes
      */
     public static function boot(): void
     {
+        // The CP normally loads form helpers that fieldtype display_field() calls (form_textarea etc.).
+        ee()->load->helper('form');
         ee()->load->library('api');
         ee()->legacy_api->instantiate('channel_fields');
         ee()->api_channel_fields->fetch_installed_fieldtypes();

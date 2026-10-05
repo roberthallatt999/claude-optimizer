@@ -87,7 +87,7 @@ class CommandMigrateStatus extends Cli
             sort($pending);
         }
 
-        $hashFile = $this->releaseRoot() . '.commit_hash';
+        $hashFile = \CPS\Tools\Library\ReleaseRoot::path() . '.commit_hash';
         $data = [
             'pending' => $pending,
             'missing_files' => $missing,
@@ -122,17 +122,6 @@ class CommandMigrateStatus extends Cli
             $data['counts']['channel_fields']
         ));
         $this->write('Commit: ' . ($data['commit'] ?? 'unknown'));
-    }
-
-    /**
-     * Release root = parent of `system/` (or of `ee/system/`).
-     *
-     * @return string
-     */
-    private function releaseRoot(): string
-    {
-        $root = dirname(rtrim(SYSPATH, '/')) . '/';
-        return basename(rtrim($root, '/')) === 'ee' ? dirname(rtrim($root, '/')) . '/' : $root;
     }
 
     /**

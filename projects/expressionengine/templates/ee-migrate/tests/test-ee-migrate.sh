@@ -45,6 +45,7 @@ SITE="testsite"
 SSH_HOST="stub-host"
 REMOTE_PHP="/usr/bin/php"
 REMOTE_EECLI=''
+REMOTE_ENV_EXPORT="no"
 PROD_PATH="/srv/prod/httpdocs/current"
 STAGING_PATH="/srv/stg/httpdocs/current"
 PROD_DB="proddb"
@@ -139,7 +140,7 @@ check "backup dir inside releases -> exit 2" '[[ $RC -eq 2 && "$OUT" == *"outsid
 EQREL="$(make_runner eqrel PROD_BACKUP_DIR=/srv/prod/httpdocs/current)"
 run "$EQREL" prod status
 check "backup dir equal to release path -> exit 2" '[[ $RC -eq 2 && "$OUT" == *"outside the release tree"* ]]'
-grep -q '^EE_MIGRATE_VERSION="1.1.0"' "$TEMPLATE" && ok "EE_MIGRATE_VERSION present" || ko "EE_MIGRATE_VERSION present"
+grep -q '^EE_MIGRATE_VERSION="1.2.0"' "$TEMPLATE" && ok "EE_MIGRATE_VERSION present" || ko "EE_MIGRATE_VERSION present"
 EMPTY="$(make_runner empty SSH_HOST=)"
 run "$EMPTY" prod status
 check "empty config -> exit 2" '[[ $RC -eq 2 && "$OUT" == *"SSH_HOST is empty"* ]]'
@@ -488,6 +489,21 @@ reset_stub
 touch "$STUB_DIR/hash-missing"
 run "$RUNNER" prod apply --expect=a,b
 check "non-empty pending with missing file still fails" '[[ $RC -eq 1 && "$OUT" == *"could not hash"* ]]'
+
+# ---- Coilpack: REMOTE_ENV_EXPORT ----
+ENVX="$(make_runner envx REMOTE_ENV_EXPORT=yes)"
+reset_stub
+run "$ENVX" prod apply --expect=a,b
+check "REMOTE_ENV_EXPORT=yes: apply passes" '[[ $RC -eq 0 ]]'
+check "export step precedes eecli.php on every call (8 calls)" '[[ "$(grep -o "base64 -d" "$STUB_LOG" | wc -l | tr -d " ")" == "$(grep -o "system/ee/eecli.php" "$STUB_LOG" | wc -l | tr -d " ")" && "$(grep -o "base64 -d" "$STUB_LOG" | wc -l | tr -d " ")" -ge 8 ]]'
+check "export step comes before eecli.php within each call" '! tr "\n" " " < "$STUB_LOG" | sed "s/ssh stub-host/\nssh stub-host/g" | grep "eecli.php" | grep -qv "base64 -d.*eecli.php"'
+check "export step aborts with exit 2 when env cannot load" 'grep -q "could not load the release environment" "$STUB_LOG"'
+reset_stub
+run "$RUNNER" prod apply --expect=a,b
+check "REMOTE_ENV_EXPORT=no: no export step" '! grep -q "base64" "$STUB_LOG"'
+reset_stub
+run "$work/old.sh" prod apply --expect=a,b
+check "REMOTE_ENV_EXPORT unset: no export step" '[[ $RC -eq 0 ]] && ! grep -q "base64" "$STUB_LOG"'
 
 echo
 echo "Passed: $pass  Failed: $fail"
