@@ -53,12 +53,10 @@ class SmokeTest
 
         ee()->db->trans_begin();
         $errors = [];
-        set_error_handler(static fn (): bool => true);
         try {
             $errors = $this->exerciseFields($report);
             $errors = array_merge($errors, $this->exerciseColumns($report));
         } finally {
-            restore_error_handler();
             ee()->db->trans_rollback();
         }
 

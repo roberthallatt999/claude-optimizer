@@ -127,6 +127,37 @@ class CommandSchemaCheck extends Cli
     private function runChecks(): Report
     {
         $report = new Report();
+        $notices = [];
+        // Site and third-party code can raise deprecations/notices (or echo) mid-check; EE's CLI handler
+        // would print them ahead of the JSON. Collect them quietly and surface them as warnings instead.
+        $previous = set_error_handler(static function (int $no, string $msg, string $file, int $line) use (&$notices): bool {
+            $quiet = E_DEPRECATED | E_USER_DEPRECATED | E_NOTICE | E_USER_NOTICE | E_WARNING | E_USER_WARNING | E_STRICT;
+            if (($no & $quiet) !== 0) {
+                $notices[$msg . '|' . $file . '|' . $line] = [$msg, $file, $line];
+                return true;
+            }
+            return false;
+        });
+        ob_start();
+        try {
+            $this->runAll($report);
+        } finally {
+            ob_end_clean();
+            restore_error_handler();
+        }
+        unset($previous);
+        foreach ($notices as [$msg, $file, $line]) {
+            $report->add('php_notices', basename($file) . ':' . $line, 'warn', substr($msg, 0, 160), 'php');
+        }
+        return $report;
+    }
+
+    /**
+     * @param Report $report
+     * @return void
+     */
+    private function runAll(Report $report): void
+    {
         $checks = [
             \CPS\Tools\Library\Checks\SettingsContract::class,
             \CPS\Tools\Library\Checks\Storage::class,
@@ -140,7 +171,6 @@ class CommandSchemaCheck extends Cli
         if (!(bool) $this->option('--no-smoke', false)) {
             (new \CPS\Tools\Library\SmokeTest())->run($report);
         }
-        return $report;
     }
 
     /**

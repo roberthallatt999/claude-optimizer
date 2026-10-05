@@ -216,6 +216,10 @@ n=$(jcount '.check=="smoke"')
 [[ "$n" -eq 0 ]] && ok "--no-smoke produces no smoke results" || bad "--no-smoke" "n=$n"
 undo_fixture "$FX_URL"
 
+raw=$($LOCAL_EECLI cps:schema-check --json 2>/dev/null)
+[[ "${raw:0:1}" == "{" ]] && echo "$raw" | jq -e .summary >/dev/null \
+  && ok "schema-check --json stdout is a single JSON document" || bad "json purity" "${raw:0:80}"
+
 left=$(ddev mysql "$LOCAL_DB" -N -e "SELECT (SELECT COUNT(*) FROM exp_channels WHERE channel_name LIKE 'cpstools%')+(SELECT COUNT(*) FROM exp_channel_fields WHERE field_name LIKE 'cpstools%')+(SELECT COUNT(*) FROM exp_grid_columns WHERE col_name LIKE 'cpstools%')+(SELECT COUNT(*) FROM exp_field_groups WHERE group_name LIKE 'cpstools%')+(SELECT COUNT(*) FROM exp_migrations WHERE migration LIKE '2099%')+(SELECT COUNT(*) FROM exp_layout_publish WHERE layout_name LIKE 'cpstools%')" 2>&1)
 [[ "$left" == "0" ]] && ok "no cpstools_ rows left behind" || bad "leftover rows" "$left"
 
