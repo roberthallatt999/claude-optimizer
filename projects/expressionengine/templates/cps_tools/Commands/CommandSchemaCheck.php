@@ -129,6 +129,10 @@ class CommandSchemaCheck extends Cli
         $report = new Report();
         $checks = [
             \CPS\Tools\Library\Checks\SettingsContract::class,
+            \CPS\Tools\Library\Checks\Storage::class,
+            \CPS\Tools\Library\Checks\Orphans::class,
+            \CPS\Tools\Library\Checks\Layouts::class,
+            \CPS\Tools\Library\Checks\References::class,
         ];
         foreach ($checks as $class) {
             (new $class())->run($report);

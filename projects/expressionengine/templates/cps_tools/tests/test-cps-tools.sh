@@ -20,6 +20,11 @@ FIXTURES=(
   2099_01_01_000003_cps_tools_no_verify
   2099_01_01_000010_cpstools_fx_url_missing_schemes
   2099_01_01_000011_cpstools_fx_relationship_bad_shape
+  2099_01_01_000020_cpstools_fx_grid_orphan_column
+  2099_01_01_000021_cpstools_fx_grid_missing_data_column
+  2099_01_01_000030_cpstools_fx_layout_stale_field
+  2099_01_01_000031_cpstools_fx_bad_relationship_target
+  2099_01_01_000032_cpstools_fx_missing_cat_group
 )
 cleanup() { for f in "${FIXTURES[@]}"; do rm -f "${MIG:?}/${f:?}.php"; done; rm -f "$BASE"; }
 trap cleanup EXIT
@@ -124,7 +129,57 @@ undo_fixture "$FX_REL"
 out=$(EEJ cps:schema-check --no-smoke --json --compare="$BASE"); code=$?
 [[ $code -eq 0 ]] && ok "relationship fixture removed -> compare exits 0" || bad "rel fixture cleanup" "exit=$code"
 
-left=$(ddev mysql admin_cps -N -e "SELECT (SELECT COUNT(*) FROM exp_channels WHERE channel_name LIKE 'cpstools%')+(SELECT COUNT(*) FROM exp_channel_fields WHERE field_name LIKE 'cpstools%')+(SELECT COUNT(*) FROM exp_grid_columns WHERE col_name LIKE 'cpstools%')+(SELECT COUNT(*) FROM exp_field_groups WHERE group_name LIKE 'cpstools%')" 2>&1)
+# --- schema-check: storage, orphans, layouts, references ----------------------
+# fx_case <fixture> <expected exit> <label>: baseline, migrate, compare, leaves $out/$code set, then undoes.
+fx_run() {  # fx_run <fixture>: sets out/code with the fixture applied
+  EE cps:schema-check --no-smoke --json --baseline="$BASE" >/dev/null
+  run_fixture "$1"
+  out=$(EEJ cps:schema-check --no-smoke --json --compare="$BASE"); code=$?
+}
+fx_done() {  # fx_done <fixture> <label>: undo and assert a clean compare
+  undo_fixture "$1"
+  EEJ cps:schema-check --no-smoke --json --compare="$BASE" >/dev/null; local c=$?
+  [[ $c -eq 0 ]] && ok "$2 removed -> compare exits 0" || bad "$2 cleanup" "exit=$c"
+}
+jcount() { echo "$out" | jq "[.results[]|select($1)]|length"; }
+
+fx_run "${FIXTURES[6]}"
+[[ $code -eq 1 ]] && ok "grid orphan fixture -> exit 1" || bad "orphan exit" "exit=$code"
+n=$(jcount '.check=="orphans" and .status=="fail" and (.subject|test("grid_columns"))')
+[[ "$n" -ge 1 ]] && ok "orphans: NULL/0 field_id Grid column fails" || bad "orphan fail" "n=$n"
+n=$(jcount '.check=="orphans" and .status=="warn" and (.subject|test("relationships"))')
+[[ "$n" -ge 1 ]] && ok "orphans: relationship row to missing entry warns" || bad "rel orphan warn" "n=$n"
+fx_done "${FIXTURES[6]}" "grid orphan fixture"
+
+fx_run "${FIXTURES[7]}"
+[[ $code -eq 1 ]] && ok "grid missing-column fixture -> exit 1" || bad "missing col exit" "exit=$code"
+n=$(jcount '.check=="storage" and .status=="fail" and (.message|test("col_id_"))')
+[[ "$n" -ge 1 ]] && ok "storage: missing col_id_N reported" || bad "storage fail" "n=$n"
+fx_done "${FIXTURES[7]}" "grid missing-column fixture"
+
+fx_run "${FIXTURES[8]}"
+[[ $code -eq 1 ]] && ok "stale layout fixture -> exit 1" || bad "layout exit" "exit=$code"
+n=$(jcount '.check=="layouts" and .status=="fail" and (.message|test("cpstools_fx_b.*not attached"))')
+[[ "$n" -ge 1 ]] && ok "layouts: detached field B fails" || bad "layout B" "n=$n"
+n=$(jcount '.check=="layouts" and .status=="warn" and (.message|test("cpstools_fx_c.*not placed"))')
+[[ "$n" -ge 1 ]] && ok "layouts: unplaced field C warns" || bad "layout C" "n=$n"
+fx_done "${FIXTURES[8]}" "stale layout fixture"
+
+fx_run "${FIXTURES[9]}"
+[[ $code -eq 0 ]] && ok "bad relationship target -> warn only, exit 0" || bad "bad target exit" "exit=$code"
+n=$(jcount '.check=="references" and .status=="warn" and .subject=="cpstools_fx_badtarget" and (.message|test("999999"))')
+[[ "$n" -ge 1 ]] && ok "references: deleted target channel warns once, names field and id" || bad "bad target warn" "n=$n"
+n=$(jcount '.subject=="cpstools_fx_badtarget" and (.message|test("999999"))')
+[[ "$n" -eq 1 ]] && ok "deleted target reported only once" || bad "bad target dup" "n=$n"
+fx_done "${FIXTURES[9]}" "bad relationship target fixture"
+
+fx_run "${FIXTURES[10]}"
+[[ $code -eq 1 ]] && ok "missing cat group fixture -> exit 1" || bad "cat group exit" "exit=$code"
+n=$(jcount '.check=="references" and .status=="fail" and .subject=="cpstools_fixture" and (.message|test("999999"))')
+[[ "$n" -ge 1 ]] && ok "references: missing category group fails naming channel" || bad "cat group fail" "n=$n"
+fx_done "${FIXTURES[10]}" "missing cat group fixture"
+
+left=$(ddev mysql admin_cps -N -e "SELECT (SELECT COUNT(*) FROM exp_channels WHERE channel_name LIKE 'cpstools%')+(SELECT COUNT(*) FROM exp_channel_fields WHERE field_name LIKE 'cpstools%')+(SELECT COUNT(*) FROM exp_grid_columns WHERE col_name LIKE 'cpstools%')+(SELECT COUNT(*) FROM exp_field_groups WHERE group_name LIKE 'cpstools%')+(SELECT COUNT(*) FROM exp_migrations WHERE migration LIKE '2099%')+(SELECT COUNT(*) FROM exp_layout_publish WHERE layout_name LIKE 'cpstools%')" 2>&1)
 [[ "$left" == "0" ]] && ok "no cpstools_ rows left behind" || bad "leftover rows" "$left"
 
 echo "---"; echo "$PASS passed, $FAIL failed"; [[ $FAIL -eq 0 ]]

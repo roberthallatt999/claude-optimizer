@@ -35,15 +35,13 @@ class SettingsContract
         ee()->legacy_api->instantiate('channel_fields');
         ee()->api_channel_fields->fetch_installed_fieldtypes();
 
-        $channels = $this->channelNames();
-
         $fields = ee()->db->select('field_id, field_name, field_type, field_settings')
             ->get('channel_fields')
             ->result_array();
 
         foreach ($fields as $field) {
             $stored = $this->decodeFieldSettings((string) $field['field_settings']);
-            $this->checkSettings($report, $field['field_name'], $field['field_type'], $stored, false, $channels);
+            $this->checkSettings($report, $field['field_name'], $field['field_type'], $stored, false);
         }
 
         if (!ee()->db->table_exists('grid_columns')) {
@@ -63,7 +61,7 @@ class SettingsContract
                 $report->add(self::CHECK, $subject, 'fail', 'column settings are not valid JSON', $col['col_type']);
                 continue;
             }
-            $this->checkSettings($report, $subject, $col['col_type'], $stored, true, $channels);
+            $this->checkSettings($report, $subject, $col['col_type'], $stored, true);
         }
     }
 
@@ -73,7 +71,6 @@ class SettingsContract
      * @param string $type
      * @param array $stored
      * @param bool $isColumn
-     * @param array<int, string> $channels channel_id => name
      * @return void
      */
     private function checkSettings(
@@ -81,8 +78,7 @@ class SettingsContract
         string $subject,
         string $type,
         array $stored,
-        bool $isColumn,
-        array $channels
+        bool $isColumn
     ): void {
         $problems = [];
         $warnings = [];
@@ -107,7 +103,7 @@ class SettingsContract
         }
 
         if ($type === 'relationship') {
-            $problems = array_merge($problems, $this->relationshipProblems($stored, $channels));
+            $problems = array_merge($problems, $this->relationshipProblems($stored));
         }
 
         foreach ($warnings as $warning) {
@@ -127,14 +123,13 @@ class SettingsContract
     }
 
     /**
-     * Relationship rules: channels is an array of numeric strings naming existing channels (or empty
-     * for any); order_field is title or entry_date.
+     * Relationship shape rules: channels is an array of numeric strings (or empty for any); order_field is
+     * title or entry_date. Whether the channels still exist is the references check's job.
      *
      * @param array $stored
-     * @param array<int, string> $channels
      * @return array<int, string>
      */
-    private function relationshipProblems(array $stored, array $channels): array
+    private function relationshipProblems(array $stored): array
     {
         $problems = [];
 
@@ -148,17 +143,12 @@ class SettingsContract
                         break;
                     }
                 }
-                foreach ($stored['channels'] as $id) {
-                    if ((is_string($id) || is_int($id)) && !isset($channels[(int) $id])) {
-                        $problems[] = 'channels names nonexistent channel id ' . $id;
-                    }
-                }
             }
         }
 
         if (isset($stored['order_field']) && !in_array($stored['order_field'], ['title', 'entry_date'], true)) {
-            $problems[] = 'order_field "' . (is_scalar($stored['order_field']) ? $stored['order_field'] : gettype($stored['order_field']))
-                    . '" is not title|entry_date';
+            $shown = is_scalar($stored['order_field']) ? $stored['order_field'] : gettype($stored['order_field']);
+            $problems[] = 'order_field "' . $shown . '" is not title|entry_date';
         }
 
         return $problems;
@@ -246,17 +236,5 @@ class SettingsContract
         }
         $settings = @unserialize($decoded, ['allowed_classes' => false]);
         return is_array($settings) ? $settings : [];
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function channelNames(): array
-    {
-        $names = [];
-        foreach (ee()->db->select('channel_id, channel_name')->get('channels')->result_array() as $row) {
-            $names[(int) $row['channel_id']] = $row['channel_name'];
-        }
-        return $names;
     }
 }
