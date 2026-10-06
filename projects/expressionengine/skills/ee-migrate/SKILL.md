@@ -167,3 +167,6 @@ public function verify(): array
   locally and none on staging. Only rehearsal on a target copy, plus `verify()`, catches it.
 - Field settings are base64-serialized; Grid column settings are JSON. Do not mix encodings.
 - Server backups never go inside the release tree; the next deploy deletes them.
+- EE caches each field's column names on disk by field id, with no expiry (`FieldModel::getColumnNames()`). After
+  any database swap (import, snapshot restore, a staging reset) run `cache:clear`, or EE queries columns of the
+  field that used to have that id. The runner does this in `rehearse`; do it by hand after a manual import.

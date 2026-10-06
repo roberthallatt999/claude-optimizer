@@ -140,7 +140,7 @@ check "backup dir inside releases -> exit 2" '[[ $RC -eq 2 && "$OUT" == *"outsid
 EQREL="$(make_runner eqrel PROD_BACKUP_DIR=/srv/prod/httpdocs/current)"
 run "$EQREL" prod status
 check "backup dir equal to release path -> exit 2" '[[ $RC -eq 2 && "$OUT" == *"outside the release tree"* ]]'
-grep -q '^EE_MIGRATE_VERSION="1.5.0"' "$TEMPLATE" && ok "EE_MIGRATE_VERSION present" || ko "EE_MIGRATE_VERSION present"
+grep -q '^EE_MIGRATE_VERSION="1.5.1"' "$TEMPLATE" && ok "EE_MIGRATE_VERSION present" || ko "EE_MIGRATE_VERSION present"
 EMPTY="$(make_runner empty SSH_HOST=)"
 run "$EMPTY" prod status
 check "empty config -> exit 2" '[[ $RC -eq 2 && "$OUT" == *"SSH_HOST is empty"* ]]'
@@ -599,6 +599,18 @@ echo 'not json' > "$STUB_DIR/local-status.json"
 run "$RUNNER" staging rehearse
 check "rehearse: unreadable local status -> exit 2, no snapshot" \
   '[[ $RC -eq 2 && "$OUT" == *"local cps:migrate-status unreadable"* ]] && ! grep -q "ddev snapshot" "$STUB_LOG"'
+
+# Rehearsal clears the local EE cache after the import and again after the restore: EE caches field
+# column names by field id with no expiry, and the copy reuses ids for other fields (seen 2026-10-06).
+reset_stub
+rm -f "$STAMPS/staging.json"
+echo '{"pending":["a"],"commit":"abc123","counts":{"tables":10,"channel_titles":5,"channel_fields":3}}' > "$STUB_DIR/migrate-status.json"
+run "$RUNNER" staging rehearse
+check "rehearse clears the EE cache twice" '[[ $RC -eq 0 && "$(grep -c "cache:clear" "$STUB_LOG")" -eq 2 ]]'
+check "first cache clear precedes the first migrate" \
+  '[[ "$(grep -n "cache:clear" "$STUB_LOG" | head -1 | cut -d: -f1)" -lt "$(grep -n "migrate --core" "$STUB_LOG" | head -1 | cut -d: -f1)" ]]'
+check "second cache clear follows the snapshot restore" \
+  '[[ "$(grep -n "cache:clear" "$STUB_LOG" | tail -1 | cut -d: -f1)" -gt "$(grep -n "snapshot restore" "$STUB_LOG" | tail -1 | cut -d: -f1)" ]]'
 
 # Every named migration runs, not just the first. The stubs read stdin like real ssh and `ddev exec`,
 # so a loop that feeds the names on stdin stops after one and these fail (the 2026-10-05 false PASS).
