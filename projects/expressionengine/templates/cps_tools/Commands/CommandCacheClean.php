@@ -18,9 +18,6 @@ use ExpressionEngine\Cli\Cli;
  */
 class CommandCacheClean extends Cli
 {
-    /** How many times to try emptying the namespace before reporting failure. */
-    private const ATTEMPTS = 3;
-
     /**
      * @var string
      */
@@ -61,21 +58,22 @@ class CommandCacheClean extends Cli
         // Page, tag and database caches first, the same as `cache:clear`.
         ee()->functions->clear_caching('all');
 
-        // A web request can write a cache file while the folder is being emptied, which makes the first
-        // pass report failure (seen on cps staging, 2026-10-06). Try a few times before giving up.
-        $cleaned = false;
+        // A fresh release has no site cache folder until the first web request creates it, and the file
+        // driver's clean() returns false for a folder that is not there (delete_files() in file_helper).
+        // Nothing to clean is success, not failure (seen on cps staging right after two deploys, 2026-10-06).
+        if (ee()->cache->get_adapter() === 'file') {
+            $siteName = (string) ee()->config->item('site_short_name');
+            $folder = rtrim(PATH_CACHE, '/') . '/' . $siteName;
 
-        for ($attempt = 1; $attempt <= self::ATTEMPTS; $attempt++) {
-            if (@ee()->cache->clean() !== false) {
-                $cleaned = true;
-                break;
+            if ($siteName !== '' && ! is_dir($folder)) {
+                $this->info('cps:cache-clean: no site cache folder yet, nothing to clean');
+
+                return;
             }
-
-            usleep(250000);
         }
 
-        if (! $cleaned) {
-            $this->error('cps:cache-clean: the site cache could not be cleaned after ' . self::ATTEMPTS . ' attempts');
+        if (ee()->cache->clean() === false) {
+            $this->error('cps:cache-clean: the site cache could not be cleaned');
             exit(1);
         }
 

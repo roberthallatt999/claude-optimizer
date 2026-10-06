@@ -94,7 +94,7 @@ roll back, byte-identical schema. Run it with no type list after every EE upgrad
 out of date for that version. It rolls back only a migration it recorded itself. If a run stops with
 "cpsref rows already exist locally", run it once with `--cleanup`.
 
-## cps_tools commands (add-on 2.2.1, no install needed)
+## cps_tools commands (add-on 2.2.2, no install needed)
 
 - `cps:cache-clean` (empties the site cache namespace; no database change); `cps:logs`;
   `cps:migrate-status [--json]`; `cps:migrate-verify <name>` (name before options; exit 0/1/2).
