@@ -55,6 +55,8 @@ Run from the repo root, plainly (see "Guard and permissions"):
 - `rehearse` snapshots the local DB, imports a fresh copy of the target database, runs the pending set one
   file at a time with `verify()` after each, schema-checks, then restores the snapshot. It writes a stamp
   (target, pending set, `pending_hash`, time) under `.admin-scripts/.ee-migrate/stamps/` (local, gitignored).
+  It also prints a content impact report (per-entry hashes before vs after, by channel). Review rule: every
+  changed or deleted entry must belong to this change; live content from other sections must not appear.
 - `apply` refuses unless the remote pending set equals `--expect` exactly, a passing stamp for that set and
   `pending_hash` is under 24 hours old, and the release contains those files. It then takes and verifies a
   backup, migrates one file at a time (`migrate --core --steps=1`), runs `verify()`, schema-checks

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Stub ddev: logs the call and answers from canned files in $STUB_DIR. Real ddev is never used.
 # Real ssh and `ddev exec` read stdin. Do the same, so a runner loop that feeds names on stdin is caught.
-[ -t 0 ] || cat >/dev/null
+stdin_data=""
+[ -t 0 ] || stdin_data="$(cat)"
 echo "ddev $*" >> "$STUB_LOG"
 d="$STUB_DIR"
 args="$*"
@@ -45,6 +46,24 @@ case "$args" in
   *cps:schema-check*--baseline=*) exit "$(cat "$d/local-baseline-exit" 2>/dev/null || echo 0)" ;;
   *cps:schema-check*) exit "$(cat "$d/local-compare-exit" 2>/dev/null || echo 0)" ;;
   mysql*)
+    # Content impact report: generator query, generated script on stdin, entry lookup.
+    if [[ "$args" == *information_schema* ]]; then
+      [[ -f "$d/impact-gen-fail" ]] && exit 1
+      echo "-- generated impact script"
+      exit 0
+    fi
+    if [[ "$args" == *exp_channel_titles* ]]; then
+      [[ -f "$d/impact-titles-fail" ]] && exit 1
+      cat "$d/impact-titles" 2>/dev/null
+      exit 0
+    fi
+    if [[ "$stdin_data" == "-- generated impact script"* ]]; then
+      i="$(cat "$d/impact-count" 2>/dev/null || echo 0)"
+      echo $((i + 1)) > "$d/impact-count"
+      [[ -f "$d/impact-exec-fail" ]] && exit 1
+      if [[ $i -eq 0 ]]; then cat "$d/impact-before" 2>/dev/null; else cat "$d/impact-after" 2>/dev/null; fi
+      exit 0
+    fi
     # First call = state before the migration, later calls = state after rollback.
     n="$(cat "$d/mysql-count" 2>/dev/null || echo 0)"
     echo $((n + 1)) > "$d/mysql-count"

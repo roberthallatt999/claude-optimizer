@@ -5,7 +5,7 @@
 # Note: the remote backup verification script (stat -c, ls -t, chmod) and the server-side
 # schema-check baseline are first exercised against a real server on the first real staging run.
 set -uo pipefail
-EE_MIGRATE_VERSION="1.4.0"
+EE_MIGRATE_VERSION="1.5.0"
 # >>> site config (preserved by ee-migrate-install.sh)
 SITE=""                 # e.g. cps
 SSH_HOST=""             # e.g. websvr-cps
@@ -565,6 +565,144 @@ verify_import_counts() {
   echo "ee-migrate: import verified (tables $l_tables, fields $l_fields, titles $l_titles)"
 }
 
+# --- content impact report (rehearsal) ---------------------------------------
+# Tables that always change on a live site and say nothing about content. Only those with an entry_id
+# column would be hashed anyway. Comma-separated, quoted for SQL.
+IMPACT_EXCLUDE_TABLES="'exp_migrations','exp_sessions','exp_security_hashes','exp_cp_log','exp_throttle','exp_cache','exp_search','exp_stash','exp_revision_tracker','exp_entry_versioning','exp_file_usage','exp_channel_entries_autosave'"
+IMPACT_REASON=""
+
+# Generator query: one pair of SELECTs per base table that has an entry_id column. They emit
+# tab-separated "T table entry_id row_count crc_sum" lines plus one "C table 0 column_list 0" line per table.
+impact_generator_sql() {
+  cat <<SQL
+SET SESSION group_concat_max_len = 1073741824;
+SELECT GROUP_CONCAT(CONCAT(
+  'SELECT ''C'', ''', c.table_name, ''', 0, ''', c.cols, ''', 0; ',
+  'SELECT ''T'', ''', c.table_name, ''', entry_id, COUNT(*), SUM(CRC32(CONCAT_WS(''#'', ', c.exprs,
+  '))) FROM \`', c.table_name, '\` GROUP BY entry_id;'
+) ORDER BY c.table_name SEPARATOR ' ')
+FROM (
+  SELECT col.table_name AS table_name,
+    GROUP_CONCAT(col.column_name ORDER BY col.ordinal_position) AS cols,
+    GROUP_CONCAT(CONCAT('IFNULL(\`', col.column_name, '\`, ''~'')') ORDER BY col.ordinal_position) AS exprs
+  FROM information_schema.columns col
+  WHERE col.table_schema = DATABASE()
+    AND col.table_name IN (
+      SELECT table_name FROM information_schema.columns
+      WHERE table_schema = DATABASE() AND column_name = 'entry_id')
+    AND col.table_name IN (
+      SELECT table_name FROM information_schema.tables
+      WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE')
+    AND col.table_name NOT IN ($IMPACT_EXCLUDE_TABLES)
+  GROUP BY col.table_name
+) c;
+SQL
+}
+
+# impact_snapshot <out-file> — sets IMPACT_REASON and returns 1 on any problem. Never fatal.
+impact_snapshot() {
+  local out="$1" queries="$EM_DIR/rehearse-impact-queries.txt" generated
+  generated="$(ddev mysql "$LOCAL_DB" -N -e "$(impact_generator_sql)" 2>/dev/null)" \
+    || { IMPACT_REASON="generator query failed"; return 1; }
+  [[ -n "$generated" ]] || { IMPACT_REASON="no tables with an entry_id column"; return 1; }
+  printf '%s\n' "$generated" > "$queries"
+  ddev mysql "$LOCAL_DB" -N < "$queries" > "$out" 2>/dev/null \
+    || { rm -f "$queries"; IMPACT_REASON="snapshot query failed"; return 1; }
+  rm -f "$queries"
+  [[ -s "$out" ]] || { IMPACT_REASON="snapshot is empty"; return 1; }
+  return 0
+}
+
+# impact_compare <before> <after> <titles> — titles is tab-separated "entry_id channel url_title status".
+# Output is sorted and deterministic.
+impact_compare() {
+  LC_ALL=C awk -F'\t' '
+    FNR == 1 { f++ }
+    f == 1 || f == 2 {
+      if ($1 == "C") { cols[f, $2] = $4; seen[f, $2] = 1; tables[$2] = 1 }
+      else if ($1 == "T") { val[f, $2, $3] = $4 "|" $5; pair[$3, $2] = 1 }
+      next
+    }
+    f == 3 { chan[$1] = $2; url[$1] = $3; st[$1] = $4 }
+    END {
+      for (t in tables) {
+        if (!(seen[1, t] && seen[2, t])) { skip[t] = 1; continue }
+        if (cols[1, t] == cols[2, t]) continue
+        skip[t] = 1
+        na = split(cols[1, t], b, ","); nb = split(cols[2, t], a, ",")
+        for (i = 1; i <= na; i++) ib[b[i]] = 1
+        for (i = 1; i <= nb; i++) ia[a[i]] = 1
+        add = ""; drop = ""
+        for (i = 1; i <= nb; i++) if (!(a[i] in ib)) add = add (add == "" ? "" : ",") a[i]
+        for (i = 1; i <= na; i++) if (!(b[i] in ia)) drop = drop (drop == "" ? "" : ",") b[i]
+        diffs = ""
+        if (add != "") diffs = "+" add
+        if (drop != "") diffs = diffs (diffs == "" ? "" : " ") "-" drop
+        if (diffs == "") diffs = "column order"
+        printf "B\t%s\t  columns changed: %s (%s; rows not compared)\n", t, t, diffs
+        delete ib; delete ia
+      }
+      for (k in pair) {
+        split(k, p, SUBSEP); id = p[1]; t = p[2]
+        if (t in skip) continue
+        h1 = ((1, t, id) in val); h2 = ((2, t, id) in val)
+        if (h1) inb[id] = 1
+        if (h2) ina[id] = 1
+        if (h1 != h2 || (h1 && val[1, t, id] != val[2, t, id])) diff[id] = 1
+      }
+      for (id in inb) all[id] = 1
+      for (id in ina) all[id] = 1
+      for (id in all) {
+        if (inb[id] && ina[id]) { if (!diff[id]) continue; kind = "changed" }
+        else if (ina[id]) kind = "new"
+        else kind = "deleted"
+        if (kind == "deleted" && id + 0 != 0) { ch = "(deleted)"; label = "#" id }
+        else if (id + 0 == 0 || !(id in chan)) { ch = "(no entry)"; label = "" }
+        else {
+          ch = chan[id]; label = url[id]
+          if (st[id] != "" && st[id] != "open") label = label " [" st[id] "]"
+        }
+        printf "A\t%s\t%s\t%012d\t%s\n", ch, label, id, kind
+      }
+    }
+  ' "$1" "$2" "$3" | LC_ALL=C sort | awk -F'\t' '
+    $1 == "A" {
+      if (!($2 in known)) { known[$2] = 1; order[++n] = $2 }
+      count[$2, $5]++
+      if ($3 != "" && shown[$2] < 8) { shown[$2]++; labels[$2] = labels[$2] (labels[$2] == "" ? "" : ", ") $3 }
+    }
+    $1 == "B" { cl[++m] = $3 }
+    END {
+      for (i = 1; i <= n; i++) {
+        c = order[i]
+        line = sprintf("  %s: %d changed, %d new, %d deleted", c, count[c, "changed"], count[c, "new"], count[c, "deleted"])
+        if (labels[c] != "") line = line " — " labels[c]
+        print line
+      }
+      for (i = 1; i <= m; i++) print cl[i]
+      if (n + m == 0) print "  none"
+      else print "  review: every changed or deleted entry above must belong to this change; live content from other sections must not appear."
+    }
+  '
+}
+
+# impact_report — prints the report, or why it is unavailable. Never changes the rehearsal result.
+impact_report() {
+  local titles="$EM_DIR/rehearse-impact-titles.txt"
+  if [[ -z "$IMPACT_REASON" ]]; then
+    ddev mysql "$LOCAL_DB" -N -e "SELECT t.entry_id, IFNULL(c.channel_name, ''), IFNULL(t.url_title, ''), IFNULL(t.status, '') FROM exp_channel_titles t LEFT JOIN exp_channels c ON c.channel_id = t.channel_id" \
+      > "$titles" 2>/dev/null || IMPACT_REASON="entry lookup failed"
+  fi
+  if [[ -n "$IMPACT_REASON" ]]; then
+    echo "ee-migrate: content impact report unavailable ($IMPACT_REASON)"
+    return 0
+  fi
+  echo "ee-migrate: content impact on the $TARGET copy (existing data the migrations changed):"
+  impact_compare "$EM_DIR/rehearse-impact-before.txt" "$EM_DIR/rehearse-impact-after.txt" "$titles" \
+    || echo "  (comparison failed)"
+  return 0
+}
+
 cmd_rehearse() {
   local name dump rc local_out
   preflight_sync_library
@@ -603,6 +741,8 @@ cmd_rehearse() {
   local_eecli cps:schema-check --json "--baseline=$EM_REL/rehearse-baseline.json" >/dev/null
   rc=$?
   [[ $rc -lt 2 ]] || fail "local schema-check baseline could not run"
+  IMPACT_REASON=""
+  impact_snapshot "$EM_DIR/rehearse-impact-before.txt" || true
   expect_names
   for name in "${EXPECT_NAMES[@]}"; do
     echo "ee-migrate: rehearsing $name locally"
@@ -616,6 +756,8 @@ cmd_rehearse() {
   local_eecli cps:schema-check --json "--compare=$EM_REL/rehearse-baseline.json" >/dev/null \
     || fail "rehearsal schema-check (smoke on) reports new failures or could not run"
   write_rehearsal_stamp
+  [[ -n "$IMPACT_REASON" ]] || impact_snapshot "$EM_DIR/rehearse-impact-after.txt" || true
+  impact_report
   echo "ee-migrate: rehearsal PASS for $TARGET ($EXPECT); local database will be restored from the snapshot"
 }
 

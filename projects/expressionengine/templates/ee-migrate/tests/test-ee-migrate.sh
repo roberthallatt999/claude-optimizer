@@ -140,7 +140,7 @@ check "backup dir inside releases -> exit 2" '[[ $RC -eq 2 && "$OUT" == *"outsid
 EQREL="$(make_runner eqrel PROD_BACKUP_DIR=/srv/prod/httpdocs/current)"
 run "$EQREL" prod status
 check "backup dir equal to release path -> exit 2" '[[ $RC -eq 2 && "$OUT" == *"outside the release tree"* ]]'
-grep -q '^EE_MIGRATE_VERSION="1.4.0"' "$TEMPLATE" && ok "EE_MIGRATE_VERSION present" || ko "EE_MIGRATE_VERSION present"
+grep -q '^EE_MIGRATE_VERSION="1.5.0"' "$TEMPLATE" && ok "EE_MIGRATE_VERSION present" || ko "EE_MIGRATE_VERSION present"
 EMPTY="$(make_runner empty SSH_HOST=)"
 run "$EMPTY" prod status
 check "empty config -> exit 2" '[[ $RC -eq 2 && "$OUT" == *"SSH_HOST is empty"* ]]'
@@ -626,6 +626,86 @@ touch "$STUB_DIR/local-migrate-noop"
 run "$RUNNER" staging rehearse
 check "rehearse: not recorded -> FAIL, snapshot restored, no stamp, no rollback" \
   '[[ $RC -eq 1 && "$OUT" == *"was not recorded"* ]] && grep -q "ddev snapshot restore ee-migrate-" "$STUB_LOG" && [[ ! -f "$STAMPS/staging.json" ]] && ! grep -q "migrate:rollback" "$STUB_LOG"'
+
+# ---- content impact report (rehearsal) ----
+# tab-separated snapshot lines: kind table entry_id a b (T = rows,hash; C = column list)
+t() { printf '%s\t%s\t%s\t%s\t%s\n' "$@"; }
+impact_rehearse() { # impact_rehearse — a clean one-migration rehearsal with canned impact files
+  reset_stub
+  rm -f "$STAMPS/staging.json"
+  echo '{"pending":["a"],"commit":"abc123","counts":{"tables":10,"channel_titles":5,"channel_fields":3}}' > "$STUB_DIR/migrate-status.json"
+  echo '{"pending":["a"],"counts":{"tables":10,"channel_titles":5,"channel_fields":3}}' > "$STUB_DIR/local-status.json"
+}
+impact_data() {
+  { t C exp_channel_data 0 entry_id,field_id_1 0
+    t T exp_channel_data 0 4 70
+    t T exp_channel_data 10 1 111
+    t T exp_channel_data 11 1 222
+    t T exp_channel_data 99 1 444
+    t C exp_extra 0 entry_id,keep,gone 0
+    t T exp_extra 10 1 5
+    t T exp_extra 11 1 6; } > "$STUB_DIR/impact-before"
+  { t C exp_channel_data 0 entry_id,field_id_1 0
+    t T exp_channel_data 0 4 71
+    t T exp_channel_data 10 1 999
+    t T exp_channel_data 11 1 222
+    t T exp_channel_data 20 1 301
+    t T exp_channel_data 21 1 302
+    t C exp_extra 0 entry_id,keep,fresh 0
+    t T exp_extra 10 1 55; } > "$STUB_DIR/impact-after"
+  { t 10 events cccymh-2027 open
+    t 11 events other-event open
+    t 20 news zzz-new closed
+    t 21 news aaa-new open; } > "$STUB_DIR/impact-titles"
+}
+impact_rehearse
+impact_data
+run "$RUNNER" staging rehearse
+expected_impact="ee-migrate: content impact on the staging copy (existing data the migrations changed):
+  (deleted): 0 changed, 0 new, 1 deleted — #99
+  (no entry): 1 changed, 0 new, 0 deleted
+  events: 1 changed, 0 new, 0 deleted — cccymh-2027
+  news: 0 changed, 2 new, 0 deleted — aaa-new, zzz-new [closed]
+  columns changed: exp_extra (+fresh -gone; rows not compared)
+  review: every changed or deleted entry above must belong to this change; live content from other sections must not appear."
+check "impact report: exact text" '[[ "$OUT" == *"$expected_impact"* ]]'
+check "impact report: before the PASS line, rehearsal passes" \
+  '[[ $RC -eq 0 && "$OUT" == *"existing data the migrations changed"*"rehearsal PASS"* ]]'
+check "impact report: snapshots written before and after" \
+  '[[ -s "$EE_MIGRATE_REPO_ROOT/.admin-scripts/.ee-migrate/rehearse-impact-before.txt" && -s "$EE_MIGRATE_REPO_ROOT/.admin-scripts/.ee-migrate/rehearse-impact-after.txt" ]]'
+check "impact report: stamp still written" '[[ "$(jq -r .rehearsal "$STAMPS/staging.json")" == "pass" ]]'
+check "impact generator: filters entry_id, base tables, excluded bookkeeping tables" \
+  'grep -q "column_name = .entry_id." "$STUB_LOG" && grep -q "BASE TABLE" "$STUB_LOG" && grep -q "exp_sessions" "$STUB_LOG" && grep -q "group_concat_max_len" "$STUB_LOG"'
+check "impact snapshots: before the first migrate, after the last" \
+  '[[ "$(grep -n "^ddev mysql" "$STUB_LOG" | head -1 | cut -d: -f1)" -lt "$(grep -n "migrate --core" "$STUB_LOG" | head -1 | cut -d: -f1)" && "$(grep -n "^ddev mysql" "$STUB_LOG" | tail -3 | head -1 | cut -d: -f1)" -gt "$(grep -n "migrate --core" "$STUB_LOG" | tail -1 | cut -d: -f1)" ]]'
+
+impact_rehearse
+cp /dev/null "$STUB_DIR/impact-titles"
+t C exp_channel_data 0 entry_id,field_id_1 0 > "$STUB_DIR/impact-before"
+t T exp_channel_data 10 1 111 >> "$STUB_DIR/impact-before"
+cp "$STUB_DIR/impact-before" "$STUB_DIR/impact-after"
+run "$RUNNER" staging rehearse
+check "impact report: nothing changed -> none" \
+  '[[ $RC -eq 0 && "$OUT" == *"existing data the migrations changed):"$'"'"'\n'"'"'"  none"* && "$OUT" != *"review:"* ]]'
+
+impact_rehearse
+impact_data
+touch "$STUB_DIR/impact-gen-fail"
+run "$RUNNER" staging rehearse
+check "impact snapshot fails -> unavailable, rehearsal still passes" \
+  '[[ $RC -eq 0 && "$OUT" == *"content impact report unavailable (generator query failed)"* && "$OUT" == *"rehearsal PASS"* && "$(jq -r .rehearsal "$STAMPS/staging.json")" == "pass" ]]'
+impact_rehearse
+impact_data
+touch "$STUB_DIR/impact-exec-fail"
+run "$RUNNER" staging rehearse
+check "impact exec fails -> unavailable, rehearsal still passes" \
+  '[[ $RC -eq 0 && "$OUT" == *"report unavailable (snapshot query failed)"* && -f "$STAMPS/staging.json" ]]'
+impact_rehearse
+impact_data
+touch "$STUB_DIR/impact-titles-fail"
+run "$RUNNER" staging rehearse
+check "entry lookup fails -> unavailable, rehearsal still passes" \
+  '[[ $RC -eq 0 && "$OUT" == *"report unavailable (entry lookup failed)"* && -f "$STAMPS/staging.json" ]]'
 
 echo
 echo "Passed: $pass  Failed: $fail"
