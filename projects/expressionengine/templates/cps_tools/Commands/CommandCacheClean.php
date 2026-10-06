@@ -18,6 +18,9 @@ use ExpressionEngine\Cli\Cli;
  */
 class CommandCacheClean extends Cli
 {
+    /** How many times to try emptying the namespace before reporting failure. */
+    private const ATTEMPTS = 3;
+
     /**
      * @var string
      */
@@ -58,8 +61,21 @@ class CommandCacheClean extends Cli
         // Page, tag and database caches first, the same as `cache:clear`.
         ee()->functions->clear_caching('all');
 
-        if (ee()->cache->clean() === false) {
-            $this->error('cps:cache-clean: the site cache could not be cleaned');
+        // A web request can write a cache file while the folder is being emptied, which makes the first
+        // pass report failure (seen on cps staging, 2026-10-06). Try a few times before giving up.
+        $cleaned = false;
+
+        for ($attempt = 1; $attempt <= self::ATTEMPTS; $attempt++) {
+            if (@ee()->cache->clean() !== false) {
+                $cleaned = true;
+                break;
+            }
+
+            usleep(250000);
+        }
+
+        if (! $cleaned) {
+            $this->error('cps:cache-clean: the site cache could not be cleaned after ' . self::ATTEMPTS . ' attempts');
             exit(1);
         }
 

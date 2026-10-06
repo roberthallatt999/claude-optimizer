@@ -5,7 +5,7 @@ return [
     'author_url'  => 'https://cps.ca/',
     'name'        => 'CPS Tools',
     'description' => 'CLI tools: logs, migration status/verify, schema check (read-only) and cache clean.',
-    'version'     => '2.2.0',
+    'version'     => '2.2.1',
     'namespace'   => 'CPS\Tools',
     'commands'    => [
         'cps:cache-clean' => CPS\Tools\Commands\CommandCacheClean::class,
