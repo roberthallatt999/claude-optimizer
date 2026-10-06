@@ -5,7 +5,7 @@
 # Note: the remote backup verification script (stat -c, ls -t, chmod) and the server-side
 # schema-check baseline are first exercised against a real server on the first real staging run.
 set -uo pipefail
-EE_MIGRATE_VERSION="1.5.1"
+EE_MIGRATE_VERSION="1.5.2"
 # >>> site config (preserved by ee-migrate-install.sh)
 SITE=""                 # e.g. cps
 SSH_HOST=""             # e.g. websvr-cps
@@ -533,8 +533,8 @@ rehearse_cleanup() {
     if ddev snapshot restore "$SNAPSHOT"; then
       ddev snapshot --cleanup --name "$SNAPSHOT" -y || echo "ee-migrate: WARN could not delete snapshot $SNAPSHOT" >&2
       # The cache now describes the rehearsal copy, not the restored database: clear it again.
-      local_eecli cache:clear >/dev/null 2>&1 \
-        || echo "ee-migrate: WARN could not clear the local EE cache after the restore — run: $LOCAL_EECLI cache:clear" >&2
+      local_eecli cps:cache-clean >/dev/null 2>&1 \
+        || echo "ee-migrate: WARN could not clean the local EE cache after the restore — run: $LOCAL_EECLI cps:cache-clean" >&2
     else
       echo "ee-migrate: FAIL could not restore local snapshot — run: ddev snapshot restore $SNAPSHOT" >&2
       rc=1
@@ -739,8 +739,9 @@ cmd_rehearse() {
   import_db "$(target_db)" "$LOCAL_DB" || fail "import_db failed"
   # EE caches each field's column names on disk with no expiry (FieldModel::getColumnNames). The copy
   # reuses field ids for different fields, so a stale cache makes EE query columns that do not exist.
-  local_eecli cache:clear >/dev/null 2>&1 \
-    || fail "could not clear the local EE cache after the import — the rehearsal would run on stale field metadata"
+  # `cache:clear` does not touch that cache; cps:cache-clean (cps_tools >= 2.2.0) empties the site namespace.
+  local_eecli cps:cache-clean >/dev/null 2>&1 \
+    || fail "could not clean the local EE cache after the import (needs cps_tools 2.2.0+) — the rehearsal would run on stale field metadata"
   rm -f "$dump.sql.gz" "$dump.sql"
   verify_import_counts
 

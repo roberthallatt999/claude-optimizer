@@ -4,10 +4,11 @@ return [
     'author'      => 'Canadian Paediatric Society',
     'author_url'  => 'https://cps.ca/',
     'name'        => 'CPS Tools',
-    'description' => 'Read-only CLI tools: logs, migration status/verify, schema check.',
-    'version'     => '2.1.0',
+    'description' => 'CLI tools: logs, migration status/verify, schema check (read-only) and cache clean.',
+    'version'     => '2.2.0',
     'namespace'   => 'CPS\Tools',
     'commands'    => [
+        'cps:cache-clean' => CPS\Tools\Commands\CommandCacheClean::class,
         'cps:logs' => CPS\Tools\Commands\CommandLogs::class,
         'cps:migrate-status' => CPS\Tools\Commands\CommandMigrateStatus::class,
         'cps:migrate-verify' => CPS\Tools\Commands\CommandMigrateVerify::class,

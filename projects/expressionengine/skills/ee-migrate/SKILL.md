@@ -94,9 +94,10 @@ roll back, byte-identical schema. Run it with no type list after every EE upgrad
 out of date for that version. It rolls back only a migration it recorded itself. If a run stops with
 "cpsref rows already exist locally", run it once with `--cleanup`.
 
-## cps_tools commands (add-on 2.1.0, no install needed)
+## cps_tools commands (add-on 2.2.0, no install needed)
 
-- `cps:logs`; `cps:migrate-status [--json]`; `cps:migrate-verify <name>` (name before options; exit 0/1/2).
+- `cps:cache-clean` (empties the site cache namespace; no database change); `cps:logs`;
+  `cps:migrate-status [--json]`; `cps:migrate-verify <name>` (name before options; exit 0/1/2).
 - `cps:schema-check [--json] [--no-smoke] [--baseline=F] [--compare=F]` (exit 0 pass, 1 new failures,
   2 could not run). `fail` means it breaks publish, save or a migration; leftovers are `warn`. The settings
   contract and the smoke test are DDEV-only; on servers they emit one "skipped: not DDEV" warning.
@@ -168,5 +169,6 @@ public function verify(): array
 - Field settings are base64-serialized; Grid column settings are JSON. Do not mix encodings.
 - Server backups never go inside the release tree; the next deploy deletes them.
 - EE caches each field's column names on disk by field id, with no expiry (`FieldModel::getColumnNames()`). After
-  any database swap (import, snapshot restore, a staging reset) run `cache:clear`, or EE queries columns of the
-  field that used to have that id. The runner does this in `rehearse`; do it by hand after a manual import.
+  any database swap (import, snapshot restore, a staging reset) run `cps:cache-clean`, or EE queries columns of
+  the field that used to have that id. `cache:clear` does NOT empty this cache. The runner runs
+  `cps:cache-clean` in `rehearse`; run it by hand after a manual import.
