@@ -145,7 +145,7 @@ cat > "$(settings "$p")" <<'JSON'
   "enableAllProjectMcpServers": true,
   "permissions": {
     "allow": ["Bash(git push:*)", "Bash(rm:*)", "Bash(my-custom-command:*)"],
-    "deny": ["Read(**/super-secret-project-file.txt)"]
+    "deny": ["Read(**/super-secret-project-file.txt)", "Read(**/*.log)", "Read(**/storage/logs/*)"]
   },
   "hooks": {
     "SessionStart": [{"hooks": [{"type": "command", "command": ".claude/hooks/session-start"}]}],
@@ -163,6 +163,8 @@ assert_eq "project allow rules keep their order" '["Bash(git push:*)","Bash(rm:*
 assert_eq "shared deny rules all present beside the project's own" "0" "$(missing_policy_deny "$p")"
 assert_eq "project deny rule kept beside shared rules" "true" \
   "$(jqs "$p" '.permissions.deny | index("Read(**/super-secret-project-file.txt)") != null')"
+assert_eq "retired log deny rules withdrawn (logs are content-scanned instead)" "0" \
+  "$(jqs "$p" '[.permissions.deny[] | select(. == "Read(**/*.log)" or . == "Read(**/storage/logs/*)")] | length')"
 assert_eq "existing SessionStart hook preserved" "1" "$(jqs "$p" '.hooks.SessionStart | length')"
 assert_eq "existing PostToolUse hook preserved" "npx prettier --write" "$(jqs "$p" '.hooks.PostToolUse[0].hooks[0].command')"
 assert_eq "safety-guard hook added" "1" "$(jqs "$p" '.hooks.PreToolUse | length')"

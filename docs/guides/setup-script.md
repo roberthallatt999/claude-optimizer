@@ -555,13 +555,18 @@ Knex migration — which stays readable.
 | `wordpress` | `wp-config.php`, `wp-salt.php`, `wp-content/backup*/`, `ai1wm-backups/`, `updraft/`, `*.sql` | `wp-admin/`, `wp-includes/`, `wp-content/uploads/`, `cache/` |
 | `wordpress-roots` | `config/environments/`, `web/app/backup*/`, `*.sql` | `web/wp/`, `web/app/uploads/`, Sage `public/`, `dist/` |
 | `expressionengine` | `system/user/config/`, `*.sql` | `system/ee/`, `themes/ee/`, `system/user/cache/`, `images/uploads/` |
-| `coilpack` | `system/user/config/`, `storage/framework/sessions/`, `storage/logs/`, `*.sql` | `system/ee/`, `bootstrap/cache/`, `public/build/` |
-| `craftcms` (+ headless) | `storage/backups/`, `storage/logs/`, `storage/runtime/validation.key`, `*.sql` | `storage/runtime/`, `web/cpresources/` |
+| `coilpack` | `system/user/config/`, `storage/framework/sessions/`, `*.sql` | `storage/logs/`, `system/ee/`, `bootstrap/cache/`, `public/build/` |
+| `craftcms` (+ headless) | `storage/backups/`, `storage/runtime/validation.key`, `*.sql` | `storage/logs/`, `storage/runtime/`, `web/cpresources/` |
 | `nextjs`, `t3-stack` | `.vercel/project.json`, `prisma/*.db` | `.next/`, `.vercel/`, `out/` |
 | `nuxt`, `sveltekit`, `remix`, `astro`, `docusaurus` | — | `.nuxt/`, `.output/`, `.svelte-kit/`, `.astro/`, `.docusaurus/`, `build/`, `dist/` |
 | `astro-strapi` | `backend/.env`, `backend/.tmp/` | `backend/build/`, `backend/public/uploads/` |
 | `astro-sanity` | `.sanity/`, `sanity.cli.env*` | `dist-studio/` |
 | `astro-tina` | Tina Cloud prebuild config | `.tina/`, `tina/__generated__/` |
+
+Logs are advisory on every stack. They are not blocked by path: the content scan below
+denies any log holding a credential-shaped string, so a clean log stays readable for
+debugging. `--refresh` withdraws the `Read(**/*.log)` and `logs/` deny rules older
+policies added.
 
 The baseline itself covers `.env*`, `credentials*`, `secrets*`, `.git/`, `*.sqlite`,
 `*.db`, `*.dump`, `*dump*.sql`, `dumps/`, `db_snapshots/` in `[deny]`, and

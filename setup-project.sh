@@ -1956,6 +1956,11 @@ apply_protected_paths() {
 # itself is never copied into the project.
 SECURITY_POLICY_FILE="$SCRIPT_DIR/projects/common/security.settings.local.json"
 
+# Deny rules earlier policies shipped and this one no longer does. The merge is otherwise
+# additive, so without this list --refresh would leave them in every deployed project. Logs
+# are scanned for credentials by safety-guard.sh instead of being blocked by path.
+RETIRED_POLICY_DENY='["Read(**/*.log)","Read(**/logs/*)","Read(**/storage/logs/*)","Read(**/storage/logs/**)"]'
+
 apply_security_policy() {
   local guard_src="$SCRIPT_DIR/projects/common/hooks/safety-guard.sh"
   local guard_dest="$PROJECT_DIR/.claude/hooks/safety-guard.sh"
@@ -2003,13 +2008,14 @@ merge_security_policy() {
     existing=$(cat "$target_file")
   fi
 
-  if ! merged=$(printf '%s' "$existing" | jq -s --argjson extra "$PROTECTED_DENY_RULES_JSON" "$JQ_SETTINGS_DEFS"'
+  if ! merged=$(printf '%s' "$existing" | jq -s --argjson extra "$PROTECTED_DENY_RULES_JSON" \
+      --argjson retired "$RETIRED_POLICY_DENY" "$JQ_SETTINGS_DEFS"'
     .[0] as $e | .[1] as $p |
     ($p.hooks.PreToolUse[0].matcher // null) as $matcher |
     ((if ($e | has("$schema")) then {} else {"$schema": $p["$schema"]} end) + $e)
     | .enableAllProjectMcpServers = ($e.enableAllProjectMcpServers // false)
     | .permissions = (($e.permissions // {})
-        | .deny = union(union($e.permissions.deny; $p.permissions.deny); $extra)
+        | .deny = union(union(($e.permissions.deny // []) - $retired; $p.permissions.deny); $extra)
         | .ask = union($e.permissions.ask; $p.permissions.ask)
         | if $p.permissions.allow then .allow = union($e.permissions.allow; $p.permissions.allow) else . end)
     | .hooks = ((.hooks // {}) | merge_hooks($p.hooks))
@@ -2034,7 +2040,9 @@ merge_security_policy() {
         ([($b.permissions.allow // [])[] | norm_rule | select(. as $r | any($pol[]; . == $r))] | length),
         (if guard_matcher($a) != "" and guard_matcher($a) != guard_matcher($b) then 1 else 0 end) ] | @tsv'
   )
-  local summary="+${added_allow} allow, +${added_deny} deny, +${added_ask} ask, +${added_hooks} PreToolUse hook"
+  # A retired rule can make the deny count shrink; print its sign either way.
+  [[ "$added_deny" == -* ]] || added_deny="+$added_deny"
+  local summary="+${added_allow} allow, ${added_deny} deny, +${added_ask} ask, +${added_hooks} PreToolUse hook"
   if [[ "$matcher_changed" == "1" ]]; then summary="$summary, hook matcher updated"; fi
 
   if [[ "$DRY_RUN" == true ]]; then
@@ -3257,8 +3265,9 @@ do_uninstall() {
       echo -e "  ${YELLOW}⚠${NC}  $(rel_path "$settings") is invalid JSON — left unchanged"
       continue
     fi
-    updated=$(jq --slurpfile p "$SECURITY_POLICY_FILE" --argjson extra "$protected_rules" "$JQ_SETTINGS_DEFS"'
-      (($p[0].permissions.deny // []) + ($p[0].permissions.ask // []) + $extra) as $pol
+    updated=$(jq --slurpfile p "$SECURITY_POLICY_FILE" --argjson extra "$protected_rules" \
+        --argjson retired "$RETIRED_POLICY_DENY" "$JQ_SETTINGS_DEFS"'
+      (($p[0].permissions.deny // []) + ($p[0].permissions.ask // []) + $extra + $retired) as $pol
       | if .permissions then
           .permissions.deny = ((.permissions.deny // []) - $pol)
           | .permissions.ask = ((.permissions.ask // []) - $pol)
