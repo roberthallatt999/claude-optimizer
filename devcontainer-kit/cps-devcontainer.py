@@ -262,6 +262,20 @@ def assess(p: Project) -> None:
     if p.ddev:
         if p.ddev_addons:
             p.info.append("DDEV add-ons reachable by name: " + ", ".join(p.ddev_addons))
+        for addon in p.ddev_addons:
+            # The metadata is often committed while .ddev/docker-compose.*.yaml is gitignored, so a
+            # checkout can record an add-on DDEV no longer starts. Linking to it would stop the
+            # container from starting.
+            manifest = p.path / ".ddev" / "addon-metadata" / addon / "manifest.yaml"
+            text = manifest.read_text() if manifest.exists() else ""
+            repo = re.search(r"^repository:\s*(\S+)", text, re.M)
+            missing = [f for f in re.findall(r"^\s*-\s*(docker-compose\.[\w.-]+\.ya?ml)\s*$", text, re.M)
+                       if not (p.path / ".ddev" / f).exists()]
+            if missing:
+                p.notes.append(f"DDEV add-on '{addon}' is recorded in .ddev/addon-metadata, but "
+                               f"{', '.join(missing)} is missing, so DDEV doesn't run it and the container "
+                               f"won't start. On the Mac: `ddev add-on get {repo.group(1) if repo else addon}` "
+                               "and `ddev restart`, or remove the link from docker-compose.yml.")
         if p.ddev_links:
             p.info.append("Carried over from .ddev overrides: external_links " + ", ".join(p.ddev_links))
     if not p.ddev:
