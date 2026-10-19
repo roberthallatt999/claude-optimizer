@@ -84,7 +84,7 @@ Run these in the container (via `devcontainer exec`, or ask the user to paste th
 | Database (DDEV + PHP) | `mariadb -h db -u db -pdb db -e 'SELECT DATABASE()'` | `db` |
 | No sudo escape | `sudo -n iptables -F` | refused |
 | No Mac secrets | `ls ~/.aws ~/.ssh; echo ${SSH_AUTH_SOCK:-none}` | missing, `none` |
-| No git credentials | in a **VS Code** terminal in the container (the CLI doesn't attach VS Code's Git extension): `env \| grep -cE 'ASKPASS\|VSCODE_GIT_IPC'`; `GIT_TERMINAL_PROMPT=0 git push --dry-run origin HEAD` | `0`; the push fails for lack of credentials |
+| No git credentials | in a **VS Code** terminal in the container (the CLI doesn't attach VS Code's Git extension): `GIT_TERMINAL_PROMPT=0 git push --dry-run origin HEAD`; optionally `env \| grep -E '^(GIT_ASKPASS\|VSCODE_GIT_IPC_HANDLE)=.'` | push fails with `could not read Username … terminal prompts disabled` (git tried no askpass); the grep prints nothing (blanked variables can exist empty, so don't count names) |
 | Guardrails locked | `touch .devcontainer/x .claude/hooks/x` | `Read-only file system` |
 | App runs | the project's test command / build, e.g. `php artisan test`, `npm run build` | same result as on DDEV, apart from expected sandbox differences |
 | Claude settings | in `claude`: `/status` | Setting sources include *Enterprise managed settings (file)*; no claude.ai MCP servers |
