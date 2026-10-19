@@ -29,6 +29,7 @@ What it decides per project:
 | composer.json repos, Craft, `.mcp.json` context7 | Added to `allowed-domains.txt`; private repos flagged (no auth.json inside) |
 | `.claude/hooks/safety-guard.sh` | Re-registered in root-owned managed settings |
 | Guardrail files that exist | Mounted read-only, along with `.devcontainer/` itself |
+| Shell history (always) | `command-history` volume at `/commandhistory`; bash and zsh write to it after every command, so it survives rebuilds |
 | Git credentials (always) | None inside: `SSH_AUTH_SOCK`, `GIT_ASKPASS` and VS Code's `VSCODE_GIT_*` blanked, `GIT_TERMINAL_PROMPT=0`, `git.terminalAuthentication` and `github.gitAuthentication` off. Pair with the Mac user settings `dev.containers.copyGitConfig: false` and `dev.containers.gitCredentialHelperConfigLocation: "none"` |
 
 `files/init-firewall.sh` is the firewall (installed as `/usr/local/sbin/sandbox-firewall.sh`).

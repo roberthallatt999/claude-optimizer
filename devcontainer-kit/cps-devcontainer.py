@@ -37,7 +37,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 KIT = Path(__file__).resolve().parent
 FILES = KIT / "files"
 
@@ -396,8 +396,25 @@ def gen_dockerfile(p: Project) -> str:
         "",
         f"RUN mkdir -p /home/{user}/.claude && chown -R {user}:{user} /home/{user}/.claude",
         "",
-    ]
+    ] + history_lines(user)
     return "\n".join(lines)
+
+
+def history_lines(user: str) -> list[str]:
+    """Dockerfile lines that keep bash/zsh history on the command-history volume."""
+    return [
+        "# Shell history survives rebuilds: it lives on the command-history volume, written after",
+        "# every command. A local Docker volume, never committed or shared with the Mac.",
+        "RUN mkdir -p /commandhistory \\",
+        "    && touch /commandhistory/.bash_history /commandhistory/.zsh_history \\",
+        f"    && chown -R {user}:{user} /commandhistory \\",
+        "    && printf '%s\\n' 'export HISTFILE=/commandhistory/.bash_history' \\",
+        "         'PROMPT_COMMAND=\"history -a${PROMPT_COMMAND:+; $PROMPT_COMMAND}\"' >> /etc/bash.bashrc \\",
+        "    && mkdir -p /etc/zsh \\",
+        "    && printf '%s\\n' 'HISTFILE=/commandhistory/.zsh_history' 'SAVEHIST=10000' 'HISTSIZE=10000' \\",
+        "         'setopt INC_APPEND_HISTORY' >> /etc/zsh/zshrc",
+        "",
+    ]
 
 
 def gen_compose(p: Project) -> str:
@@ -406,6 +423,7 @@ def gen_compose(p: Project) -> str:
            "      # Guardrails and the sandbox definition, read-only inside (edit them on the Mac)."]
     vol += guardrail_mounts(p)
     vol += ["      # Claude Code sign-in + settings survive rebuilds.", f"      - claude-config:/home/{user}/.claude",
+            "      # Shell history (bash/zsh) survives rebuilds.", "      - command-history:/commandhistory",
             "      # Deliberately NOT mounted: ~/.aws, ~/.ssh, ~/.gitconfig, the Docker socket."]
     env = [f"      CLAUDE_CONFIG_DIR: /home/{user}/.claude",
            '      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"']
@@ -435,7 +453,7 @@ def gen_compose(p: Project) -> str:
     if p.uses_ddev:
         out += ["    networks:", "      - ddev", "", "networks:", "  ddev:", "    external: true",
                 "    name: ddev_default"]
-    out += ["", "volumes:", "  claude-config:", ""]
+    out += ["", "volumes:", "  claude-config:", "  command-history:", ""]
     return "\n".join(out)
 
 
