@@ -68,6 +68,15 @@ project_find -type f \( -name '*.js' -o -name '*.mjs' -o -name '*.cjs' -o -name 
   -o -name '*.less' -o -name '*.styl' -o -name '*.pcss' -o -name tsconfig.json \) -print 2>/dev/null \
   | relative | LC_ALL=C sort | head -n 20000 > "$files"
 
+# Files matched against library asset names. Laravel's scaffold resources/js/bootstrap.js sets up
+# axios, not Bootstrap; it stays in $files so it still counts as first-party code.
+asset_files="$work/asset-files.txt"
+if [[ -f "$project/artisan" ]]; then
+  grep -vxE 'resources/js/bootstrap\.(js|ts)' "$files" > "$asset_files"
+else
+  cp "$files" "$asset_files"
+fi
+
 project_find -type f \( -name '*.html' -o -name '*.htm' -o -name '*.twig' -o -name '*.php' -o -name '*.astro' \
   -o -name '*.vue' -o -name '*.svelte' -o -name '*.liquid' -o -name '*.njk' -o -name '*.hbs' -o -name '*.ejs' \
   -o -name '*.jsx' -o -name '*.tsx' \) -print 2>/dev/null | LC_ALL=C sort | head -n 5000 > "$templates"
@@ -166,10 +175,10 @@ while IFS="$US" read -r id label category npm_re asset_re markup_re attr_re; do
     # Library files (not tooling/extension matches like *.scss) are excluded from first-party counts.
     case "$category" in
       css|ui|js-framework|js-lib)
-        RE="$asset_re" awk '{ n = split($0, p, "/"); if (tolower(p[n]) ~ ENVIRON["RE"]) print }' "$files" >> "$vendored" ;;
+        RE="$asset_re" awk '{ n = split($0, p, "/"); if (tolower(p[n]) ~ ENVIRON["RE"]) print }' "$asset_files" >> "$vendored" ;;
     esac
     if [[ -z "$evidence" ]]; then
-      hit=$(RE="$asset_re" awk '{ n = split($0, p, "/"); if (tolower(p[n]) ~ ENVIRON["RE"]) { print; exit } }' "$files")
+      hit=$(RE="$asset_re" awk '{ n = split($0, p, "/"); if (tolower(p[n]) ~ ENVIRON["RE"]) { print; exit } }' "$asset_files")
       if [[ -n "$hit" ]]; then
         evidence="$hit"
         version=$(printf '%s' "${hit##*/}" | awk '{ if (match($0, /[0-9]+\.[0-9]+(\.[0-9]+)?/)) print substr($0, RSTART, RLENGTH) }')
