@@ -84,6 +84,7 @@ Run these in the container (via `devcontainer exec`, or ask the user to paste th
 | Database (DDEV + PHP) | `mariadb -h db -u db -pdb db -e 'SELECT DATABASE()'` | `db` |
 | No sudo escape | `sudo -n iptables -F` | refused |
 | No Mac secrets | `ls ~/.aws ~/.ssh; echo ${SSH_AUTH_SOCK:-none}` | missing, `none` |
+| No git credentials | in a **VS Code** terminal in the container (the CLI doesn't attach VS Code's Git extension): `env \| grep -cE 'ASKPASS\|VSCODE_GIT_IPC'`; `GIT_TERMINAL_PROMPT=0 git push --dry-run origin HEAD` | `0`; the push fails for lack of credentials |
 | Guardrails locked | `touch .devcontainer/x .claude/hooks/x` | `Read-only file system` |
 | App runs | the project's test command / build, e.g. `php artisan test`, `npm run build` | same result as on DDEV, apart from expected sandbox differences |
 | Claude settings | in `claude`: `/status` | Setting sources include *Enterprise managed settings (file)*; no claude.ai MCP servers |
@@ -105,6 +106,7 @@ Compare test counts with the same suite on DDEV (`ddev artisan test` etc.). A fa
 | A test needs to write into a sibling repo | Add a writable overlay for that folder only (step 4). |
 | DB unreachable after `ddev restart`, npm/Composer timing out | `sudo /usr/local/sbin/sandbox-firewall.sh` in the container. |
 | Can't save `.devcontainer/` files in the container window | Expected: edit on the Mac. |
+| `git push` works from the container over HTTPS | VS Code's Git extension answers the password prompt with the Mac's GitHub login. Kit 1.1.0 blanks `GIT_ASKPASS`/`VSCODE_GIT_*` and turns off `git.terminalAuthentication`; port that into older `.devcontainer/devcontainer.json` files and rebuild. |
 
 ## 7. Projects that already have a .devcontainer
 
