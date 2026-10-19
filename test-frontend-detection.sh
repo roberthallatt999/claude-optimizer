@@ -158,6 +158,20 @@ assert_eq "custom only: minified files not counted as first-party" "1|assets/js"
 assert_eq "custom only: CSS counted" "1|assets/css" "$(custom "$out" css)"
 
 d=$(tmp_dir)
+touch "$d/artisan"
+mkdir -p "$d/resources/js"
+echo "import axios from 'axios';" > "$d/resources/js/bootstrap.js"
+echo "import './bootstrap';" > "$d/resources/js/app.js"
+out=$(bash "$DETECT" "$d")
+assert_eq "Laravel: resources/js/bootstrap.js is not Bootstrap" "" "$(lib "$out" bootstrap)"
+assert_eq "Laravel: resources/js/bootstrap.js counted as first-party" "2|resources/js" "$(custom "$out" js)"
+mkdir -p "$d/public/js"
+echo '/* Bootstrap v5.3.2 */' > "$d/public/js/bootstrap.min.js"
+out=$(bash "$DETECT" "$d")
+assert_eq "Laravel: a vendored Bootstrap file is still detected" "css||public/js/bootstrap.min.js" \
+  "$(lib "$out" bootstrap)"
+
+d=$(tmp_dir)
 mkdir -p "$d/assets/js"
 echo '/* jQuery */' > "$d/assets/js/jquery-3.6.0.min.js"
 echo '$(function () {});' > "$d/assets/js/main.js"
