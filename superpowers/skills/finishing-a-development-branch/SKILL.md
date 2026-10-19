@@ -1,6 +1,6 @@
 ---
 name: finishing-a-development-branch
-description: Use when implementation is complete, all tests pass, and you need to decide how to integrate the work - guides completion of development work by presenting structured options for merge, PR, or cleanup
+description: Use when implementation is complete, all tests pass, and you need to decide how to integrate the work - guides completion of development work by presenting structured options for merge, push, or cleanup
 ---
 
 # Finishing a Development Branch
@@ -30,7 +30,7 @@ Tests failing (<N> failures). Must fix before completing:
 
 [Show failures]
 
-Cannot proceed with merge/PR until tests pass.
+Cannot proceed with merge or push until tests pass.
 ```
 
 Stop. Don't proceed to Step 2.
@@ -54,7 +54,7 @@ Present exactly these 4 options:
 Implementation complete. What would you like to do?
 
 1. Merge back to <base-branch> locally
-2. Push and create a Pull Request
+2. Merge back to <base-branch> and push it
 3. Keep the branch as-is (I'll handle it later)
 4. Discard this work
 
@@ -86,21 +86,19 @@ git branch -d <feature-branch>
 
 Then: Cleanup worktree (Step 5)
 
-#### Option 2: Push and Create PR
+#### Option 2: Merge and Push
+
+No pull request: the project has a single developer and nobody reviews PRs. Open one only
+when the user asks for it.
+
+Do Option 1's steps, then, once the tests pass on the merged result:
 
 ```bash
-# Push branch
-git push -u origin <feature-branch>
+# Pushing needs the user's explicit yes for this push. It may start a deploy run.
+git push origin <base-branch>
 
-# Create PR
-gh pr create --title "<title>" --body "$(cat <<'EOF'
-## Summary
-<2-3 bullets of what changed>
-
-## Test Plan
-- [ ] <verification steps>
-EOF
-)"
+# If the feature branch was pushed earlier, remove it from the remote too
+git push origin --delete <feature-branch>
 ```
 
 Then: Cleanup worktree (Step 5)
@@ -154,14 +152,14 @@ git worktree remove <worktree-path>
 | Option | Merge | Push | Keep Worktree | Cleanup Branch |
 |--------|-------|------|---------------|----------------|
 | 1. Merge locally | ✓ | - | - | ✓ |
-| 2. Create PR | - | ✓ | ✓ | - |
+| 2. Merge and push | ✓ | ✓ | - | ✓ |
 | 3. Keep as-is | - | - | ✓ | - |
 | 4. Discard | - | - | - | ✓ (force) |
 
 ## Common Mistakes
 
 **Skipping test verification**
-- **Problem:** Merge broken code, create failing PR
+- **Problem:** Merge broken code, push failing code
 - **Fix:** Always verify tests before offering options
 
 **Open-ended questions**
@@ -169,8 +167,8 @@ git worktree remove <worktree-path>
 - **Fix:** Present exactly 4 structured options
 
 **Automatic worktree cleanup**
-- **Problem:** Remove worktree when might need it (Option 2, 3)
-- **Fix:** Only cleanup for Options 1 and 4
+- **Problem:** Remove worktree when might need it (Option 3)
+- **Fix:** Only cleanup for Options 1, 2 and 4
 
 **No confirmation for discard**
 - **Problem:** Accidentally delete work
