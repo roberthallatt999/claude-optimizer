@@ -162,9 +162,22 @@ if [ -z "$owned" ]; then
   exit 0
 fi
 
-# Fully detached so the Dev Containers CLI doesn't wait on it.
+# In its own session, not just nohup'd: when this script exits, VS Code kills its whole process
+# group, and nohup only shields against SIGHUP. macOS has no setsid(1), so perl calls setsid(2).
 # shellcheck disable=SC2086
-nohup /bin/bash "$0" --watch "$workspace" $owned \
-  </dev/null >>"$STATE_DIR/watch.log" 2>&1 &
-echo "$! $owned" > "$state_file"
+nohup /usr/bin/perl -MPOSIX -e 'POSIX::setsid() >= 0 or die "setsid: $!\n"; exec @ARGV or die "exec: $!\n"' \
+  /bin/bash "$0" --watch "$workspace" $owned </dev/null >>"$STATE_DIR/watch.log" 2>&1 &
+watcher=$!
+# Exiting before the watcher has left our process group would get it killed along with us.
+tries=0
+until [ "$(ps -o pgid= -p "$watcher" 2>/dev/null | tr -d ' ')" = "$watcher" ]; do
+  tries=$((tries + 1))
+  if [ "$tries" -gt 50 ]; then
+    echo "Warning: the DDEV stop-on-close watcher did not start; stop DDEV by hand. Log: $STATE_DIR/watch.log"
+    rm -f "$state_file"
+    exit 0
+  fi
+  sleep 0.1
+done
+echo "$watcher $owned" > "$state_file"
 echo "Will stop DDEV ($owned) when this container closes. Log: $STATE_DIR/watch.log"
