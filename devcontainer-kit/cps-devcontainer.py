@@ -38,7 +38,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VERSION = "1.5.0"
+VERSION = "1.6.0"
 KIT = Path(__file__).resolve().parent
 KIT_SCRIPTS = ("ddev-shim.sh", "ensure-ddev.sh", "init-firewall.sh")
 FILES = KIT / "files"
@@ -416,15 +416,16 @@ def gen_dockerfile(p: Project) -> str:
         lines += ["# DDEV's MariaDB has no TLS; newer MariaDB clients require it by default.",
                   "RUN mkdir -p /etc/mysql/mariadb.conf.d \\",
                   "    && printf '[client]\\nskip-ssl\\n' > /etc/mysql/mariadb.conf.d/99-ddev-no-ssl.cnf", ""]
-    lines += [
+    lines += node_and_claude_lines(p, image, user) + [
         "# Root-owned, baked into the image: nothing inside the container can edit these.",
         "# (A non-standard path: a dev container feature once replaced /usr/local/bin/init-firewall.sh.)",
+        "# allowed-domains.txt isn't copied: the firewall reads it from the read-only .devcontainer",
+        "# mount at every start, so an allowlist edit needs a reopen, not a rebuild.",
         "COPY init-firewall.sh /usr/local/sbin/sandbox-firewall.sh",
-        "COPY allowed-domains.txt /etc/claude-firewall/allowed-domains.txt",
         "COPY ddev-shim.sh /usr/local/bin/ddev",
         "COPY managed-settings.json /etc/claude-code/managed-settings.json",
         "RUN chmod 755 /usr/local/sbin/sandbox-firewall.sh /usr/local/bin/ddev \\",
-        "    && chmod 644 /etc/claude-firewall/allowed-domains.txt /etc/claude-code/managed-settings.json",
+        "    && chmod 644 /etc/claude-code/managed-settings.json",
         "",
         "# New Docker volumes start out owned by root; this hands the fixed list below to the",
         "# container user. Root-owned, no arguments, so sudo can't be pointed at anything else.",
@@ -442,8 +443,51 @@ def gen_dockerfile(p: Project) -> str:
         "",
         f"RUN mkdir -p /home/{user}/.claude && chown -R {user}:{user} /home/{user}/.claude",
         "",
+        "# The vscode-extensions volume starts as a copy of this folder, so it belongs to the user.",
+        f"RUN mkdir -p /home/{user}/.vscode-server/extensions && chown -R {user}:{user} /home/{user}/.vscode-server",
+        "",
     ] + history_lines(user) + github_lines(user)
     return "\n".join(lines)
+
+
+def node_major(p: Project) -> str:
+    """The official node image tag for the project's Node version ("20.11" -> "20", unset -> "lts")."""
+    ver = (p.node or "lts").lstrip("v")
+    return ver.split(".")[0] if ver[:1].isdigit() else "lts"
+
+
+def node_and_claude_lines(p: Project, image: str, user: str) -> list[str]:
+    """Node (when the base image lacks it) and the Claude Code CLI, as ordinary image layers.
+
+    Dev container features run after the whole Dockerfile and were never reused from the build
+    cache, so every rebuild downloaded Node and Claude Code again (1.5-2 min on the PHP images).
+    These layers sit above the COPY lines, so they're rebuilt only when this block changes.
+    Global npm installs go to a user-owned prefix, as on the javascript-node images.
+    """
+    claude = ["# Claude Code CLI, native build: it carries its own runtime, so the project's Node version",
+              "# (18 and 20 here; current npm releases need 22) can't hold it back. It updates itself in",
+              "# ~/.local; Rebuild Without Cache to start from the latest.",
+              f"USER {user}",
+              "RUN curl -fsSL https://claude.ai/install.sh | bash",
+              "USER root",
+              f"ENV PATH=/home/{user}/.local/bin:$PATH",
+              ""]
+    if "javascript-node" in image:
+        return claude
+    tag = f"{node_major(p)}-bookworm-slim"
+    return [f"# Node {node_major(p)}, copied from the official image (no nvm download on rebuilds).",
+            f"COPY --from=node:{tag} /usr/local/bin/node /usr/local/bin/node",
+            f"COPY --from=node:{tag} /usr/local/lib/node_modules /usr/local/lib/node_modules",
+            "RUN ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \\",
+            "    && ln -sf ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \\",
+            "    && ln -sf ../lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack",
+            "# Global npm installs go to a user-owned prefix, on PATH for every shell.",
+            f"RUN mkdir -p /usr/local/share/npm-global /usr/local/etc \\",
+            f"    && chown {user}:{user} /usr/local/share/npm-global \\",
+            "    && echo 'prefix=/usr/local/share/npm-global' > /usr/local/etc/npmrc \\",
+            "    && echo 'export PATH=/usr/local/share/npm-global/bin:$PATH' > /etc/profile.d/npm-global.sh",
+            "ENV PATH=/usr/local/share/npm-global/bin:$PATH",
+            ""] + claude
 
 
 def own_volume_lines(p: Project, user: str) -> list[str]:
@@ -491,7 +535,9 @@ def gen_compose(p: Project) -> str:
     vol += ["      # Claude Code sign-in + settings survive rebuilds.", f"      - claude-config:/home/{user}/.claude",
             "      # Shell history (bash/zsh) survives rebuilds.", "      - command-history:/commandhistory",
             "      # GitHub login (gh), shared by every CPS container: sign in once, revoke on GitHub.",
-            f"      - gh-config:/home/{user}/.config/gh"]
+            f"      - gh-config:/home/{user}/.config/gh",
+            "      # VS Code extensions survive rebuilds (Claude Code's alone is 135 MB).",
+            f"      - vscode-extensions:/home/{user}/.vscode-server/extensions"]
     if p.node_modules:
         vol += ["      # Linux node_modules, kept apart from the Mac's: native modules (sharp, esbuild) are per OS.",
                 f"      - node-modules:{p.node_modules}"]
@@ -531,7 +577,7 @@ def gen_compose(p: Project) -> str:
     if p.uses_ddev:
         out += ["    networks:", "      - ddev", "", "networks:", "  ddev:", "    external: true",
                 "    name: ddev_default"]
-    out += ["", "volumes:", "  claude-config:", "  command-history:", "  gh-config:",
+    out += ["", "volumes:", "  claude-config:", "  command-history:", "  vscode-extensions:", "  gh-config:",
             f"    name: {GH_CONFIG_VOLUME}"]
     if p.node_modules:
         out.append("  node-modules:")
@@ -542,14 +588,11 @@ def gen_compose(p: Project) -> str:
 def gen_devcontainer_json(p: Project) -> str:
     image, user = base_image(p)
     features = {}
-    # The Claude Code feature installs through npm and fails without Node, so every image
-    # except javascript-node (which ships it) gets the Node feature, project uses Node or not.
-    if "javascript-node" not in image:
-        features["ghcr.io/devcontainers/features/node:1"] = {"version": p.node or "lts"}
+    # Node and Claude Code are installed by the Dockerfile (node_and_claude_lines), where the
+    # build cache keeps them; features were reinstalled on every rebuild.
     if p.python and (p.php or p.node):
         features["ghcr.io/devcontainers/features/python:1"] = {"version": "3.12"}
     features["ghcr.io/devcontainers/features/github-cli:1"] = {}
-    features["ghcr.io/anthropics/devcontainer-features/claude-code:1.0"] = {}
 
     ext, settings = vscode_tooling(p)
 
@@ -685,7 +728,8 @@ def gen_allowed_domains(p: Project) -> str:
     out = [f"# Generated by cps-devcontainer {VERSION}.",
            "# Hosts the sandbox may reach. GitHub's IP ranges are added automatically, and the",
            "# container's own network (DDEV's, when used) is always reachable.",
-           "# Edit on the Mac, then Dev Containers: Rebuild Container.", ""]
+           "# Edit on the Mac, then reopen the container (or run `sudo /usr/local/sbin/sandbox-firewall.sh`",
+           "# inside); no rebuild needed. Inside, the file is read-only.", ""]
     for title, hosts in groups:
         out.append(f"# {title}")
         out += hosts
@@ -761,7 +805,8 @@ def gen_readme(p: Project) -> str:
     lines += ["## Manual follow-ups", ""]
     lines += [f"- [ ] {n}" for n in p.notes] if p.notes else ["None."]
     lines += ["", "## If something's blocked", "",
-              "- A site you need: add it to `allowed-domains.txt` on the Mac, rebuild.",
+              "- A site you need: add it to `allowed-domains.txt` on the Mac, then reopen the container or run "
+              "`sudo /usr/local/sbin/sandbox-firewall.sh` inside (no rebuild).",
               "- npm/Composer or the DB stops answering (after `ddev restart`, or CDN IPs rotate): "
               "`sudo /usr/local/sbin/sandbox-firewall.sh`.",
               "- `.devcontainer/` and the guardrail files are read-only inside: edit them on the Mac.", ""]

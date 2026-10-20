@@ -99,7 +99,9 @@ Compare test counts with the same suite on DDEV (`ddev artisan test` etc.). A fa
 
 | Symptom | Fix |
 | --- | --- |
-| Claude Code feature fails: `Node.js and npm are required` | Kit before 2026-10-19 skipped the Node feature when `package.json` wasn't at the root. Add `"ghcr.io/devcontainers/features/node:1": { "version": "<DDEV nodejs_version>" }` or regenerate the preview. |
+| Every rebuild takes 1.5–2 min (Node and Claude Code reinstall) | Kit before 1.6.0 installed both as dev container features, which are never reused from the build cache. Port 1.6.0: Node and the native Claude Code installer in the Dockerfile, above the COPY lines; drop the `node:1` and `claude-code` features. |
+| `claude --version` stuck on an old release | npm installs of Claude Code need Node 22; on Node 18/20 npm silently picks an old one. 1.6.0 uses the native installer. |
+| Claude Code extension never appears in the container | The firewall blocks `<publisher>.gallerycdn.vsassets.io`; regenerate `allowed-domains.txt` (or add the publisher's two hosts), then reopen. If a download fails later, the CDN's addresses rotated: `sudo /usr/local/sbin/sandbox-firewall.sh`. |
 | Firewall dies after `Fetching GitHub IP ranges...`, DNS `EAI_AGAIN` | The image runs a different firewall script. Compare `md5sum /usr/local/sbin/sandbox-firewall.sh` with `.devcontainer/init-firewall.sh`; rebuild without cache. |
 | `SSL is required, but the server does not support it` | The `99-ddev-no-ssl.cnf` line is missing from the Dockerfile. |
 | `Access denied … host=db` for the wrong database | `db` alias points at the wrong container; check `external_links`. |

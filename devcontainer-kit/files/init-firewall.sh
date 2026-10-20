@@ -4,7 +4,13 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-ALLOWLIST=/etc/claude-firewall/allowed-domains.txt
+# Read from the project's .devcontainer, which is bind-mounted read-only: edits are made on
+# the Mac and apply at the next start, without rebuilding the image.
+ALLOWLIST=/workspace/.devcontainer/allowed-domains.txt
+if [ ! -r "$ALLOWLIST" ]; then
+  echo "WARNING: $ALLOWLIST not found; only GitHub and the container's network will be allowed."
+  ALLOWLIST=/dev/null
+fi
 
 # 1. Save Docker's internal DNS rules (127.0.0.11) before flushing.
 DOCKER_DNS_RULES=$(iptables-save -t nat | grep "127\.0\.0\.11" || true)
@@ -33,33 +39,39 @@ iptables -A OUTPUT -o lo -j ACCEPT
 
 ipset create allowed-domains hash:net
 
+# 3 and 4 build one batch for `ipset restore`: an `ipset add` per address and a `dig` per host,
+# one after another, took 20-30s on a cold start; loaded in one go with parallel lookups it's a few.
+ipv4_cidr='^[0-9]{1,3}(\.[0-9]{1,3}){3}(/[0-9]{1,2})?$'
+batch=""
+
 # 3. GitHub IP ranges (web, api, git).
 echo "Fetching GitHub IP ranges..."
 gh_ranges=$(curl -s --connect-timeout 10 https://api.github.com/meta || true)
 if echo "$gh_ranges" | jq -e '.web and .api and .git' >/dev/null 2>&1; then
   while read -r cidr; do
-    [[ "$cidr" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]] || continue
-    ipset add allowed-domains "$cidr" -exist
+    [[ "$cidr" =~ $ipv4_cidr ]] && batch+="add allowed-domains $cidr"$'\n'
   done < <(echo "$gh_ranges" | jq -r '(.web + .api + .git)[]' | grep -v ':' | aggregate -q)
 else
   echo "WARNING: could not fetch GitHub ranges; GitHub will be blocked."
 fi
 
-# 4. Domains from the allowlist file.
-while read -r domain; do
-  domain="${domain%%#*}"; domain="$(echo "$domain" | xargs)"
-  [ -z "$domain" ] && continue
-  ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}' || true)
+# 4. Domains from the allowlist file, looked up in parallel ("<domain> <ip>" per answer).
+resolve() { dig +noall +answer A "$1" | awk -v d="$1" '$4 == "A" {print d, $5}'; }
+export -f resolve
+domains=$(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$ALLOWLIST" | grep -v '^$' || true)
+resolved=$(printf '%s\n' $domains | xargs -r -P 16 -n 1 bash -c 'resolve "$1"' _ || true)
+for domain in $domains; do
+  ips=$(echo "$resolved" | awk -v d="$domain" '$1 == d {print $2}')
   if [ -z "$ips" ]; then
     echo "WARNING: could not resolve $domain (skipped)"
     continue
   fi
-  while read -r ip; do
-    [[ "$ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || continue
-    ipset add allowed-domains "$ip" -exist
-  done <<< "$ips"
+  for ip in $ips; do
+    [[ "$ip" =~ $ipv4_cidr ]] && batch+="add allowed-domains $ip"$'\n'
+  done
   echo "Allowed $domain"
-done < "$ALLOWLIST"
+done
+printf '%s' "$batch" | ipset -exist restore
 
 # 5. Allow the container's own network: DDEV's (its databases, add-ons, router)
 #    when the project uses DDEV, otherwise the compose default network.
