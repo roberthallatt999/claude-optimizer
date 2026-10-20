@@ -110,6 +110,7 @@ Compare test counts with the same suite on DDEV (`ddev artisan test` etc.). A fa
 | DB unreachable after `ddev restart`, npm/Composer timing out | `sudo /usr/local/sbin/sandbox-firewall.sh` in the container. |
 | Can't save `.devcontainer/` files in the container window | Expected: edit on the Mac. |
 | `git push` asks for a username, or `gh` says not logged in | Kit 1.3.0 routes GitHub through gh: run `gh auth login` once in any CPS container (the `cps-gh-config` volume is shared). Older `.devcontainer/` folders need the 1.3.0 Dockerfile, compose and managed-settings changes ported by hand. |
+| Dev server page spins forever on the Mac (`localhost:5173`), but `curl` inside works | Vite is listening on `[::1]` only (`ss -ltn`); VS Code forwards to 127.0.0.1. Kit 1.3.0 sets `NODE_OPTIONS=--dns-result-order=ipv4first` in docker-compose.yml; recreate the container. |
 | `npm ci` fails with `EACCES` on `node_modules` | The volume is still root-owned: `sudo /usr/local/sbin/sandbox-own-volumes.sh`. |
 | A Mac build breaks after installing in the container (or the reverse) | `node_modules` isn't on its own volume yet; port the 1.3.0 compose change and rebuild. |
 

@@ -496,6 +496,10 @@ def gen_compose(p: Project) -> str:
     vol += ["      # Deliberately NOT mounted: ~/.aws, ~/.ssh, ~/.gitconfig, the Mac's ~/.config/gh, the Docker socket."]
     env = [f"      CLAUDE_CONFIG_DIR: /home/{user}/.claude",
            '      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"']
+    if p.package:
+        env += ["      # Node resolves `localhost` to ::1 here, so dev servers (Vite) listen on IPv6 only and",
+                "      # VS Code's port forwarding, which connects to 127.0.0.1, hangs. Prefer IPv4.",
+                '      NODE_OPTIONS: "--dns-result-order=ipv4first"']
     if p.php:
         env.append('      # The base image enables Xdebug; off unless asked for (XDEBUG_MODE=debug php …).')
         env.append('      XDEBUG_MODE: "off"')
