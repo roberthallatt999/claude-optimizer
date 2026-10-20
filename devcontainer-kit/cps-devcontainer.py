@@ -649,8 +649,21 @@ ALWAYS_EXTENSIONS = ["anthropic.claude-code", "humao.rest-client", "editorconfig
                      "usernamehw.errorlens", "mhutchie.git-graph", "mikestead.dotenv"]
 
 
+def gallery_hosts(extensions: list[str]) -> list[str]:
+    """Marketplace hosts that serve these extensions' packages.
+
+    VS Code downloads each extension from <publisher>.gallerycdn.vsassets.io (falling back to
+    <publisher>.gallery.vsassets.io). When the container can't reach them, VS Code downloads on the
+    Mac and copies the package in; that relay never finished for Claude Code's large per-platform
+    package, so the extension silently went missing.
+    """
+    publishers = sorted({e.split(".", 1)[0].lower() for e in extensions})
+    return [f"{pub}.{cdn}.vsassets.io" for pub in publishers for cdn in ("gallerycdn", "gallery")]
+
+
 def gen_allowed_domains(p: Project) -> str:
-    groups = [("Claude Code", CLAUDE_HOSTS), ("VS Code extensions", VSCODE_HOSTS)]
+    groups = [("Claude Code", CLAUDE_HOSTS), ("VS Code extensions", VSCODE_HOSTS),
+              ("VS Code extension downloads (one CDN host per publisher)", gallery_hosts(vscode_tooling(p)[0]))]
     if p.package or p.node or any(s.get("command") == "npx" for s in p.mcp.values()):
         groups.append(("npm", NPM_HOSTS))
     if p.composer:
