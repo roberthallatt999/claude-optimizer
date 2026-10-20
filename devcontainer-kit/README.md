@@ -18,7 +18,7 @@ What it decides per project:
 
 | Signal | Result |
 | --- | --- |
-| `.ddev/config.yaml` + PHP | Joins `ddev_default`; `ddev-<name>-db` as host `db`; MariaDB client with TLS off; `initializeCommand` checks the DB is running |
+| `.ddev/config.yaml` + PHP | Joins `ddev_default`; `ddev-<name>-db` as host `db`; MariaDB client with TLS off; `initializeCommand` runs `ensure-ddev.sh` on the Mac (below) |
 | `.ddev` overrides | `external_links` carried over; mounts outside the project flagged; `~/.aws`/`~/.ssh` never carried |
 | DDEV add-ons | `ddev-<name>-<addon>` reachable as `<addon>` |
 | `.ddev/commands/web/*` | Run through the `ddev` shim with `/var/www/html` → `/workspace` (so `ddev ee`, `ddev mcp-serve`, `ddev wp` work) |
@@ -41,3 +41,14 @@ What it decides per project:
 
 The `cps-devcontainer` skill drives this end to end: survey, generate, resolve follow-ups,
 rebuild, verify, commit.
+
+## DDEV starts and stops with the container
+
+`initializeCommand` runs `files/ensure-ddev.sh` on the Mac before the container starts. It starts the
+folder's own DDEV project and every project `docker-compose.yml` links to (`ddev-<name>-db/web`, or
+`ddev-router:<name>.…` → project `<name>`). It then leaves a detached watcher that waits for the
+container (found by VS Code's `devcontainer.local_folder` label) to stop, waits 90 s in case it's a
+rebuild, and runs `ddev stop` on the projects it started. It does not stop a project that was already
+running when the container opened, or one that another open dev container needs. A reopen replaces the
+watcher and inherits its projects. State and log: `~/.cache/cps-devcontainer/`.
+
