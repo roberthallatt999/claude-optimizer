@@ -134,6 +134,7 @@ End with one table: project, status (converted / verified / skipped / blocked), 
 
 ## Rules
 
+- Never leave a `.devcontainer/` change on a branch that a container might check out. Inside the container `.devcontainer/` is read-only, so a checkout or merge between commits that differ there stops halfway (Statements Studio, 2026-10-20: the switch to `main` left a stray `devcontainer.json`). Ship dev container changes to `main` from the Mac straight away (`cps-ship.sh`), and never stack feature work on top of them. To recover a half-done switch: on the Mac, `git checkout -- .devcontainer/<file>` once you've confirmed the branch holds the same content.
 - Never put secret values into `.devcontainer/` files. They're committed.
 - Never mount `~/.aws`, `~/.ssh`, `~/.gitconfig`, the Mac's `~/.config/gh` or the Docker socket. GitHub access comes only from the shared `cps-gh-config` volume.
 - Never widen `allowed-domains.txt` without telling the user why.
