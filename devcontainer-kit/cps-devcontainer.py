@@ -9,7 +9,8 @@ on Statements Studio:
   * Claude runs in a container; DDEV keeps running on the Mac. A DDEV project's
     container joins DDEV's network and reaches its database as host `db`.
   * Default-deny egress firewall with a per-project allowlist.
-  * No ~/.ssh, ~/.aws, ~/.gitconfig, ssh-agent or Docker socket inside.
+  * No ~/.ssh, ~/.aws, ~/.gitconfig, ssh-agent or Docker socket inside. GitHub goes
+    through a gh login on a volume every CPS container shares, never the Mac's keys.
   * The project's guardrails (.claude/hooks, settings, ai-config.conf, .mcp.json)
     and .devcontainer/ itself are mounted read-only, and a root-owned managed
     settings file re-registers the safety hook and turns off claude.ai connectors.
@@ -37,7 +38,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 KIT = Path(__file__).resolve().parent
 FILES = KIT / "files"
 
@@ -52,7 +53,12 @@ CONTEXT7_HOSTS = ["context7.com", "mcp.context7.com"]
 GITHUB_HOSTS = {"github.com", "api.github.com", "raw.githubusercontent.com", "objects.githubusercontent.com"}
 
 PHP_EXTS = "pdo_mysql mysqli intl zip gd bcmath exif"
-NODE_FRAMEWORK_PORTS = {"next": 3000, "@docusaurus/core": 3000, "astro": 4321, "@sveltejs/kit": 5173, "nuxt": 3000}
+NODE_FRAMEWORK_PORTS = {"next": 3000, "@docusaurus/core": 3000, "astro": 4321, "@sveltejs/kit": 5173, "nuxt": 3000,
+                        "vite": 5173, "browser-sync": 3000}
+# BrowserSync's control UI sits next to its proxy port.
+EXTRA_PORTS = {"browser-sync": [3001]}
+# One gh login for every CPS container: a fixed-name volume, so each project mounts the same one.
+GH_CONFIG_VOLUME = "cps-gh-config"
 
 # DDEV's own commands; everything else under .ddev/commands/web is the project's.
 DDEV_DEFAULT_WEB_CMDS = {"README.txt", "blackfire", "drush", "magento", "typo3", "xhprof", "artisan", "craft"}
@@ -71,6 +77,7 @@ class Project:
     custom_host_cmds: list = field(default_factory=list)
     composer: dict = field(default_factory=dict)
     package: dict = field(default_factory=dict)
+    package_dir: str = ""                                # where package.json was found ("" = root)
     mcp: dict = field(default_factory=dict)
     stack: list = field(default_factory=list)
     php: str | None = None
@@ -91,6 +98,20 @@ class Project:
         database, an add-on, or a host another override links to. A Node-only project
         that merely has a .ddev folder (e.g. Docusaurus) runs standalone."""
         return bool(self.ddev) and bool(self.php or self.ddev_links or self.ddev_addons)
+
+    @property
+    def site_host(self) -> str | None:
+        """The DDEV site's primary host name (cps.test), served by ddev-router."""
+        if not (self.uses_ddev and self.php and self.ddev_name):
+            return None
+        return f"{self.ddev_name}.{self.ddev.get('project_tld') or 'ddev.site'}"
+
+    @property
+    def node_modules(self) -> str | None:
+        """/workspace path of the project's node_modules, when it has a package.json."""
+        if not self.package:
+            return None
+        return "/workspace/" + (f"{self.package_dir}/" if self.package_dir else "") + "node_modules"
 
     @property
     def deps(self) -> dict:
@@ -193,6 +214,7 @@ def detect(path: Path) -> Project:
     for folder in dict.fromkeys(["", p.ddev.get("docroot", ""), "public"]):
         p.package = read_json(path / folder / "package.json")
         if p.package:
+            p.package_dir = folder
             break
     p.mcp = read_json(path / ".mcp.json").get("mcpServers", {})
     req = p.composer.get("require", {})
@@ -402,16 +424,44 @@ def gen_dockerfile(p: Project) -> str:
         "RUN chmod 755 /usr/local/sbin/sandbox-firewall.sh /usr/local/bin/ddev \\",
         "    && chmod 644 /etc/claude-firewall/allowed-domains.txt /etc/claude-code/managed-settings.json",
         "",
+        "# New Docker volumes start out owned by root; this hands the fixed list below to the",
+        "# container user. Root-owned, no arguments, so sudo can't be pointed at anything else.",
+        "RUN printf '%s\\n' '#!/bin/sh' \\",
+        *[f"    '{line}' \\" for line in own_volume_lines(p, user)],
+        "    > /usr/local/sbin/sandbox-own-volumes.sh \\",
+        "    && chmod 755 /usr/local/sbin/sandbox-own-volumes.sh",
+        "",
         f"# The base image gives \"{user}\" passwordless sudo for everything, which would let",
-        "# anything inside run `sudo iptables -F`. Allow only the firewall script.",
+        "# anything inside run `sudo iptables -F`. Allow only the two root-owned scripts.",
         "RUN rm -f /etc/sudoers.d/* \\",
-        f"    && echo \"{user} ALL=(root) NOPASSWD: /usr/local/sbin/sandbox-firewall.sh\" > /etc/sudoers.d/{user}-firewall \\",
+        f"    && echo \"{user} ALL=(root) NOPASSWD: /usr/local/sbin/sandbox-firewall.sh, "
+        f"/usr/local/sbin/sandbox-own-volumes.sh\" > /etc/sudoers.d/{user}-firewall \\",
         f"    && chmod 0440 /etc/sudoers.d/{user}-firewall",
         "",
         f"RUN mkdir -p /home/{user}/.claude && chown -R {user}:{user} /home/{user}/.claude",
         "",
-    ] + history_lines(user)
+    ] + history_lines(user) + github_lines(user)
     return "\n".join(lines)
+
+
+def own_volume_lines(p: Project, user: str) -> list[str]:
+    paths = [f"/home/{user}/.config/gh"] + ([p.node_modules] if p.node_modules else [])
+    return ["set -e"] + [f"mkdir -p {d} && chown {user}:{user} {d}" for d in paths]
+
+
+def github_lines(user: str) -> list[str]:
+    """Dockerfile lines that let git push/pull through gh's login on the shared volume."""
+    return [
+        f"# GitHub from inside: git asks gh, whose login lives on the {GH_CONFIG_VOLUME} volume every",
+        "# CPS container shares (one `gh auth login`; revoke it on GitHub). SSH remotes are rewritten",
+        "# to HTTPS in here only. The Mac's SSH key and keychain never come in.",
+        f"RUN mkdir -p /home/{user}/.config/gh && chown -R {user}:{user} /home/{user}/.config \\",
+        "    && git config --system credential.https://github.com.helper '' \\",
+        "    && git config --system --add credential.https://github.com.helper '!gh auth git-credential' \\",
+        "    && git config --system url.https://github.com/.insteadOf git@github.com: \\",
+        "    && git config --system --add url.https://github.com/.insteadOf ssh://git@github.com/",
+        "",
+    ]
 
 
 def history_lines(user: str) -> list[str]:
@@ -438,7 +488,12 @@ def gen_compose(p: Project) -> str:
     vol += guardrail_mounts(p)
     vol += ["      # Claude Code sign-in + settings survive rebuilds.", f"      - claude-config:/home/{user}/.claude",
             "      # Shell history (bash/zsh) survives rebuilds.", "      - command-history:/commandhistory",
-            "      # Deliberately NOT mounted: ~/.aws, ~/.ssh, ~/.gitconfig, the Docker socket."]
+            "      # GitHub login (gh), shared by every CPS container: sign in once, revoke on GitHub.",
+            f"      - gh-config:/home/{user}/.config/gh"]
+    if p.node_modules:
+        vol += ["      # Linux node_modules, kept apart from the Mac's: native modules (sharp, esbuild) are per OS.",
+                f"      - node-modules:{p.node_modules}"]
+    vol += ["      # Deliberately NOT mounted: ~/.aws, ~/.ssh, ~/.gitconfig, the Mac's ~/.config/gh, the Docker socket."]
     env = [f"      CLAUDE_CONFIG_DIR: /home/{user}/.claude",
            '      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"']
     if p.php:
@@ -462,12 +517,19 @@ def gen_compose(p: Project) -> str:
         for addon in p.ddev_addons:
             links.append(f"      - ddev-{p.ddev_name}-{addon}:{addon}")
         links += [f"      - {l}" for l in p.ddev_links]
+        if p.site_host:
+            links += ["      # The site itself, through DDEV's router, so BrowserSync/Vite can proxy it.",
+                      f"      - ddev-router:{p.site_host}"]
         out += ["    # The same host names DDEV's web container sees.", "    external_links:", *links]
     out += ["    cap_add:", "      - NET_ADMIN", "      - NET_RAW"]
     if p.uses_ddev:
         out += ["    networks:", "      - ddev", "", "networks:", "  ddev:", "    external: true",
                 "    name: ddev_default"]
-    out += ["", "volumes:", "  claude-config:", "  command-history:", ""]
+    out += ["", "volumes:", "  claude-config:", "  command-history:", "  gh-config:",
+            f"    name: {GH_CONFIG_VOLUME}"]
+    if p.node_modules:
+        out.append("  node-modules:")
+    out.append("")
     return "\n".join(out)
 
 
@@ -511,22 +573,25 @@ def gen_devcontainer_json(p: Project) -> str:
         cfg["initializeCommand"] = ("docker network inspect ddev_default >/dev/null 2>&1 "
                                     "|| { echo 'DDEV is not running. Run: ddev start'; exit 1; }")
     cfg["features"] = features
-    cfg["postStartCommand"] = "sudo /usr/local/sbin/sandbox-firewall.sh"
+    cfg["postStartCommand"] = ("sudo /usr/local/sbin/sandbox-firewall.sh "
+                               "&& sudo /usr/local/sbin/sandbox-own-volumes.sh")
     cfg["waitFor"] = "postStartCommand"
     # No route back to the Mac's git credentials: no SSH agent, and none of the variables through
     # which VS Code's Git extension answers HTTPS password prompts with the Mac's GitHub login.
+    # GitHub still works: git asks gh, whose login is on the shared volume (see the Dockerfile).
     cfg["remoteEnv"] = {"SSH_AUTH_SOCK": "", **{v: "" for v in VSCODE_GIT_ASKPASS_VARS},
                         "GIT_TERMINAL_PROMPT": "0"}
-    ports = sorted({port for dep, port in NODE_FRAMEWORK_PORTS.items() if dep in p.deps})
+    ports = sorted({port for dep, port in NODE_FRAMEWORK_PORTS.items() if dep in p.deps}
+                   | {port for dep, extra in EXTRA_PORTS.items() if dep in p.deps for port in extra})
     if ports:
         cfg["forwardPorts"] = ports
     # Stops VS Code injecting the askpass variables into terminals, and the GitHub extension
-    # supplying a token to git, so `git push` from the container has no credentials.
+    # supplying the Mac's token to git, so the only GitHub login inside is gh's.
     cfg["customizations"] = {"vscode": {"extensions": ext, "settings": {
         "git.terminalAuthentication": False, "github.gitAuthentication": False}}}
     header = (f"// Generated by cps-devcontainer {VERSION}. Claude sandbox for {p.folder}.\n"
               "// DDEV (if used) keeps running on the Mac; this container joins its network.\n")
-    return header + json.dumps(cfg, indent=2) + "\n"
+    return header + json.dumps(cfg, indent=2, ensure_ascii=False) + "\n"
 
 
 VSCODE_GIT_ASKPASS_VARS = ("GIT_ASKPASS", "VSCODE_GIT_ASKPASS_MAIN", "VSCODE_GIT_ASKPASS_NODE",
@@ -571,9 +636,12 @@ def gen_managed_settings(p: Project) -> str:
         "disableClaudeAiConnectors": True,
         "permissions": {
             "deny": ["Read(**/.env)", "Read(**/.env.*)", "Read(**/.env.php)", "Read(**/*.key)", "Read(**/*.pem)",
-                     "Read(**/.aws/**)", "Read(**/.ssh/**)", "Read(**/auth.json)", "Read(**/*.sql)"],
+                     "Read(**/.aws/**)", "Read(**/.ssh/**)", "Read(**/auth.json)", "Read(**/*.sql)",
+                     "Read(**/.config/gh/**)", "Bash(gh auth token:*)", "Bash(gh repo delete:*)"],
+            # A push to main or staging deploys, so publishing always asks, token or not.
             "ask": ["Bash(git push:*)", "Bash(gh pr create:*)", "Bash(gh pr merge:*)",
-                    "Bash(gh pr edit:*)", "Bash(gh release create:*)"],
+                    "Bash(gh pr edit:*)", "Bash(gh release create:*)", "Bash(gh workflow run:*)",
+                    "Bash(gh run rerun:*)", "Bash(gh api:*)"],
         },
     }
     if (p.path / ".claude" / "hooks" / "safety-guard.sh").exists():
@@ -597,11 +665,31 @@ def gen_readme(p: Project) -> str:
               "1. In the container terminal: `claude` (sign in once; it persists).", "",
               "## Where to run what", "",
               "| Container (you or Claude) | Mac terminal |", "| --- | --- |",
-              "| Editing, tests, linters, builds | `ddev start/stop`, DB imports/exports |",
-              "| `ddev <tool>` → mapped by the shim (artisan, craft, composer, npm, php, mysql, custom web commands) | Anything needing SSH, AWS or production |",
-              "| `git commit` | `git push`, `gh pr …`, deploys |", "",
-              "The container has no git credentials: no SSH agent, no credential helper, and VS Code's "
-              "Git askpass is switched off, so `git push` fails here by design. Push from the Mac.", ""]
+              "| Editing, tests, linters, builds, watch / live reload | `ddev start/stop`, DB imports/exports |",
+              "| `ddev <tool>` → mapped by the shim (artisan, craft, composer, npm, php, mysql, custom web commands) | Anything needing SSH, AWS or production servers |",
+              "| `git commit/pull/push/merge`, `gh pr …`, `gh run …` (Claude asks before every push, merge and workflow run) | |",
+              "", "## GitHub", "",
+              "Sign in once, in any CPS container: `gh auth login` (GitHub.com, HTTPS, paste a token). The login "
+              f"lives on the shared `{GH_CONFIG_VOLUME}` Docker volume, so every CPS container uses it, and git "
+              "uses it for push and pull (SSH remotes are rewritten to HTTPS inside the container only).",
+              "",
+              "Use a fine-grained token limited to the canadian-paediatric-society repos: Contents, Pull "
+              "requests and Actions read/write (add Workflows only to edit `.github/workflows` from here). "
+              "Revoking it on GitHub cuts off every container at once. The Mac's SSH key and keychain never "
+              "enter the container.", ""]
+    preview = []
+    if p.site_host:
+        preview.append(f"- https://{p.site_host} in the Mac's browser shows edits made here straight away: "
+                       "DDEV serves the same files.")
+    ports = sorted({port for dep, port in NODE_FRAMEWORK_PORTS.items() if dep in p.deps})
+    if ports:
+        preview.append("- Live reload: run the project's watch script here, then open "
+                       + " or ".join(f"http://localhost:{port}" for port in ports) + " on the Mac.")
+    if p.node_modules:
+        preview.append(f"- `{p.node_modules.removeprefix('/workspace/')}` is a Linux copy on a Docker volume, "
+                       "separate from the Mac's: run `npm ci` here once after the first build.")
+    if preview:
+        lines += ["## Preview", ""] + preview + [""]
     if p.info:
         lines += ["## Handled automatically", ""] + [f"- {i}" for i in p.info] + [""]
     lines += ["## Manual follow-ups", ""]

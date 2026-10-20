@@ -84,7 +84,10 @@ Run these in the container (via `devcontainer exec`, or ask the user to paste th
 | Database (DDEV + PHP) | `mariadb -h db -u db -pdb db -e 'SELECT DATABASE()'` | `db` |
 | No sudo escape | `sudo -n iptables -F` | refused |
 | No Mac secrets | `ls ~/.aws ~/.ssh; echo ${SSH_AUTH_SOCK:-none}` | missing, `none` |
-| No git credentials | in a **VS Code** terminal in the container (the CLI doesn't attach VS Code's Git extension): `GIT_TERMINAL_PROMPT=0 git push --dry-run origin HEAD`; optionally `env \| grep -E '^(GIT_ASKPASS\|VSCODE_GIT_IPC_HANDLE)=.'` | push fails with `could not read Username … terminal prompts disabled` (git tried no askpass); the grep prints nothing (blanked variables can exist empty, so don't count names) |
+| No Mac git login | in a **VS Code** terminal: `env \| grep -E '^(GIT_ASKPASS\|VSCODE_GIT_IPC_HANDLE)=.'` | prints nothing (blanked variables can exist empty, so don't count names) |
+| GitHub via gh | `gh auth status`, then `git push --dry-run origin HEAD` | logged in to github.com (first container only: the user runs `gh auth login` once; the volume is shared); dry run succeeds over HTTPS |
+| Volumes owned | `stat -c %U ~/.config/gh <node_modules path>` | the container user, not `root` |
+| Site reachable (DDEV PHP) | `curl -sk -o /dev/null -w '%{http_code}\n' https://<name>.<tld>` | `200` (or the site's redirect) |
 | Guardrails locked | `touch .devcontainer/x .claude/hooks/x` | `Read-only file system` |
 | App runs | the project's test command / build, e.g. `php artisan test`, `npm run build` | same result as on DDEV, apart from expected sandbox differences |
 | Claude settings | in `claude`: `/status` | Setting sources include *Enterprise managed settings (file)*; no claude.ai MCP servers |
@@ -106,7 +109,9 @@ Compare test counts with the same suite on DDEV (`ddev artisan test` etc.). A fa
 | A test needs to write into a sibling repo | Add a writable overlay for that folder only (step 4). |
 | DB unreachable after `ddev restart`, npm/Composer timing out | `sudo /usr/local/sbin/sandbox-firewall.sh` in the container. |
 | Can't save `.devcontainer/` files in the container window | Expected: edit on the Mac. |
-| `git push` works from the container over HTTPS | VS Code's Git extension answers the password prompt with the Mac's GitHub login. Kit 1.1.0 blanks `GIT_ASKPASS`/`VSCODE_GIT_*` and turns off `git.terminalAuthentication`; port that into older `.devcontainer/devcontainer.json` files and rebuild. |
+| `git push` asks for a username, or `gh` says not logged in | Kit 1.3.0 routes GitHub through gh: run `gh auth login` once in any CPS container (the `cps-gh-config` volume is shared). Older `.devcontainer/` folders need the 1.3.0 Dockerfile, compose and managed-settings changes ported by hand. |
+| `npm ci` fails with `EACCES` on `node_modules` | The volume is still root-owned: `sudo /usr/local/sbin/sandbox-own-volumes.sh`. |
+| A Mac build breaks after installing in the container (or the reverse) | `node_modules` isn't on its own volume yet; port the 1.3.0 compose change and rebuild. |
 
 ## 7. Projects that already have a .devcontainer
 
@@ -128,7 +133,7 @@ End with one table: project, status (converted / verified / skipped / blocked), 
 ## Rules
 
 - Never put secret values into `.devcontainer/` files. They're committed.
-- Never mount `~/.aws`, `~/.ssh`, `~/.gitconfig`, `~/.config/gh` or the Docker socket.
+- Never mount `~/.aws`, `~/.ssh`, `~/.gitconfig`, the Mac's `~/.config/gh` or the Docker socket. GitHub access comes only from the shared `cps-gh-config` volume.
 - Never widen `allowed-domains.txt` without telling the user why.
 - Never loosen the read-only guardrail mounts or the sudoers rule to make something work. Find another way, or ask.
 - Follow each project's own `CLAUDE.md` guardrails while working in it.

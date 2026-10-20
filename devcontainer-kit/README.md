@@ -30,7 +30,10 @@ What it decides per project:
 | `.claude/hooks/safety-guard.sh` | Re-registered in root-owned managed settings |
 | Guardrail files that exist | Mounted read-only, along with `.devcontainer/` itself |
 | Shell history (always) | `command-history` volume at `/commandhistory`; bash and zsh write to it after every command, so it survives rebuilds |
-| Git credentials (always) | None inside: `SSH_AUTH_SOCK`, `GIT_ASKPASS` and VS Code's `VSCODE_GIT_*` blanked, `GIT_TERMINAL_PROMPT=0`, `git.terminalAuthentication` and `github.gitAuthentication` off. Pair with the Mac user settings `dev.containers.copyGitConfig: false` and `dev.containers.gitCredentialHelperConfigLocation: "none"` |
+| GitHub (always, 1.3.0) | git push/pull and `gh` work inside through one `gh auth login`, kept on the `cps-gh-config` volume every CPS container shares; git's GitHub helper is `gh auth git-credential` and SSH remotes are rewritten to HTTPS inside only. Use a fine-grained token scoped to the org's repos. Managed settings still ask before `git push`, PR create/merge/edit, `gh workflow run`, `gh run rerun` and `gh api`, and deny `gh auth token`, `gh repo delete` and reading `~/.config/gh` |
+| Mac credentials (always) | None inside: `SSH_AUTH_SOCK`, `GIT_ASKPASS` and VS Code's `VSCODE_GIT_*` blanked, `GIT_TERMINAL_PROMPT=0`, `git.terminalAuthentication` and `github.gitAuthentication` off. Pair with the Mac user settings `dev.containers.copyGitConfig: false` and `dev.containers.gitCredentialHelperConfigLocation: "none"` |
+| `package.json` (1.3.0) | `node_modules` next to it is a per-project Docker volume, so Linux and macOS native modules (sharp, esbuild) don't overwrite each other; run `npm ci` in the container once. Owned by the container user via the root-owned, argument-free `sandbox-own-volumes.sh` |
+| Preview (1.3.0) | DDEV PHP sites: `ddev-router` linked as `<name>.<project_tld>` so BrowserSync/Vite can proxy the site; BrowserSync (3000, 3001) and Vite (5173) ports forwarded to the Mac |
 
 `files/init-firewall.sh` is the firewall (installed as `/usr/local/sbin/sandbox-firewall.sh`).
 `files/ddev-shim.sh` is installed as `ddev` inside the container.
