@@ -646,8 +646,9 @@ def vscode_tooling(p: Project) -> tuple[list[str], dict]:
     return list(dict.fromkeys(ext)), settings
 
 
-# Installed in every container: API requests, formatting, and everyday editing.
-ALWAYS_EXTENSIONS = ["humao.rest-client", "editorconfig.editorconfig", "esbenp.prettier-vscode",
+# Installed in every container: Claude Code (it signs in with the CLI's login on the claude-config volume,
+# via CLAUDE_CONFIG_DIR), API requests, formatting, and everyday editing.
+ALWAYS_EXTENSIONS = ["anthropic.claude-code", "humao.rest-client", "editorconfig.editorconfig", "esbenp.prettier-vscode",
                      "usernamehw.errorlens", "mhutchie.git-graph", "mikestead.dotenv"]
 
 
