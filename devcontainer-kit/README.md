@@ -29,7 +29,7 @@ What it decides per project:
 | `requirements.txt` | Python image or feature, PyPI allowed |
 | composer.json repos, Craft, `.mcp.json` context7 | Added to `allowed-domains.txt`; private repos flagged (no auth.json inside) |
 | `.claude/hooks/safety-guard.sh` | Re-registered in root-owned managed settings |
-| Guardrail files that exist | Mounted read-only, along with `.devcontainer/` itself |
+| Guardrail files that exist | Mounted read-only, along with `.devcontainer/` itself and (1.6.1) `.ddev/`, whose `exec-host` hooks run on the Mac at the next `ddev start` |
 | Shell history (always) | `command-history` volume at `/commandhistory`; bash and zsh write to it after every command, so it survives rebuilds |
 | GitHub (always, 1.3.0) | git push/pull and `gh` work inside through one `gh auth login`, kept on the `cps-gh-config` volume every CPS container shares; git's GitHub helper is `gh auth git-credential` and SSH remotes are rewritten to HTTPS inside only. Use a fine-grained token scoped to the org's repos. Managed settings still ask before `git push`, PR create/merge/edit, `gh workflow run`, `gh run rerun` and `gh api`, and deny `gh auth token`, `gh repo delete` and reading `~/.config/gh` |
 | Mac credentials (always) | None inside: `SSH_AUTH_SOCK`, `GIT_ASKPASS` and VS Code's `VSCODE_GIT_*` blanked, `GIT_TERMINAL_PROMPT=0`, `git.terminalAuthentication` and `github.gitAuthentication` off. Pair with the Mac user settings `dev.containers.copyGitConfig: false` and `dev.containers.gitCredentialHelperConfigLocation: "none"` |

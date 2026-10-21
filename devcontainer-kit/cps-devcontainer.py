@@ -38,7 +38,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VERSION = "1.6.0"
+VERSION = "1.6.1"
 KIT = Path(__file__).resolve().parent
 KIT_SCRIPTS = ("ddev-shim.sh", "ensure-ddev.sh", "init-firewall.sh")
 FILES = KIT / "files"
@@ -377,6 +377,10 @@ def guardrail_mounts(p: Project) -> list[str]:
         if (p.path / rel).exists():
             out.append(f"      - ../{rel}:/workspace/{rel}:ro")
     out.append("      - ../.devcontainer:/workspace/.devcontainer:ro")
+    if (p.path / ".ddev").is_dir():
+        # DDEV runs exec-host hooks on the Mac at the next `ddev start` (ensure-ddev.sh), so a
+        # writable .ddev would let the sandbox schedule commands outside itself.
+        out.append("      - ../.ddev:/workspace/.ddev:ro")
     return out
 
 
