@@ -270,6 +270,46 @@ assert_eq "no stack template enables the undefined context7 server" "" \
   "$(grep -l '"context7"' "$SCRIPT_DIR"/projects/*/settings.local.json 2>/dev/null)"
 
 # ============================================================================
+echo -e "\n${CYAN}=== --doctor: settings and advice it must get right ===${NC}\n"
+# ============================================================================
+
+# enableAllProjectMcpServers=true means any .mcp.json in the project auto-starts its
+# servers with no approval. The refresh path warns; --doctor used to stay silent, so a
+# health check could report "0 warnings" on a project that was wide open.
+p=$(make_nuxt)
+run "$p" --force --no-superpowers >/dev/null
+jq '.enableAllProjectMcpServers = true' "$p/.claude/settings.local.json" > "$p/s.json" && mv "$p/s.json" "$p/.claude/settings.local.json"
+out=$("$SETUP_SCRIPT" --project="$p" --doctor 2>&1)
+assert_true "--doctor warns when enableAllProjectMcpServers is true" contains "$out" "enableAllProjectMcpServers"
+assert_eq "--doctor still exits 0 for a warning" "0" "$("$SETUP_SCRIPT" --project="$p" --doctor >/dev/null 2>&1; echo $?)"
+
+jq '.enableAllProjectMcpServers = false' "$p/.claude/settings.local.json" > "$p/s.json" && mv "$p/s.json" "$p/.claude/settings.local.json"
+out=$("$SETUP_SCRIPT" --project="$p" --doctor 2>&1)
+assert_false "--doctor silent when enableAllProjectMcpServers is false" contains "$out" "enableAllProjectMcpServers"
+
+# Stale nested superpowers skills. When the plugin is enabled globally, deploy_superpowers
+# is skipped by design, so --refresh provably cannot clear this: the advice must say so.
+home=$(tmp_dir)
+mkdir -p "$home/.claude"
+echo '{"enabledPlugins":{"superpowers@claude-plugins-official":true}}' > "$home/.claude/settings.json"
+
+p=$(make_nuxt)
+run "$p" --force --no-superpowers >/dev/null
+mkdir -p "$p/.claude/skills/superpowers/brainstorming"
+echo "stale" > "$p/.claude/skills/superpowers/brainstorming/SKILL.md"
+out=$(AI_CONFIG_USER_SETTINGS="$home/.claude/settings.json" "$SETUP_SCRIPT" --project="$p" --doctor 2>&1)
+assert_true "plugin global: doctor flags the stale nested skills" contains "$out" ".claude/skills/superpowers/"
+assert_true "plugin global: doctor says to delete them" contains "$out" "delete"
+assert_false "plugin global: doctor does not send you back to --refresh" contains "$out" "run --refresh (with a --superpowers-"
+
+# Without the global plugin, --refresh really does migrate them, so that advice stands.
+empty_home=$(tmp_dir)
+mkdir -p "$empty_home/.claude"
+echo '{}' > "$empty_home/.claude/settings.json"
+out=$(AI_CONFIG_USER_SETTINGS="$empty_home/.claude/settings.json" "$SETUP_SCRIPT" --project="$p" --doctor 2>&1)
+assert_true "plugin not global: doctor still points at --refresh" contains "$out" "--refresh"
+
+# ============================================================================
 echo ""
 echo -e "${CYAN}================================${NC}"
 echo -e "  ${GREEN}PASS${NC}: $PASS"

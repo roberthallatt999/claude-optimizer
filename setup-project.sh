@@ -2659,6 +2659,17 @@ hc_info() { if [[ "$HC_VERBOSE" == true ]]; then echo -e "  ${CYAN}○${NC} $1";
 hc_warn() { echo -e "  ${YELLOW}⚠${NC}  $1"; HC_WARNINGS=$((HC_WARNINGS + 1)); }
 hc_fail() { echo -e "  ${RED}✗${NC}  $1"; HC_FAILURES=$((HC_FAILURES + 1)); }
 
+# True when the superpowers plugin is enabled in the user's global Claude Code settings.
+# The plugin already injects the using-superpowers bootstrap at SessionStart and lists
+# every skill, so a project copy would put the same content into context twice.
+# Defined here, above verify_deployment, because --doctor calls it before deploy runs.
+superpowers_plugin_enabled_globally() {
+  local user_settings="${AI_CONFIG_USER_SETTINGS:-$HOME/.claude/settings.json}"
+  [[ -f "$user_settings" ]] && command -v jq &>/dev/null || return 1
+  jq -e '[(.enabledPlugins // {}) | to_entries[] | select((.key | startswith("superpowers@")) and .value == true)] | length > 0' \
+    "$user_settings" >/dev/null 2>&1
+}
+
 # verify_deployment — read-only checks that the deployed configuration works (not just that
 # files exist): tools, settings, a live safety-hook test, managed blocks, memory, code index,
 # php-lsp, and gitignore. Returns 1 when a critical check fails.
@@ -2751,9 +2762,19 @@ verify_deployment() {
         hc_info "enabledMcpjsonServers lists '$server' but no .mcp.json defines it (context7 is also a plugin: /plugin install context7@claude-plugins-official)"
       fi
     done < <(jq -r '(.enabledMcpjsonServers // [])[]' "$settings" 2>/dev/null)
+    if [[ "$(jq -r '.enableAllProjectMcpServers // false' "$settings" 2>/dev/null)" == "true" ]]; then
+      hc_warn "enableAllProjectMcpServers is true in $(rel_path "$settings") — every server in a project .mcp.json starts with no approval. Set it to false so only enabledMcpjsonServers start: jq '.enableAllProjectMcpServers = false' … "
+    fi
   fi
   if [[ -d "$PROJECT_DIR/.claude/skills/superpowers" ]]; then
-    hc_warn "Skills in .claude/skills/superpowers/ aren't discovered by Claude Code — run --refresh (with a --superpowers-* flag if the plugin is global) or delete them"
+    if superpowers_plugin_enabled_globally; then
+      # deploy_superpowers() is skipped entirely while the plugin is global, so the
+      # migration that would move these never runs — telling the developer to refresh
+      # sends them in a circle. The project copy is redundant anyway.
+      hc_warn "Skills in .claude/skills/superpowers/ aren't discovered by Claude Code, and --refresh won't move them while the superpowers plugin is enabled globally. The plugin already provides these skills, so delete the project copy: rm -rf .claude/skills/superpowers .claude/hooks/session-start (then remove .hooks.SessionStart from settings.local.json)"
+    else
+      hc_warn "Skills in .claude/skills/superpowers/ aren't discovered by Claude Code — run --refresh (with a --superpowers-* flag if the plugin is global) or delete them"
+    fi
   fi
   if [[ "$SHARED_POLICY" == true ]]; then
     shared="$PROJECT_DIR/.claude/settings.json"
@@ -3722,16 +3743,6 @@ migrate_nested_superpowers() {
     echo -e "  ${GREEN}✓${NC} Moved skill to .claude/skills/$name/ (Claude Code only discovers skills one level deep)"
   done
   rmdir "$nested" "$PENDING_DIR/.claude/skills/superpowers" 2>/dev/null || true
-}
-
-# True when the superpowers plugin is enabled in the user's global Claude Code settings.
-# The plugin already injects the using-superpowers bootstrap at SessionStart and lists
-# every skill, so a project copy would put the same content into context twice.
-superpowers_plugin_enabled_globally() {
-  local user_settings="${AI_CONFIG_USER_SETTINGS:-$HOME/.claude/settings.json}"
-  [[ -f "$user_settings" ]] && command -v jq &>/dev/null || return 1
-  jq -e '[(.enabledPlugins // {}) | to_entries[] | select((.key | startswith("superpowers@")) and .value == true)] | length > 0' \
-    "$user_settings" >/dev/null 2>&1
 }
 
 deploy_superpowers() {
