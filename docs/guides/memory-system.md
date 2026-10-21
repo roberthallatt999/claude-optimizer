@@ -220,8 +220,10 @@ It works for every stack.
 
 ```bash
 ai-config --project=. --okf-memory             # new project
-ai-config --refresh --okf-memory --project=.   # existing project (MEMORY.md is kept, not migrated)
+ai-config --refresh --okf-memory --project=.   # existing project (MEMORY.md is migrated, then kept)
 ```
+
+Where Claude records each kind of knowledge in the bundle:
 
 | MEMORY.md section | OKF bundle |
 |---|---|
@@ -232,6 +234,23 @@ ai-config --refresh --okf-memory --project=.   # existing project (MEMORY.md is 
 | Component Registry, patterns, design tokens | `.okf/conventions/*.md` |
 | Common Issues | `.okf/issues/*.md` |
 | Session Handoff | `.okf/handoff.md` |
+
+**Migrating an existing MEMORY.md.** Switching mode swaps the MEMORY.md protocol block in
+`CLAUDE.md` for the OKF one, so the first `--okf-memory` run copies what `MEMORY.md` already
+knows into the bundle; otherwise nothing would read it any more. The mapping is deterministic,
+keyed on the template's `## ` headings, and no model rewrites the content:
+
+- Project Identity, Architecture, Design System, Third-Party Integrations, Knowledge Base →
+  one concept each in `.okf/concepts/`, linked from `index.md`; any other heading becomes a
+  `concepts/<slug>.md` note
+- Decision Log → one `.okf/decisions/<id>.md` per `### ` entry
+- Active Context and Session Handoff → appended to `.okf/handoff.md`
+- Memory Maintenance, and sections that hold only template placeholders → skipped
+
+It is create-only: a concept that already exists (or that you have since edited) is never
+rewritten, index links are never duplicated, and re-running finds nothing new. Each migrated
+file records `source: MEMORY.md`, the run is logged in `log.md`, and `MEMORY.md` itself is
+left unchanged as history.
 
 **Why use it**
 

@@ -2417,6 +2417,209 @@ refresh_stack_rules() {
 # OKF Memory (--okf-memory) and Code Index (codegraph)
 # ============================================================================
 
+# --- MEMORY.md → OKF migration ----------------------------------------------
+# --okf-memory swaps the MEMORY PROTOCOL block in CLAUDE.md for the OKF one, so without
+# this the project's accumulated memory would still be on disk but nothing would read it.
+# The mapping is deterministic, keyed on the section vocabulary in MEMORY.md.template —
+# no model rewrites the content (this repo evaluated an LLM wiki pipeline and rejected it
+# for token cost, code egress and trust drift; the same objections apply here).
+#
+# Create-only in every direction: a concept the developer has since edited is never
+# rewritten, index links are never duplicated, and MEMORY.md itself is never modified.
+
+okf_slug() {
+  printf '%s' "$1" \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed -e 's/[^a-z0-9]\{1,\}/-/g' -e 's/^-*//' -e 's/-*$//' \
+    | cut -c1-60
+}
+
+# okf_destination <lowercased ## heading> → "relative-path|type|index-section"
+# DECISIONS / HANDOFF / SKIP are handled specially by the caller.
+okf_destination() {
+  case "$1" in
+    "project identity")   echo "concepts/project-identity.md|overview|Architecture" ;;
+    architecture)         echo "concepts/architecture.md|architecture|Architecture" ;;
+    "design system")      echo "concepts/design-system.md|convention|Conventions" ;;
+    "third-party integrations"|integrations) echo "concepts/integrations.md|integration|Integrations" ;;
+    "knowledge base")     echo "concepts/knowledge-base.md|reference|Conventions" ;;
+    "known issues")       echo "concepts/known-issues.md|known-issue|Known Issues" ;;
+    "decision log"|decisions) echo "DECISIONS||Decisions" ;;
+    "active context"|"session handoff") echo "HANDOFF||" ;;
+    "memory maintenance") echo "SKIP||" ;;
+    *)                    echo "concepts/$(okf_slug "$1").md|note|Known Issues" ;;
+  esac
+}
+
+# True when the text carries something beyond template placeholders.
+okf_has_content() {
+  [[ -n "$(printf '%s\n' "$1" \
+    | sed -e 's/<!--.*-->//' \
+    | grep -vE '^[[:space:]]*$' \
+    | grep -vE '^[[:space:]]*[-*][[:space:]]*_[^_]*_[[:space:]]*$' \
+    | grep -vE '^[[:space:]]*_[^_]*_[[:space:]]*$' \
+    | grep -vE '^[[:space:]]*(TBD|TODO|N/A|None)[[:space:]]*$')" ]]
+}
+
+# okf_write_concept <abs-path> <type> <title> <body>  — create-only.
+okf_write_concept() {
+  local dest="$1" type="$2" title="$3" body="$4"
+  # -L too: a dangling symlink reports as missing, and writing would follow it out of the project.
+  if [[ -e "$dest" || -L "$dest" ]]; then return 1; fi
+  if [[ "$DRY_RUN" == true ]]; then
+    echo -e "  ${YELLOW}[DRY-RUN]${NC} Migrate '${title}' → .okf/${dest#"$PROJECT_DIR/.okf/"}"
+    return 0
+  fi
+  mkdir -p "$(dirname "$dest")"
+  {
+    echo "---"
+    echo "type: $type"
+    echo "title: $title"
+    echo "source: MEMORY.md"
+    echo "generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "---"
+    echo ""
+    printf '%s\n' "$body"
+  } > "$dest"
+  CREATED_THIS_RUN+="$dest"$'\n'
+  COUNT_ADDED=$((COUNT_ADDED + 1))
+  return 0
+}
+
+# okf_link_in_index <index> <section> <link-path> <title> <summary> — create-only.
+okf_link_in_index() {
+  local index="$1" section="$2" link="$3" title="$4" summary="$5" line tmp
+  [[ -f "$index" ]] || return 0
+  grep -qF "($link)" "$index" && return 0
+  line="- [$title]($link)"
+  [[ -n "$summary" ]] && line="$line — $summary"
+  [[ "$DRY_RUN" == true ]] && return 0
+  tmp="$(mktemp)"
+  awk -v sec="## $section" -v entry="$line" '
+    { print }
+    $0 == sec && !done { print ""; print entry; done = 1 }
+  ' "$index" > "$tmp"
+  # Heading absent (a hand-trimmed index): append a section rather than dropping the link.
+  if ! grep -qF "($link)" "$tmp"; then
+    { echo ""; echo "## $section"; echo ""; echo "$line"; } >> "$tmp"
+  fi
+  mv "$tmp" "$index"
+}
+
+migrate_memory_to_okf() {
+  local memory="$PROJECT_DIR/MEMORY.md" bundle="$PROJECT_DIR/.okf"
+  [[ -f "$memory" && -d "$bundle" ]] || return 0
+
+  # Never follow a symlink. A cloned repo could plant .okf/concepts (or handoff.md) pointing
+  # outside the project, and the migration would create files there with content from that
+  # repo's MEMORY.md; a symlinked MEMORY.md would copy an outside file into the bundle.
+  local p
+  for p in "$memory" "$bundle" "$bundle/concepts" "$bundle/decisions" "$bundle/index.md" "$bundle/log.md" "$bundle/handoff.md"; do
+    if [[ -L "$p" ]]; then
+      echo -e "  ${YELLOW}⚠${NC}  $(rel_path "$p") is a symlink — MEMORY.md migration skipped"
+      return 0
+    fi
+  done
+
+  local headings heading body lower dest_spec dest type index_section
+  local title summary slug dec_head dec_body migrated=0 skipped=0
+  headings="$(grep -nE '^## ' "$memory" || true)"
+  [[ -n "$headings" ]] || return 0
+
+  local total
+  total=$(wc -l < "$memory" | tr -d '[:space:]')
+
+  while IFS= read -r entry; do
+    [[ -n "$entry" ]] || continue
+    local start="${entry%%:*}"
+    heading="${entry#*:## }"
+    # Body runs to the line before the next '## ', or to end of file.
+    local next
+    next=$(awk -v s="$start" 'NR > s && /^## / { print NR; exit }' "$memory")
+    [[ -n "$next" ]] || next=$((total + 1))
+    body="$(sed -n "$((start + 1)),$((next - 1))p" "$memory")"
+
+    okf_has_content "$body" || { skipped=$((skipped + 1)); continue; }
+
+    lower="$(printf '%s' "$heading" | tr '[:upper:]' '[:lower:]')"
+    lower="${lower%"${lower##*[![:space:]]}"}"
+    dest_spec="$(okf_destination "$lower")"
+    dest="${dest_spec%%|*}"
+    type="$(printf '%s' "$dest_spec" | cut -d'|' -f2)"
+    index_section="$(printf '%s' "$dest_spec" | cut -d'|' -f3)"
+
+    case "$dest" in
+      SKIP)
+        skipped=$((skipped + 1))
+        ;;
+      HANDOFF)
+        if [[ "$DRY_RUN" != true ]] && ! grep -qF "<!-- migrated from MEMORY.md: $heading -->" "$bundle/handoff.md" 2>/dev/null; then
+          { echo ""; echo "<!-- migrated from MEMORY.md: $heading -->"; echo "## $heading"; echo ""
+            printf '%s\n' "$body"; } >> "$bundle/handoff.md"
+          migrated=$((migrated + 1))
+        fi
+        ;;
+      DECISIONS)
+        # One concept per '### ' entry so decisions stay individually addressable.
+        local dec_lines dec_start dec_next dec_total
+        dec_total=$(printf '%s\n' "$body" | wc -l | tr -d '[:space:]')
+        dec_lines="$(printf '%s\n' "$body" | grep -nE '^### ' || true)"
+        if [[ -z "$dec_lines" ]]; then
+          okf_write_concept "$bundle/concepts/decisions.md" "decision" "Decisions" "$body" \
+            && { okf_link_in_index "$bundle/index.md" "Decisions" "/concepts/decisions.md" "Decisions" ""; migrated=$((migrated + 1)); }
+        else
+          while IFS= read -r dec_entry; do
+            [[ -n "$dec_entry" ]] || continue
+            dec_start="${dec_entry%%:*}"
+            dec_head="${dec_entry#*:### }"
+            dec_next=$(printf '%s\n' "$body" | awk -v s="$dec_start" 'NR > s && /^### / { print NR; exit }')
+            [[ -n "$dec_next" ]] || dec_next=$((dec_total + 1))
+            dec_body="$(printf '%s\n' "$body" | sed -n "$((dec_start + 1)),$((dec_next - 1))p")"
+            slug="$(okf_slug "${dec_head%%:*}")"
+            [[ -n "$slug" ]] || slug="$(okf_slug "$dec_head")"
+            if okf_write_concept "$bundle/decisions/$slug.md" "decision" "$dec_head" "$dec_body"; then
+              okf_link_in_index "$bundle/index.md" "Decisions" "/decisions/$slug.md" "$dec_head" ""
+              migrated=$((migrated + 1))
+            fi
+          done <<< "$dec_lines"
+        fi
+        ;;
+      *)
+        title="$heading"
+        summary="$(printf '%s\n' "$body" | grep -vE '^[[:space:]]*$|^#' | head -1 | cut -c1-90)"
+        if okf_write_concept "$bundle/$dest" "$type" "$title" "$body"; then
+          okf_link_in_index "$bundle/index.md" "$index_section" "/$dest" "$title" "$summary"
+          migrated=$((migrated + 1))
+        fi
+        ;;
+    esac
+  done <<< "$headings"
+
+  if [[ "$migrated" -gt 0 && "$DRY_RUN" != true ]]; then
+    local today entry_text
+    today=$(date -u +%Y-%m-%d)
+    entry_text="- Migrated $migrated section(s) from MEMORY.md into this bundle (MEMORY.md kept as history)."
+    if ! grep -qF "$entry_text" "$bundle/log.md" 2>/dev/null; then
+      if grep -qxF "## $today" "$bundle/log.md" 2>/dev/null; then
+        local tmp; tmp="$(mktemp)"
+        awk -v d="## $today" -v e="$entry_text" '{ print } $0 == d && !done { print ""; print e; done = 1 }' "$bundle/log.md" > "$tmp"
+        mv "$tmp" "$bundle/log.md"
+      else
+        { echo ""; echo "## $today"; echo ""; echo "$entry_text"; } >> "$bundle/log.md"
+      fi
+    fi
+  fi
+
+  if [[ "$migrated" -gt 0 && "$DRY_RUN" == true ]]; then
+    echo -e "  ${YELLOW}[DRY-RUN]${NC} Would migrate $migrated section(s) from MEMORY.md (skipping $skipped)"
+  elif [[ "$migrated" -gt 0 ]]; then
+    echo -e "  ${GREEN}✓${NC} Migrated $migrated section(s) from MEMORY.md (skipped $skipped; MEMORY.md kept unchanged)"
+  elif [[ "$skipped" -gt 0 ]]; then
+    # Either migrated on an earlier run, or every section still holds template placeholders.
+    echo -e "  ${GREEN}✓${NC} Nothing new to import from MEMORY.md"
+  fi
+}
+
 # --okf-memory: seed the Open Knowledge Format bundle (.okf/). Like MEMORY.md, the bundle is
 # the project's own history — seed files are created only when missing, never overwritten.
 deploy_okf_bundle() {
@@ -2452,6 +2655,7 @@ deploy_okf_bundle() {
   fi
 
   update_template_map
+  migrate_memory_to_okf
 
   if [[ -f "$PROJECT_DIR/MEMORY.md" ]]; then
     echo -e "  ${YELLOW}○${NC} MEMORY.md kept as read-only history — new knowledge is recorded in .okf/"

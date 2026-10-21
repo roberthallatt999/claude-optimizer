@@ -178,6 +178,168 @@ PATH="$bin:$PATH" run "$c" --force
 assert_eq "PHP CMS stack (craftcms) never registered" "0" "$(add_count)"
 
 # ============================================================================
+echo -e "\n${CYAN}=== MEMORY.md → OKF migration (automatic with --okf-memory) ===${NC}\n"
+# ============================================================================
+
+make_memory_project() {
+  local d
+  d=$(tmp_dir)
+  touch "$d/nuxt.config.ts"
+  echo '{"name":"m","dependencies":{"nuxt":"3.11.0"}}' > "$d/package.json"
+  cat > "$d/MEMORY.md" <<'MEM'
+# m - Project Memory
+
+## Project Identity
+
+### Overview
+A members site for a regional club.
+
+### Repository
+git@example.com:club/site.git
+
+## Architecture
+
+### Tech Stack
+Nuxt 3 with a Craft GraphQL backend.
+
+### Directory Map
+- `pages/` — routes
+
+## Design System
+
+### Design Tokens
+Brand green is #2E7D32.
+
+## Third-Party Integrations
+
+### Environment Variables
+CRAFT_API_URL, STRIPE_KEY
+
+## Decision Log
+
+### DEC-001: Use Craft GraphQL rather than REST
+Typed schema, one round trip.
+
+### DEC-002: No front-end build step
+The theme ships plain CSS.
+
+## Active Context
+
+### Current Focus
+Rebuilding the members area.
+
+## Session Handoff
+
+### Next Steps
+Finish the login flow.
+
+## Empty Section
+
+_None recorded._
+
+## Memory Maintenance
+
+Boilerplate that should never be migrated.
+MEM
+  echo "$d"
+}
+
+m=$(make_memory_project)
+# MEMORY.md is history, never rewritten — baseline taken before the first migration.
+before_sha=$(shasum "$m/MEMORY.md" | cut -d' ' -f1)
+run "$m" --okf-memory --force
+
+assert_true "migration: architecture concept created" test -f "$m/.okf/concepts/architecture.md"
+assert_true "migration: design system concept created" test -f "$m/.okf/concepts/design-system.md"
+assert_true "migration: integrations concept created" test -f "$m/.okf/concepts/integrations.md"
+assert_true "migration: project identity concept created" test -f "$m/.okf/concepts/project-identity.md"
+assert_true "migration: decision split per DEC entry (DEC-001)" test -f "$m/.okf/decisions/dec-001.md"
+assert_true "migration: decision split per DEC entry (DEC-002)" test -f "$m/.okf/decisions/dec-002.md"
+
+assert_eq "migration: architecture carries its type" "architecture" \
+  "$(sed -nE 's/^type:[[:space:]]*//p' "$m/.okf/concepts/architecture.md" | head -1)"
+assert_eq "migration: decisions carry their type" "decision" \
+  "$(sed -nE 's/^type:[[:space:]]*//p' "$m/.okf/decisions/dec-001.md" | head -1)"
+assert_true "migration: frontmatter records the source" \
+  grep -qE '^source:[[:space:]]*MEMORY\.md' "$m/.okf/concepts/architecture.md"
+
+assert_true "migration: body content carried over" \
+  grep -qF "Craft GraphQL backend" "$m/.okf/concepts/architecture.md"
+assert_true "migration: decision body carried over" \
+  grep -qF "one round trip" "$m/.okf/decisions/dec-001.md"
+
+assert_true "migration: session sections went to handoff.md" \
+  grep -qF "Rebuilding the members area" "$m/.okf/handoff.md"
+assert_true "migration: next steps went to handoff.md" \
+  grep -qF "Finish the login flow" "$m/.okf/handoff.md"
+
+assert_false "migration: boilerplate section skipped" test -f "$m/.okf/concepts/memory-maintenance.md"
+assert_false "migration: placeholder-only section skipped" test -f "$m/.okf/concepts/empty-section.md"
+
+assert_true "migration: index links the architecture concept" \
+  grep -qF "(/concepts/architecture.md)" "$m/.okf/index.md"
+assert_true "migration: index links decisions under Decisions" \
+  awk '/^## Decisions/{f=1;next} /^## /{f=0} f && /dec-001\.md/{found=1} END{exit !found}' "$m/.okf/index.md"
+assert_true "migration: index links integrations under Integrations" \
+  awk '/^## Integrations/{f=1;next} /^## /{f=0} f && /integrations\.md/{found=1} END{exit !found}' "$m/.okf/index.md"
+
+assert_true "migration: recorded in log.md" grep -qF "MEMORY.md" "$m/.okf/log.md"
+assert_true "migration: bundle is still conformant" bash "$CHECKER" "$m/.okf"
+assert_eq "migration: no conformance errors" "0" \
+  "$(check_output "$m/.okf" | sed -nE 's/.*, ([0-9]+) error\(s\).*/\1/p' | head -1)"
+
+
+# Idempotence: a second run must not duplicate, and must not clobber an edit.
+printf '\nHand-edited note.\n' >> "$m/.okf/concepts/architecture.md"
+edited_sha=$(shasum "$m/.okf/concepts/architecture.md" | cut -d' ' -f1)
+links_before=$(grep -c "(/concepts/\|(/decisions/" "$m/.okf/index.md")
+run "$m" --okf-memory --force
+assert_eq "migration: MEMORY.md never modified" "$before_sha" "$(shasum "$m/MEMORY.md" | cut -d' ' -f1)"
+assert_eq "migration: an edited concept is not clobbered" "$edited_sha" \
+  "$(shasum "$m/.okf/concepts/architecture.md" | cut -d' ' -f1)"
+assert_eq "migration: index links not duplicated" "$links_before" \
+  "$(grep -c "(/concepts/\|(/decisions/" "$m/.okf/index.md")"
+assert_eq "migration: handoff not duplicated" "1" \
+  "$(grep -c "Rebuilding the members area" "$m/.okf/handoff.md")"
+
+# A project with no MEMORY.md must be unaffected.
+n=$(tmp_dir)
+touch "$n/nuxt.config.ts"; echo '{"name":"n","dependencies":{"nuxt":"3.11.0"}}' > "$n/package.json"
+run "$n" --okf-memory --force
+assert_true "no MEMORY.md: bundle still created" test -f "$n/.okf/index.md"
+assert_false "no MEMORY.md: no concepts invented" test -d "$n/.okf/concepts"
+assert_true "no MEMORY.md: bundle conformant" bash "$CHECKER" "$n/.okf"
+
+# Without --okf-memory nothing is migrated.
+q=$(make_memory_project)
+run "$q" --force
+assert_false "without --okf-memory: no bundle" test -d "$q/.okf"
+assert_true "without --okf-memory: MEMORY.md still in use" test -f "$q/MEMORY.md"
+
+# Never follow a symlink planted in a cloned repo: writes would land outside the project.
+outside=$(tmp_dir)
+s=$(make_memory_project)
+mkdir -p "$s/.okf"
+ln -s "$outside" "$s/.okf/concepts"
+run "$s" --okf-memory --force
+assert_eq "symlinked concepts dir: nothing written outside the project" "" "$(ls -A "$outside")"
+
+s=$(make_memory_project)
+mkdir -p "$s/.okf/concepts"
+ln -s "$outside/planted.md" "$s/.okf/concepts/architecture.md"
+run "$s" --okf-memory --force
+assert_false "dangling symlinked concept: its target is never created" test -e "$outside/planted.md"
+assert_true "dangling symlinked concept: other sections still migrate" test -f "$s/.okf/concepts/design-system.md"
+
+secret_dir=$(tmp_dir)
+printf '## Architecture\n\nOUTSIDE-SECRET\n' > "$secret_dir/notes.md"
+s=$(make_memory_project)
+rm "$s/MEMORY.md"
+ln -s "$secret_dir/notes.md" "$s/MEMORY.md"
+run "$s" --okf-memory --force
+assert_false "symlinked MEMORY.md: outside content never copied in" grep -rqF "OUTSIDE-SECRET" "$s/.okf"
+
+# ============================================================================
 echo ""
 echo -e "${CYAN}================================${NC}"
 echo -e "  ${GREEN}PASS${NC}: $PASS"
