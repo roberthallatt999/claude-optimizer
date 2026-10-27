@@ -236,16 +236,6 @@ This site supports bilingual content (EN/FR):
 - Follow BEM for any custom CSS classes
 - Prefer Tailwind utilities over custom CSS
 
-## Context7 Integration
-
-Use the Context7 MCP server for up-to-date library documentation.
-
-### Example
-```
-resolve-library-id("twig")
-get-library-docs("/twig/twig", topic="templates")
-```
-
 ## Before Making Changes
 
 1. Run `ddev start` and verify the site loads

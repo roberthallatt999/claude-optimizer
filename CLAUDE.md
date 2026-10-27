@@ -227,6 +227,19 @@ readable text such as `(brand green: not set)` rather than a fake value.
 
 ## Recent Changes
 
+- **Per-request token budget** — measured on CPS projects, 15–31k tokens of instructions loaded
+  into every request. Four causes, each fixed so a refresh can't bring it back: (1) rules
+  edited before path scoping kept no `paths:` frontmatter and loaded always;
+  `scope_unscoped_rules` prepends the shipped frontmatter on refresh (body untouched, backed up).
+  (2) Library `@imports` in an *edited* CLAUDE.md were never converted (only fresh renders
+  were); now they are, including `@~/.claude/libraries/…`, with duplicates collapsed. (3) The
+  superpowers SessionStart bootstrap (~1.3k tokens, plus "invoke a skill at 1% chance") is now
+  opt-in: `--superpowers-bootstrap` / `superpowers-bootstrap = true`; without it a refresh
+  unregisters the hook and drops the CLAUDE.md section, skills stay available by name.
+  (4) `orchestrator = false` in `ai-config.conf` now beats stickiness and removes the Opus
+  pin, subagent model, implementer agent and policy block (a non-opus `model` is kept). The
+  Context7 how-to section left the templates (tool descriptions already carry it).
+  Tests: `test-token-budget.sh`.
 - **Remote servers and databases** — an SSH alias is not a safety boundary (staging and
   production often share a host, a login and a database server), so `safety-guard.sh` now
   parses every remote invocation instead of asking before every `ssh`. That covers `ssh`,

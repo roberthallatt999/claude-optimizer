@@ -27,7 +27,11 @@ ai-config --project=/path/to/project
 - `.claude/commands/` - Three deprecated stub commands (brainstorm, write-plan, execute-plan) —
   see [Slash Commands](#slash-commands)
 - `.claude/hooks/session-start` - Loads the using-superpowers skill at session start (registered with
-  `CLAUDE_PLUGIN_ROOT` so it emits Claude Code's `hookSpecificOutput` format)
+  `CLAUDE_PLUGIN_ROOT` so it emits Claude Code's `hookSpecificOutput` format). **Opt-in:** only
+  registered with `--superpowers-bootstrap` (or `superpowers-bootstrap = true` in `ai-config.conf`).
+  The bootstrap costs ~1.3k tokens per session and tells Claude to invoke a skill whenever one
+  might apply, which pulls skills into most tasks. Without it, a refresh unregisters the hook and
+  the skills are still listed and usable by name.
 
 If the superpowers plugin is already enabled in `~/.claude/settings.json`, the project copy is
 skipped so the bootstrap isn't loaded twice; pass a `--superpowers-*` flag to deploy it anyway.

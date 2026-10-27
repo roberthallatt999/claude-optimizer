@@ -154,23 +154,6 @@ This site may have bilingual content (EN/FR). When working with templates:
 - Follow BEM for any custom CSS classes
 - Work within the detected CSS framework; don't introduce another
 
-## Context7 Integration
-
-Use the Context7 MCP server for up-to-date library documentation and code examples.
-
-### Usage
-1. First call `resolve-library-id` with the library name
-2. Then call `get-library-docs` with the resolved ID
-
-### Example
-```
-resolve-library-id("<library name>")
-→ Returns: /<org>/<project>
-
-get-library-docs("/<org>/<project>", topic="<topic>")
-→ Returns: Current documentation
-```
-
 ## Workflow Guidelines
 
 ### Documentation

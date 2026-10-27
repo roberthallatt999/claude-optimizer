@@ -267,16 +267,6 @@ useHead({
 5. **CORS**: Configure in Craft CMS to allow frontend origin
 6. **Preview**: Use Craft's live preview with Nuxt preview mode for content editing
 
-## Context7 Integration
-
-Use the Context7 MCP server for up-to-date library documentation.
-
-### Example
-```
-resolve-library-id("nuxt")
-get-library-docs("/nuxt/nuxt", topic="data fetching")
-```
-
 {{#SUPERPOWERS}}
 ## Workflow Skills (Superpowers)
 

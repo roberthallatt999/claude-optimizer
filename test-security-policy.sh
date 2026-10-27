@@ -175,8 +175,8 @@ echo -e "\n${CYAN}=== Superpowers hook merge ===${NC}\n"
 # ============================================================================
 
 p=$(make_nuxt_project)
-"$SETUP_SCRIPT" --project="$p" --force --skip-vscode --superpowers-minimal --skip-superpowers-update >/dev/null 2>&1
-"$SETUP_SCRIPT" --project="$p" --force --skip-vscode --superpowers-minimal --skip-superpowers-update >/dev/null 2>&1
+"$SETUP_SCRIPT" --project="$p" --force --skip-vscode --superpowers-minimal --superpowers-bootstrap --skip-superpowers-update >/dev/null 2>&1
+"$SETUP_SCRIPT" --project="$p" --force --skip-vscode --superpowers-minimal --superpowers-bootstrap --skip-superpowers-update >/dev/null 2>&1
 assert_eq "SessionStart hook registered once" "1" "$(jqs "$p" '.hooks.SessionStart | length')"
 assert_eq "SessionStart registration keeps the safety hook" "1" "$(jqs "$p" '.hooks.PreToolUse | length')"
 

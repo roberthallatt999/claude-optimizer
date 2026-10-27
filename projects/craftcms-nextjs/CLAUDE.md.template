@@ -259,10 +259,6 @@ export async function generateMetadata({ params }) {
 6. **ISR**: Use `next: { revalidate: N }` in fetch calls for incremental static regeneration
 7. **Preview**: Use Craft's live preview with Next.js draft mode
 
-## Context7 Integration
-
-Use the Context7 MCP server for up-to-date library documentation.
-
 {{#SUPERPOWERS}}
 ## Workflow Skills (Superpowers)
 

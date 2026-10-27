@@ -59,7 +59,7 @@ echo -e "\n${CYAN}=== Superpowers skills layout ===${NC}\n"
 # ============================================================================
 
 p=$(make_nuxt)
-run "$p" --force --superpowers-minimal --skip-superpowers-update >/dev/null
+run "$p" --force --superpowers-minimal --superpowers-bootstrap --skip-superpowers-update >/dev/null
 S="$p/.claude/settings.local.json"
 assert_true "skill deployed one level deep" test -f "$p/.claude/skills/using-superpowers/SKILL.md"
 assert_false "no nested .claude/skills/superpowers/" test -e "$p/.claude/skills/superpowers"
@@ -77,7 +77,7 @@ mkdir -p "$p/.claude/skills/superpowers/brainstorming" "$p/.claude/hooks"
 echo "KEEP-SKILL-EDIT" > "$p/.claude/skills/superpowers/brainstorming/SKILL.md"
 printf '.claude/skills/superpowers/brainstorming/SKILL.md\tdeadbeef\n' >> "$p/.claude/ai-config/manifest.tsv"
 jq '.hooks.SessionStart = [{"hooks":[{"type":"command","command":".claude/hooks/session-start"}]}]' "$p/.claude/settings.local.json" > "$p/s.json" && mv "$p/s.json" "$p/.claude/settings.local.json"
-run "$p" --refresh --superpowers-minimal --skip-superpowers-update >/dev/null
+run "$p" --refresh --superpowers-minimal --superpowers-bootstrap --skip-superpowers-update >/dev/null
 assert_true "legacy nested skill moved up a level" test -f "$p/.claude/skills/brainstorming/SKILL.md"
 assert_true "moved skill keeps its edits" grep -q KEEP-SKILL-EDIT "$p/.claude/skills/brainstorming/SKILL.md"
 assert_false "nested folder removed after the move" test -e "$p/.claude/skills/superpowers"
