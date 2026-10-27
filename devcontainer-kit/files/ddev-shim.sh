@@ -21,7 +21,7 @@ case "$cmd" in
   npm|npx|node|yarn|pnpm) cd "$ROOT" && exec "$cmd" "$@" ;;
   php|python|python3|pip) exec "$cmd" "$@" ;;
   exec)                  cd "$ROOT" && exec "$@" ;;
-  mysql|mariadb)         exec mariadb -h db -u db -pdb db "$@" ;;
+  mysql|mariadb)         exec mariadb -h db -u db -pdb "${DDEV_DB_NAME:-db}" "$@" ;;
   describe)              echo "Claude sandbox. DDEV runs on the Mac (project: ${DDEV_PROJECT:-none})."; exit 0 ;;
 esac
 

@@ -38,7 +38,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VERSION = "1.7.0"
+VERSION = "1.8.0"
 KIT = Path(__file__).resolve().parent
 KIT_SCRIPTS = ("ddev-shim.sh", "ensure-ddev.sh", "init-firewall.sh")
 FILES = KIT / "files"
@@ -86,6 +86,7 @@ class Project:
     node: str | None = None
     python: bool = False
     git_name: str = ""
+    db_name: str = "db"                                  # the DDEV database the site uses (`ddev mysql`)
     git_email: str = ""
     notes: list = field(default_factory=list)            # manual follow-ups
     info: list = field(default_factory=list)             # things handled automatically
@@ -270,6 +271,44 @@ def detect(path: Path) -> Project:
 
     assess(p)
     return p
+
+
+SYSTEM_DATABASES = {"mysql", "performance_schema", "sys", "test", "information_schema"}
+
+
+def detect_db_name(p: Project) -> None:
+    """Find the database the site really uses. Many CPS sites import production into a
+    database named after it (admin_cps), leaving DDEV's own `db` empty, so `ddev mysql`
+    must not assume `db`. Each database is a folder in the project's DDEV volume: take the
+    populated one written most recently (an abandoned import can sit beside the live one)."""
+    kind = p.ddev.get("database_type") or "mariadb"
+    if kind not in ("mariadb", "mysql") or not shutil.which("docker"):
+        return
+    volume = f"{p.ddev_name}-{kind}"
+    script = ('cd /v || exit 1; for d in */; do d=${d%/}; '
+              't=$(find "$d" -maxdepth 1 \\( -name "*.ibd" -o -name "*.frm" \\) -exec stat -c %Y {} + 2>/dev/null '
+              '| sort -n | tail -1); if [ -n "$t" ]; then echo "$t $d"; fi; done')
+    try:
+        out = subprocess.run(["docker", "run", "--rm", "--network", "none", "-v", f"{volume}:/v:ro",
+                              "alpine:3.20", "sh", "-c", script],
+                             capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired):
+        out = None
+    found = []
+    for line in (out.stdout.splitlines() if out and out.returncode == 0 else []):
+        stamp, _, name = line.partition(" ")
+        if name and name not in SYSTEM_DATABASES and stamp.isdigit():
+            found.append((int(stamp), name))
+    if not found:
+        p.notes.append(f"Couldn't read DDEV volume {volume} to find the site's database; `ddev mysql` "
+                       "uses `db`. Pass --db-name if the site imports into another database.")
+        return
+    found.sort(reverse=True)
+    p.db_name = found[0][1]
+    others = ", ".join(n for _, n in found[1:])
+    p.info.append(f"Database: `{p.db_name}` (most recently written in {volume}"
+                  + (f"; also there: {others}" if others else "") + "). `ddev mysql` opens it; "
+                  "override with --db-name.")
 
 
 def assess(p: Project) -> None:
@@ -563,6 +602,9 @@ def gen_compose(p: Project) -> str:
         env.append('      XDEBUG_MODE: "off"')
     if p.uses_ddev:
         env.append(f"      DDEV_PROJECT: {p.ddev_name}")
+        if p.php and p.db_name != "db":
+            env.append("      # The database the site uses; `ddev mysql` opens it (DDEV's own `db` is empty here).")
+            env.append(f"      DDEV_DB_NAME: {p.db_name}")
         env.append(f"      DDEV_DOCROOT: \"{p.ddev.get('docroot', '')}\"")
     if p.git_name or p.git_email:
         name = p.git_name or "CHANGE ME"
@@ -888,8 +930,11 @@ def main() -> int:
     ap.add_argument("--out", type=Path, help="write previews to OUT/<project>/.devcontainer")
     ap.add_argument("--write", action="store_true", help="write .devcontainer/ into each project")
     ap.add_argument("--force", action="store_true", help="overwrite an existing .devcontainer/")
+    ap.add_argument("--db-name", help="the site's database (with --project); default: detected from DDEV's volume")
     ap.add_argument("--version", action="version", version=VERSION)
     a = ap.parse_args()
+    if a.db_name and not a.project:
+        ap.error("--db-name needs --project")
 
     paths = [a.project.resolve()] if a.project else find_projects(a.root.resolve(),
                                                                    {s for s in a.only.split(",") if s})
@@ -897,6 +942,11 @@ def main() -> int:
         print("No projects found.", file=sys.stderr)
         return 2
     projects = [detect(pth) for pth in paths]
+    for p in projects:
+        if a.db_name:
+            p.db_name = a.db_name
+        elif p.uses_ddev and p.php:
+            detect_db_name(p)
 
     if a.list:
         for p in projects:
