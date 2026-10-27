@@ -38,7 +38,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VERSION = "1.6.1"
+VERSION = "1.7.0"
 KIT = Path(__file__).resolve().parent
 KIT_SCRIPTS = ("ddev-shim.sh", "ensure-ddev.sh", "init-firewall.sh")
 FILES = KIT / "files"
@@ -547,7 +547,13 @@ def gen_compose(p: Project) -> str:
                 f"      - node-modules:{p.node_modules}"]
     vol += ["      # Deliberately NOT mounted: ~/.aws, ~/.ssh, ~/.gitconfig, the Mac's ~/.config/gh, the Docker socket."]
     env = [f"      CLAUDE_CONFIG_DIR: /home/{user}/.claude",
-           '      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"']
+           "      # Not CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: it also stops the plan-usage fetch, so",
+           "      # Account & Usage shows nothing. These are the parts of it worth keeping. Claude Code",
+           "      # lives in the image, so it updates on rebuild, not in place.",
+           '      DISABLE_TELEMETRY: "1"',
+           '      DISABLE_ERROR_REPORTING: "1"',
+           '      DISABLE_BUG_COMMAND: "1"',
+           '      DISABLE_AUTOUPDATER: "1"']
     if p.package:
         env += ["      # Node resolves `localhost` to ::1 here, so dev servers (Vite) listen on IPv6 only and",
                 "      # VS Code's port forwarding, which connects to 127.0.0.1, hangs. Prefer IPv4.",
