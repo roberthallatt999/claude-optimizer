@@ -42,6 +42,8 @@ What it decides per project:
 
 `files/init-firewall.sh` is the firewall (installed as `/usr/local/sbin/sandbox-firewall.sh`).
 `files/ddev-shim.sh` is installed as `ddev` inside the container.
+`files/ddev-relay-client.sh` (read from the read-only `.devcontainer/` mount) sends what the shim can't run to
+`files/ddev-relay.pl` on the Mac.
 
 The `cps-devcontainer` skill drives this end to end: survey, generate, resolve follow-ups,
 rebuild, verify, commit.
@@ -56,3 +58,28 @@ rebuild, and runs `ddev stop` on the projects it started. It does not stop a pro
 running when the container opened, or one that another open dev container needs. A reopen replaces the
 watcher and inherits its projects. State and log: `~/.cache/cps-devcontainer/`.
 
+
+## DDEV commands from inside (1.9.0)
+
+DDEV itself can't run in the container: it needs the Docker socket, which would let Claude start an
+unfirewalled container with any Mac folder mounted. Instead, `ensure-ddev.sh` starts one relay per Mac
+(`ddev-relay.pl`, macOS's own perl, `127.0.0.1:20090`) and gives each project a random token in
+`~/.cache/cps-devcontainer/relay/tokens/<project>.token`, which `docker-compose.yml` mounts at
+`/run/ddev-relay/token` in that project's container only. The firewall opens `host.docker.internal:20090`
+and nothing else on the Mac. The token picks the project; a request can't name another one.
+
+| Allowed | Notes |
+| --- | --- |
+| `start`, `stop`, `restart` | No arguments (no `--all`, no other project) |
+| `describe`/`status`, `list` | `-j` only |
+| `logs` | `-s SERVICE`, `--tail N`, `-t`; no `-f` |
+| `snapshot` | create, `--name NAME`, `--list`; `restore NAME\|--latest` asks first |
+| `import-db --file=…` | File must resolve (symlinks followed) inside the project; asks first |
+| `export-db --file=….sql[.gz]` | New file only, inside the project, not in a dot folder |
+
+"Asks first" is a macOS Allow/Deny dialog (Deny after 120 s), then an automatic
+`relay-before-<verb>-<time>` snapshot before the command runs. Refused for good: `exec` and `ssh` (the web
+container mounts `.ddev` writable, and an `exec-host` hook planted there would run on the Mac at the next
+start), `config`, `add-on`, `delete`, `poweroff`, `push`, `pull`. Every request is logged in
+`~/.cache/cps-devcontainer/relay/relay.log`. The shared relay copy only moves forward: a repo with a newer
+`$VERSION` replaces it and restarts the relay.

@@ -102,6 +102,60 @@ watch() {
   rm -f "$state_file"
 }
 
+relay_version() {
+  sed -n 's/^our \$VERSION = \([0-9][0-9]*\);.*/\1/p' "$1" 2>/dev/null | head -1
+}
+
+# Detached the same way as the watcher (below): VS Code kills this script's process group.
+start_detached() {
+  nohup /usr/bin/perl -MPOSIX -e 'POSIX::setsid() >= 0 or die "setsid: $!\n"; exec @ARGV or die "exec: $!\n"' \
+    "$@" </dev/null >>"$STATE_DIR/relay/relay.log" 2>&1 &
+}
+
+# The relay (ddev-relay.pl) runs allowlisted ddev commands on the Mac for the container. One relay
+# serves every CPS container; each project gets its own token, mounted into its container only.
+# The token is written once and never replaced: the container's bind mount holds the old inode.
+ensure_relay() {
+  local workspace="$1" project="$2" relay_dir="$STATE_DIR/relay" source installed running pid
+  source="$workspace/.devcontainer/ddev-relay.pl"
+  [ -f "$source" ] || return 0
+  mkdir -p "$relay_dir/tokens"
+  chmod 700 "$relay_dir" "$relay_dir/tokens"
+  local token_file="$relay_dir/tokens/$project.token"
+  # Docker creates a directory for a bind-mount source that doesn't exist yet.
+  [ -d "$token_file" ] && rmdir "$token_file" 2>/dev/null
+  if [ ! -s "$token_file" ]; then
+    (umask 077 && openssl rand -hex 32 > "$token_file")
+  fi
+  echo "$workspace" > "$relay_dir/tokens/$project.root"
+
+  installed="$relay_dir/ddev-relay.pl"
+  # Repos may carry different kit versions; only ever move the shared copy forward.
+  if [ ! -f "$installed" ] || [ "$(relay_version "$source")" -gt "$(relay_version "$installed")" ]; then
+    cp "$source" "$installed"
+  fi
+  running=$(/usr/bin/perl "$installed" --ping 2>/dev/null || true)
+  if [ -n "$running" ] && [ "$running" -ge "$(relay_version "$installed")" ]; then
+    return 0
+  fi
+  if [ -n "$running" ]; then
+    pid=$(cat "$relay_dir/relay.pid" 2>/dev/null || true)
+    [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
+    sleep 1
+  fi
+  start_detached /usr/bin/perl "$installed" --serve
+  local tries=0
+  until /usr/bin/perl "$installed" --ping >/dev/null 2>&1; do
+    tries=$((tries + 1))
+    if [ "$tries" -gt 30 ]; then
+      echo "Warning: the DDEV relay did not start, so ddev start/stop/logs won't work inside. Log: $relay_dir/relay.log"
+      return 0
+    fi
+    sleep 0.2
+  done
+  echo "DDEV relay running on 127.0.0.1:20090 (container commands: $relay_dir/relay.log)."
+}
+
 if [ "${1:-}" = '--watch' ]; then
   shift
   watch "$@"
@@ -143,6 +197,8 @@ while read -r project container; do
   fi
   echo "Warning: could not start linked DDEV project $project; continuing without it."
 done <<< "$needed"
+
+[ -n "$own_project" ] && ensure_relay "$workspace" "$own_project"
 
 # A reopen or rebuild replaces the previous watcher and inherits the projects it owned, so
 # sites started on the first open still stop when the container finally closes.

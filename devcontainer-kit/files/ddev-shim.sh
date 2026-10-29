@@ -4,8 +4,8 @@
 # CLAUDE.md files tell Claude to run `ddev artisan …`, `ddev composer …`, `ddev ee …`.
 # This runs the same tools directly in the container. The project's own custom web
 # commands (.ddev/commands/web/*) run too, with /var/www/html mapped to /workspace.
-# Anything that controls Docker or DDEV itself (start, stop, import-db, push, …) is
-# refused: run it on the Mac.
+# Anything that controls DDEV itself (start, stop, logs, snapshot, import-db, …) goes to
+# the relay on the Mac (ddev-relay-client.sh), which runs an allowlisted set of commands.
 set -euo pipefail
 ROOT=/workspace
 cmd="${1:-}"; shift || true
@@ -22,7 +22,6 @@ case "$cmd" in
   php|python|python3|pip) exec "$cmd" "$@" ;;
   exec)                  cd "$ROOT" && exec "$@" ;;
   mysql|mariadb)         exec mariadb -h db -u db -pdb "${DDEV_DB_NAME:-db}" "$@" ;;
-  describe)              echo "Claude sandbox. DDEV runs on the Mac (project: ${DDEV_PROJECT:-none})."; exit 0 ;;
 esac
 
 # Project custom web commands, e.g. `ddev ee`, `ddev mcp-serve`, `ddev wp`.
@@ -32,6 +31,11 @@ if [ -n "$cmd" ] && [ -f "$custom" ]; then
   sed 's#/var/www/html#/workspace#g' "$custom" > "$tmp"
   cd "$ROOT"
   exec bash "$tmp" "$@"
+fi
+
+RELAY=/workspace/.devcontainer/ddev-relay-client.sh
+if [ -n "$cmd" ] && [ -f "$RELAY" ]; then
+  exec bash "$RELAY" "$cmd" "$@"
 fi
 
 echo "ddev ${cmd:-}: not available inside the Claude sandbox." >&2

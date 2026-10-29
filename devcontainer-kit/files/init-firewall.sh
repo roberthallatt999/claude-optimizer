@@ -83,6 +83,17 @@ if [ -n "$DDEV_SUBNET" ]; then
   echo "Allowed DDEV network $DDEV_SUBNET"
 fi
 
+# 5b. The DDEV relay on the Mac (ddev-relay.pl): one port, nothing else on the host.
+if [ -r /run/ddev-relay/token ]; then
+  RELAY_IP=$(getent ahostsv4 host.docker.internal | awk 'NR == 1 {print $1}')
+  if [ -n "$RELAY_IP" ]; then
+    iptables -A OUTPUT -p tcp -d "$RELAY_IP" --dport 20090 -j ACCEPT
+    echo "Allowed DDEV relay $RELAY_IP:20090"
+  else
+    echo "WARNING: host.docker.internal not found; ddev start/stop/logs won't reach the Mac."
+  fi
+fi
+
 # 6. Default deny, then allow established traffic and the allowlist.
 iptables -P INPUT DROP
 iptables -P FORWARD DROP

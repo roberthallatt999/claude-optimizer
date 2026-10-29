@@ -38,9 +38,9 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VERSION = "1.8.0"
+VERSION = "1.9.0"
 KIT = Path(__file__).resolve().parent
-KIT_SCRIPTS = ("ddev-shim.sh", "ensure-ddev.sh", "init-firewall.sh")
+KIT_SCRIPTS = ("ddev-shim.sh", "ensure-ddev.sh", "init-firewall.sh", "ddev-relay.pl", "ddev-relay-client.sh")
 FILES = KIT / "files"
 
 CLAUDE_HOSTS = ["api.anthropic.com", "claude.ai", "claude.com", "platform.claude.com", "downloads.claude.ai"]
@@ -587,6 +587,10 @@ def gen_compose(p: Project) -> str:
     if p.node_modules:
         vol += ["      # Linux node_modules, kept apart from the Mac's: native modules (sharp, esbuild) are per OS.",
                 f"      - node-modules:{p.node_modules}"]
+    if p.uses_ddev:
+        vol += ["      # This project's token for the DDEV relay on the Mac (ensure-ddev.sh writes it), so",
+                "      # `ddev start/stop/logs/snapshot/import-db` work inside. No other project's token is here.",
+                f"      - ${{HOME}}/.cache/cps-devcontainer/relay/tokens/{p.ddev_name}.token:/run/ddev-relay/token:ro"]
     vol += ["      # Deliberately NOT mounted: ~/.aws, ~/.ssh, ~/.gitconfig, the Mac's ~/.config/gh, the Docker socket."]
     env = [f"      CLAUDE_CONFIG_DIR: /home/{user}/.claude",
            "      # Not CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: it also stops the plan-usage fetch, so",
@@ -831,10 +835,19 @@ def gen_readme(p: Project) -> str:
               "1. In the container terminal: `claude` (sign in once; it persists).", "",
               "## Where to run what", "",
               "| Container (you or Claude) | Mac terminal |", "| --- | --- |",
-              "| Editing, tests, linters, builds, watch / live reload | `ddev start/stop`, DB imports/exports |",
+              "| Editing, tests, linters, builds, watch / live reload | `ddev config`, `ddev add-on`, `ddev exec/ssh`, `ddev delete/poweroff` |",
               "| `ddev <tool>` → mapped by the shim (artisan, craft, composer, npm, php, mysql, custom web commands) | Anything needing SSH, AWS or production servers |",
               "| `git commit/pull/push/merge`, `gh pr …`, `gh run …` (Claude asks before every push, merge and workflow run) | |",
-              "", "## GitHub", "",
+              ""]
+    if p.uses_ddev:
+        lines += ["## DDEV from inside", "",
+                  "`ddev start`, `stop`, `restart`, `describe`, `list`, `logs`, `snapshot` and `import-db`/`export-db` "
+                  "(files inside the project) go to a relay on the Mac (`ddev-relay.pl`, started by `ensure-ddev.sh`), "
+                  "which runs them for this project only. `snapshot restore` and `import-db` open an Allow/Deny dialog "
+                  "on the Mac and take a snapshot first. Everything else is refused: `exec`/`ssh` above all, since the "
+                  "web container can write `.ddev`, whose hooks run on the Mac. Every request is logged in "
+                  "`~/.cache/cps-devcontainer/relay/relay.log`.", ""]
+    lines += ["## GitHub", "",
               "Sign in once, in any CPS container: `gh auth login` (GitHub.com, HTTPS, paste a token). The login "
               f"lives on the shared `{GH_CONFIG_VOLUME}` Docker volume, so every CPS container uses it, and git "
               "uses it for push and pull (SSH remotes are rewritten to HTTPS inside the container only).",
