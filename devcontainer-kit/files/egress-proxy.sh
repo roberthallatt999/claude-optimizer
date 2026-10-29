@@ -35,7 +35,7 @@ http_access allow allowed
 http_access deny all
 cache deny all
 # Squid writes these as user proxy, which can't open the container's stdout; tail -F
-# below forwards them, so refusals (TCP_DENIED) show in `docker logs`.
+# below forwards them, so refusals (TCP_DENIED) show in docker logs.
 access_log stdio:/var/log/squid/access.log
 cache_log /var/log/squid/cache.log
 logfile_rotate 0
@@ -50,6 +50,9 @@ touch /var/log/squid/access.log /var/log/squid/cache.log
 chown -R proxy:proxy /var/log/squid
 tail -n 0 -F /var/log/squid/access.log /var/log/squid/cache.log &
 tail_pid=$!
+# A restart keeps the container's filesystem, so the last run's PID file is still there and
+# squid refuses to start ("already running") whenever another process now has that PID.
+rm -f /run/squid.pid
 squid -N -f /etc/squid/squid.conf &
 squid_pid=$!
 trap 'kill "$squid_pid" "$tail_pid" 2>/dev/null; wait "$squid_pid" 2>/dev/null; exit 0' TERM INT
