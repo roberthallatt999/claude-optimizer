@@ -8,9 +8,7 @@
     "ask": [
       "Bash(git push)",
       "Bash(git push:*)",
-      "Bash(gh pr create:*)",
       "Bash(gh pr merge:*)",
-      "Bash(gh pr edit:*)",
       "Bash(gh release create:*)",
       "Bash(gh repo delete:*)",
       "Bash(npm publish:*)",

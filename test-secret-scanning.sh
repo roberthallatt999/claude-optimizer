@@ -290,6 +290,49 @@ done <<< "$CLASSES"
 rm -f "$WORK/class-probe.txt"
 
 # ============================================================================
+echo -e "\n${CYAN}=== Paths after cd, and snake_case placeholders ===${NC}\n"
+# ============================================================================
+
+# `cd sub; cat x` reads sub/x. Resolving x against the session directory scanned the
+# wrong file: a false alarm when ./x held a placeholder, a miss when only sub/x existed.
+mkdir -p "$WORK/cdsub"
+printf 'deploy key %s\n' "$LIVE_AWS_KEY" > "$WORK/cdsub/notes.txt"
+assert_eq "cd sub; cat file scans the file inside sub" "deny" \
+  "$(decision Bash "$(bash_of 'cd cdsub; cat notes.txt')")"
+assert_eq "cd sub && cat file scans the file inside sub" "deny" \
+  "$(decision Bash "$(bash_of 'cd cdsub && cat notes.txt')")"
+printf 'just notes\n' > "$WORK/cdsub/clean.txt"
+assert_eq "cd sub; cat a clean file is allowed" "allow" \
+  "$(decision Bash "$(bash_of 'cd cdsub; cat clean.txt')")"
+rm -rf "$WORK/cdsub"
+
+# A setup README documenting env vars by name, as membercentre's does.
+printf '# Setup\n\n   DB_NAME=database_name\n   DB_USER=database_user\n   DB_PASSWORD=database_password\n' \
+  > "$WORK/SETUP.md"
+assert_eq "DB_PASSWORD=database_password is a placeholder" "allow" "$(decision Read "$(read_of SETUP.md)")"
+printf 'DB_PASSWORD=Xq7rT2vLp9wZ\n' > "$WORK/SETUP.md"
+assert_eq "a real-looking DB_PASSWORD is still caught" "deny" "$(decision Read "$(read_of SETUP.md)")"
+rm -f "$WORK/SETUP.md"
+
+# ============================================================================
+echo -e "\n${CYAN}=== ddev export-db may name a protected dump as its new file ===${NC}\n"
+# ============================================================================
+
+mkdir -p "$WORK/.claude/hooks" "$WORK/backups"
+printf '[deny]\n*.sql.gz\n*.sql\n' > "$WORK/.claude/hooks/protected-paths.conf"
+assert_eq "export-db --file=backups/x.sql.gz is allowed" "allow" \
+  "$(decision Bash "$(bash_of 'ddev export-db --database=cpsca_6 --file=backups/x.sql.gz')")"
+assert_eq "export-db --gzip -f backups/x.sql.gz is allowed" "allow" \
+  "$(decision Bash "$(bash_of 'ddev export-db --gzip -f backups/x.sql.gz')")"
+assert_eq "export-db then zcat of the dump is denied" "deny" \
+  "$(decision Bash "$(bash_of 'ddev export-db --file=backups/x.sql.gz && zcat backups/x.sql.gz')")"
+assert_eq "export-db then cat of the dump is denied" "deny" \
+  "$(decision Bash "$(bash_of 'ddev export-db --file=backups/x.sql.gz; cat backups/x.sql.gz')")"
+assert_eq "cat of a dump is still denied" "deny" "$(decision Bash "$(bash_of 'cat backups/x.sql.gz')")"
+assert_eq "Read of a dump is still denied" "deny" "$(decision Read "$(read_of backups/x.sql.gz)")"
+rm -rf "$WORK/.claude" "$WORK/backups"
+
+# ============================================================================
 echo -e "\n${CYAN}=== Ordinary work is unaffected ===${NC}\n"
 # ============================================================================
 

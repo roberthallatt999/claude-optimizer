@@ -149,7 +149,9 @@ SECRET_ASSIGN_RE='(mysql|mariadb|postgres|postgresql|mongodb\+srv|mongodb|redis|
 # Deliberately NOT here: "xxxx", "todo", "fixme". A real vendor token can contain a run of
 # x's (sk-ant-api03-xxxx…) and a line can say TODO next to a live key; template files are
 # already skipped by extension in secret_scan, so those markers bought nothing and cost a hole.
-SECRET_PLACEHOLDER_RE='example|sample|placeholder|dummy|changeme|change[-_]me|your[-_]|redacted|replace_|\*\*\*|\.\.\.|<[^>]*>|\$\{|%[A-Za-z_]+%|process\.env|getenv|os\.environ|env\(|:(pass|password|passwd|pwd|secret|user|username|admin|root|test|demo|foo|bar)@|test[-_]?(key|token|secret|password)|fake[-_]?(key|token|secret)'
+# The last alternative is a value made only of snake_case words ending in a credential word
+# (DB_PASSWORD=database_password in a setup README); a value with a digit is never one.
+SECRET_PLACEHOLDER_RE='example|sample|placeholder|dummy|changeme|change[-_]me|your[-_]|redacted|replace_|\*\*\*|\.\.\.|<[^>]*>|\$\{|%[A-Za-z_]+%|process\.env|getenv|os\.environ|env\(|:(pass|password|passwd|pwd|secret|user|username|admin|root|test|demo|foo|bar)@|test[-_]?(key|token|secret|password)|fake[-_]?(key|token|secret)|[=:][[:space:]]*"?([a-z]+_)+(password|passwd|pwd|secret|token|key)"?[[:space:],;]*$'
 
 # Largest file the guard will scan. Past this it denies rather than waving the file
 # through unchecked — an unscanned file is an unknown file.
@@ -433,6 +435,16 @@ while IFS= read -r tok; do
         [[ "$_rest" != *"$tok"* ]] && continue 2
       fi
     done
+    # `ddev export-db --file=backups/x.sql.gz` writes a new dump and never prints it (the
+    # DDEV relay refuses an existing file), so the --file argument is exempt the same way.
+    if [[ "$lc" =~ ${S}ddev[[:space:]]+export-db([[:space:]]|$) ]]; then
+      for _flag in "--file=" "--file " "-f "; do
+        if [[ "$lc" == *"$_flag$tok"* ]]; then
+          _rest="${lc//"$_flag$tok"/}"
+          [[ "$_rest" != *"$tok"* ]] && continue 2
+        fi
+      done
+    fi
     secret="$tok"
     break
   fi
@@ -440,7 +452,7 @@ done <<EOF
 $(printf '%s' "$lc" | tr -c 'a-z0-9._/~*@+:%-' '\n')
 EOF
 
-READ_VERBS="${S}(cat|less|more|head|tail|bat|batcat|nl|tac|strings|xxd|od|hexdump|base64|source|\.|grep|egrep|fgrep|rg|ag|ack|awk|gawk|sed|cut|sort|uniq|diff|cmp|jq|yq|cp|scp|rsync|curl|wget|nc|ncat|openssl|gpg|vi|vim|nvim|nano|emacs|code|open|pbcopy|xclip|python|python3|node|deno|php|ruby|perl|export|dotenv|tee|zip|tar|echo|printf|eval|read)([[:space:]]|$)"
+READ_VERBS="${S}(cat|zcat|gzcat|bzcat|xzcat|zless|zmore|zgrep|gunzip|unzip|less|more|head|tail|bat|batcat|nl|tac|strings|xxd|od|hexdump|base64|source|\.|grep|egrep|fgrep|rg|ag|ack|awk|gawk|sed|cut|sort|uniq|diff|cmp|jq|yq|cp|scp|rsync|curl|wget|nc|ncat|openssl|gpg|vi|vim|nvim|nano|emacs|code|open|pbcopy|xclip|python|python3|node|deno|php|ruby|perl|export|dotenv|tee|zip|tar|echo|printf|eval|read)([[:space:]]|$)"
 
 if [[ -n "$secret" ]]; then
   IGNORE_FILE='(^|[[:space:]/;&|])\.(git|docker|prettier|eslint|npm|stylelint)?ignore([[:space:];&|]|$)|\.gitattributes'
@@ -466,16 +478,35 @@ fi
 # original command, not the lowercased copy, so paths survive on a case-sensitive
 # filesystem. Capped at a handful of files to keep the hook well inside its timeout.
 if m "$READ_VERBS"; then
+  # `cd dir; cat x` reads dir/x. A relative name is scanned as written and under every
+  # directory the command cds into (fail closed: which one applies depends on order).
+  CD_DIRS=()
+  _rest="$cmd" _cur=""
+  _cd_re='(^|[;&|(])[[:space:]]*cd[[:space:]]+([^;&|()[:space:]]+)'
+  while [[ "$_rest" =~ $_cd_re ]]; do
+    _d="${BASH_REMATCH[2]//[\"\']/}"
+    case "$_d" in "~"*) _d="$HOME${_d#\~}" ;; esac
+    case "$_d" in /*) _cur="$_d" ;; *) _cur="${_cur:+$_cur/}$_d" ;; esac
+    CD_DIRS+=("$_cur")
+    _rest="${_rest#*"${BASH_REMATCH[0]}"}"
+  done
   scanned=0
   while IFS= read -r tok; do
-    [[ -n "$tok" && -f "$tok" ]] || continue
+    [[ -n "$tok" ]] || continue
     [[ "$STAGE_ONLY_TOKS" == *" $(lower "$tok") "* ]] && continue
-    scan_msg="$(secret_scan "$tok")"
-    case $? in
-      0) decide deny "Blocked by ai-config safety guard: '${tok}' contains ${scan_msg}. $SCAN_TAIL" ;;
-      2) decide deny "Blocked by ai-config safety guard: '${tok}' ${scan_msg}. $SCAN_BIG_TAIL" ;;
-    esac
-    scanned=$((scanned + 1))
+    _cands=("$tok")
+    if [[ "$tok" != /* ]]; then
+      for _d in ${CD_DIRS[@]+"${CD_DIRS[@]}"}; do _cands+=("$_d/$tok"); done
+    fi
+    for _f in "${_cands[@]}"; do
+      [[ -f "$_f" ]] || continue
+      scan_msg="$(secret_scan "$_f")"
+      case $? in
+        0) decide deny "Blocked by ai-config safety guard: '${_f}' contains ${scan_msg}. $SCAN_TAIL" ;;
+        2) decide deny "Blocked by ai-config safety guard: '${_f}' ${scan_msg}. $SCAN_BIG_TAIL" ;;
+      esac
+      scanned=$((scanned + 1))
+    done
     [[ $scanned -ge 5 ]] && break
   done <<EOF
 $(printf '%s' "$cmd" | tr -c 'A-Za-z0-9._/~*@+:%-' '\n')
@@ -1205,7 +1236,7 @@ fi
 # --- Ask: each rule is "regex<TAB>reason" ------------------------------------
 ask_rules=(
   "${S}${G}push([[:space:]]|$)	git push — ${PUBLISH}"
-  "${S}gh[[:space:]]+(pr[[:space:]]+(create|merge|close|reopen|edit|comment|review|ready)|release[[:space:]]+(create|upload|delete|edit)|repo[[:space:]]+(create|delete|edit|rename|archive|fork)|issue[[:space:]]+(create|close|comment|edit|delete)|workflow[[:space:]]+run|run[[:space:]]+(rerun|cancel)|secret|variable)([[:space:]]|$)	GitHub write via gh — ${PUBLISH}"
+  "${S}gh[[:space:]]+(pr[[:space:]]+merge|release[[:space:]]+(create|upload|delete|edit)|repo[[:space:]]+(create|delete|edit|rename|archive|fork)|issue[[:space:]]+delete|workflow[[:space:]]+run|run[[:space:]]+(rerun|cancel)|secret|variable)([[:space:]]|$)	GitHub write via gh — ${PUBLISH}"
   "${S}gh[[:space:]]+api[[:space:]].*(-x|--method)[[:space:]]*(post|put|patch|delete)	GitHub API write — ${PUBLISH}"
   "${S}(npm|pnpm|yarn|bun)[[:space:]]+publish|${S}(twine[[:space:]]+upload|gem[[:space:]]+push|cargo[[:space:]]+publish|docker[[:space:]]+push)	package/image publish — ${PUBLISH}"
   "${S}vercel([[:space:]].*)?[[:space:]](--prod|--production|deploy|promote|rollback|redeploy|alias|domains|dns|remove|rm)([[:space:]]|$)|${S}vercel[[:space:]]*($|[;&|])|${S}vercel[[:space:]]+env[[:space:]]+(add|rm|remove)	Vercel deploy/config — ${PROD}"
@@ -1226,6 +1257,14 @@ ask_rules=(
   "${S}(printenv|env|set|export[[:space:]]+-p|declare[[:space:]]+-x)[[:space:]]*($|[;&|>])	dumps environment variables, which may include secrets (Safety Guardrail #1)."
   "(\.claude/(settings[a-z.]*\.json|hooks/)|ai-config\.conf)[^;&|]*|(>|sed[[:space:]]+-i|perl[[:space:]]+-[a-z]*i|tee|jq[^;&|]*>)[^;&|]*(\.claude/(settings[a-z.]*\.json|hooks/)|ai-config\.conf)	HARNESS"
 )
+
+# PRs and issues change GitHub but deploy nothing. They ask too, unless the session's
+# settings set AI_CONFIG_GH_LIGHT_WRITES=allow: the CPS dev containers do, in root-owned
+# managed settings, so a command inside can't switch it on. Merges, releases and workflow
+# runs (the deploying writes) always ask.
+if [[ "${AI_CONFIG_GH_LIGHT_WRITES:-}" != allow ]]; then
+  ask_rules+=("${S}gh[[:space:]]+(pr[[:space:]]+(create|close|reopen|edit|comment|review|ready)|issue[[:space:]]+(create|close|comment|edit))([[:space:]]|$)	GitHub write via gh — ${PUBLISH}")
+fi
 
 for rule in "${ask_rules[@]}"; do
   re="${rule%%	*}"

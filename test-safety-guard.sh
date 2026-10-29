@@ -214,6 +214,17 @@ bash_expect deny 'bash -c "cat .env"'
 bash_expect ask 'gh pr create --fill'
 bash_expect ask 'gh pr merge 12 --squash'
 bash_expect ask 'gh api repos/o/r/issues -X POST -f title=x'
+# Dev containers allow non-deploying gh writes (managed settings); deploying ones still ask.
+export AI_CONFIG_GH_LIGHT_WRITES=allow
+bash_expect none 'gh pr create --fill'
+bash_expect none 'gh issue comment 3 --body ok'
+bash_expect ask 'gh pr merge 12 --squash'
+bash_expect ask 'gh workflow run deploy.yml'
+bash_expect ask 'gh release create v1.2.0'
+bash_expect ask 'gh issue delete 3'
+bash_expect ask 'git push origin main'
+unset AI_CONFIG_GH_LIGHT_WRITES
+bash_expect ask 'gh issue comment 3 --body ok'
 bash_expect ask 'npm publish'
 bash_expect ask 'vercel --prod'
 bash_expect ask 'vercel deploy --prod'
