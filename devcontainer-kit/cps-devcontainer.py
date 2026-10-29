@@ -59,7 +59,7 @@ CLEANSHOT_HOSTS = ["cleanshot.com", "www.cleanshot.com", "share.cleanshot.com", 
 # Every domain CPS owns, subdomains included (a leading dot: squid's dstdomain matches the name
 # and everything under it), so Plausible's API, the live sites and staging are all reachable.
 CPS_HOSTS = [".cps.ca", ".healthygenerations.ca", ".generationsensante.ca", ".diabetesatschool.ca",
-             ".kidsnewtocanada.ca"]
+             ".diabetealecole.ca", ".kidsnewtocanada.ca", ".enfantsneocanadiens.ca"]
 GITHUB_HOSTS = {"github.com", "api.github.com", "raw.githubusercontent.com", "objects.githubusercontent.com"}
 # What git and gh reach besides the API: release uploads and assets, Actions logs and artifacts
 # (Azure blob shards GitHub names one by one), container images. Listed by name for the proxy;
@@ -85,6 +85,9 @@ PORT_LABELS = {3000: "BrowserSync / dev server", 3001: "BrowserSync UI", 4321: "
 EXTRA_PORTS = {"browser-sync": [3001]}
 # One gh login for every CPS container: a fixed-name volume, so each project mounts the same one.
 GH_CONFIG_VOLUME = "cps-gh-config"
+# Likewise one Plausible config + API key (the Mac keeps its key in the Keychain, which
+# containers can't reach) for the plausible skill, which is mounted from the Mac read-only.
+PLAUSIBLE_CONFIG_VOLUME = "cps-plausible-config"
 
 # DDEV's own commands; everything else under .ddev/commands/web is the project's.
 DDEV_DEFAULT_WEB_CMDS = {"README.txt", "blackfire", "drush", "magento", "typo3", "xhprof", "artisan", "craft"}
@@ -580,7 +583,7 @@ def node_and_claude_lines(p: Project, image: str, user: str) -> list[str]:
 
 
 def own_volume_lines(p: Project, user: str) -> list[str]:
-    paths = [f"/home/{user}/.config/gh"] + ([p.node_modules] if p.node_modules else [])
+    paths = [f"/home/{user}/.config/gh", f"/home/{user}/.config/plausible"] + ([p.node_modules] if p.node_modules else [])
     return ["set -e"] + [f"mkdir -p {d} && chown {user}:{user} {d}" for d in paths]
 
 
@@ -643,6 +646,10 @@ def gen_compose(p: Project) -> str:
             "      # Shell history (bash/zsh) survives rebuilds.", "      - command-history:/commandhistory",
             "      # GitHub login (gh), shared by every CPS container: sign in once, revoke on GitHub.",
             f"      - gh-config:/home/{user}/.config/gh",
+            "      # Plausible stats: the Mac's plausible skill, read-only, and its host/sites config and",
+            "      # API key, shared by every CPS container. The key can only read stats; revoke it in Plausible.",
+            f"      - plausible-config:/home/{user}/.config/plausible",
+            f"      - ${{HOME}}/.claude/skills/plausible:/home/{user}/.claude/skills/plausible:ro",
             "      # VS Code extensions survive rebuilds (Claude Code's alone is 135 MB).",
             f"      - vscode-extensions:/home/{user}/.vscode-server/extensions"]
     if p.node_modules:
@@ -714,7 +721,7 @@ def gen_compose(p: Project) -> str:
     if p.uses_ddev:
         out += ["", "networks:", "  ddev:", "    external: true", "    name: ddev_default"]
     out += ["", "volumes:", "  claude-config:", "  command-history:", "  vscode-extensions:", "  gh-config:",
-            f"    name: {GH_CONFIG_VOLUME}"]
+            f"    name: {GH_CONFIG_VOLUME}", "  plausible-config:", f"    name: {PLAUSIBLE_CONFIG_VOLUME}"]
     if p.node_modules:
         out.append("  node-modules:")
     out.append("")
