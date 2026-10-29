@@ -38,13 +38,15 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VERSION = "1.9.0"
+VERSION = "1.10.0"
 KIT = Path(__file__).resolve().parent
-KIT_SCRIPTS = ("ddev-shim.sh", "ensure-ddev.sh", "init-firewall.sh", "ddev-relay.pl", "ddev-relay-client.sh")
+KIT_SCRIPTS = ("ddev-shim.sh", "ensure-ddev.sh", "init-firewall.sh", "ddev-relay.pl", "ddev-relay-client.sh",
+               "egress-proxy.sh")
 FILES = KIT / "files"
 
 CLAUDE_HOSTS = ["api.anthropic.com", "claude.ai", "claude.com", "platform.claude.com", "downloads.claude.ai"]
-VSCODE_HOSTS = ["marketplace.visualstudio.com", "vscode.blob.core.windows.net", "update.code.visualstudio.com"]
+VSCODE_HOSTS = ["marketplace.visualstudio.com", "vscode.blob.core.windows.net", "update.code.visualstudio.com",
+                "main.vscode-cdn.net"]
 NPM_HOSTS = ["registry.npmjs.org"]
 COMPOSER_HOSTS = ["packagist.org", "repo.packagist.org", "getcomposer.org",
                   "objects.githubusercontent.com", "raw.githubusercontent.com", "codeload.github.com"]
@@ -55,6 +57,21 @@ CONTEXT7_HOSTS = ["context7.com", "mcp.context7.com"]
 CLEANSHOT_HOSTS = ["cleanshot.com", "www.cleanshot.com", "share.cleanshot.com", "cleanshot.cloud",
                    "media.cleanshot.cloud", "brief.cleanshot.cloud"]
 GITHUB_HOSTS = {"github.com", "api.github.com", "raw.githubusercontent.com", "objects.githubusercontent.com"}
+# What git and gh reach besides the API: release uploads and assets, Actions logs and artifacts
+# (Azure blob shards GitHub names one by one), container images. Listed by name for the proxy;
+# the firewall also allows GitHub's published API/web/git ranges.
+GITHUB_TOOL_HOSTS = ["github.com", "api.github.com", "uploads.github.com", "codeload.github.com",
+                     "objects.githubusercontent.com", "raw.githubusercontent.com",
+                     "release-assets.githubusercontent.com", "pipelines.actions.githubusercontent.com",
+                     "results-receiver.actions.githubusercontent.com", "ghcr.io",
+                     "pkg-containers.githubusercontent.com",
+                     *[f"productionresultssa{i}.blob.core.windows.net" for i in range(20)]]
+# Core and every wpackagist plugin/theme zip download from downloads.; checksums and version checks from api.
+WORDPRESS_HOSTS = ["downloads.wordpress.org", "api.wordpress.org"]
+# The egress proxy (a compose service): lets through only the allowlist's host names, so CDN
+# address changes don't matter to anything that honours HTTP(S)_PROXY.
+PROXY_HOST = "egress-proxy"
+PROXY_PORT = 3128
 
 PHP_EXTS = "pdo_mysql mysqli intl zip gd bcmath exif"
 NODE_FRAMEWORK_PORTS = {"next": 3000, "@docusaurus/core": 3000, "astro": 4321, "@sveltejs/kit": 5173, "nuxt": 3000,
@@ -216,8 +233,13 @@ def detect(path: Path) -> Project:
                         bucket.append(f.name)
 
     p.composer = read_json(path / "composer.json")
-    # CMS sites often keep the front-end build in the docroot (cps: public/package.json).
-    for folder in dict.fromkeys(["", p.ddev.get("docroot", ""), "public"]):
+    # CMS sites often keep the front-end build in the docroot (cps: public/package.json), and
+    # WordPress sites in the theme (membercentre: web/app/themes/membercentre).
+    docroot = p.ddev.get("docroot", "")
+    themes = sorted(str(d.relative_to(path)) for pattern in ("web/app/themes/*", "wp-content/themes/*",
+                                                             f"{docroot}/wp-content/themes/*" if docroot else "")
+                    if pattern for d in path.glob(pattern) if (d / "package.json").is_file())
+    for folder in dict.fromkeys(["", docroot, "public", *themes]):
         p.package = read_json(path / folder / "package.json")
         if p.package:
             p.package_dir = folder
@@ -256,11 +278,16 @@ def detect(path: Path) -> Project:
     # Node
     if p.package:
         ver = p.ddev.get("nodejs_version", "")
-        if not ver and (path / ".nvmrc").exists():
-            ver = (path / ".nvmrc").read_text().strip().lstrip("v")
+        # The .nvmrc next to package.json. A root one doesn't speak for a theme's build
+        # (membercentre's root .nvmrc says 16; its Vite theme needs 18+).
+        nvmrc = path / p.package_dir / ".nvmrc"
+        if not ver and nvmrc.exists():
+            ver = nvmrc.read_text().strip().lstrip("v")
         if not ver:
-            m = re.search(r"(\d+)", p.package.get("engines", {}).get("node", ""))
-            ver = m.group(1) if m else "lts"
+            # "^20" or "20.x" pins a major; ">=18" is only a floor, so LTS.
+            engines = p.package.get("engines", {}).get("node", "")
+            m = re.search(r"(\d+)", engines)
+            ver = m.group(1) if m and ">" not in engines else "lts"
         p.node = ver.split(".")[0] if ver != "lts" else "lts"
 
     # Git identity (what the Mac uses for this repo)
@@ -382,9 +409,21 @@ def assess(p: Project) -> None:
     repos = [r.get("url", "") for r in p.composer.get("repositories", []) if isinstance(r, dict)]
     private = [u for u in repos if u and not any(h in u for h in ("packagist.org", "wpackagist.org",
                                                                   "composer.craftcms.com"))]
-    if private:
-        p.notes.append("Private Composer repositories need credentials (auth.json), which the container "
-                       "doesn't have: run `composer install/update` on the Mac via DDEV. Repos: " + ", ".join(private))
+    github_private = [u for u in private if "github.com" in u]
+    other_private = [u for u in private if u not in github_private]
+    if other_private and (p.path / "auth.json").exists():
+        # Composer reads auth.json next to composer.json before the global one, and the project
+        # mount brings it in. Claude can't read it (managed deny + safety guard); Composer can.
+        p.info.append("Composer logins come from the project's own auth.json (gitignored, inside the project "
+                      "mount) for: " + ", ".join(other_private))
+    elif other_private:
+        p.notes.append("Private Composer repositories need logins in an auth.json next to composer.json "
+                       "(gitignored); until then run `composer install/update` on the Mac via DDEV. Repos: "
+                       + ", ".join(other_private))
+    if github_private:
+        p.info.append("Private GitHub repos for Composer (" + ", ".join(github_private) + ") clone with the gh "
+                      "login when there's no github-oauth entry in auth.json; that login's token must "
+                      "be able to read them.")
     if "wordpress" in p.stack:
         p.info.append("WP-CLI installed in the image; `ddev wp` maps to it if the project defines that command.")
     if p.php and p.php < "8.2":
@@ -573,6 +612,24 @@ def history_lines(user: str) -> list[str]:
     ]
 
 
+# Hosts publish IPv6 addresses the container can't route, and PHP/Composer tried them first
+# ("Network is unreachable"). With IPv6 off they use IPv4 straight away.
+IPV6_OFF = ["    sysctls:", "      net.ipv6.conf.all.disable_ipv6: 1", "      net.ipv6.conf.default.disable_ipv6: 1"]
+
+
+def no_proxy_hosts(p: Project) -> list[str]:
+    """Names that must not go through the proxy: this container's network and the Mac."""
+    hosts = ["localhost", "127.0.0.1", "host.docker.internal"]
+    if p.uses_ddev:
+        if p.php:
+            hosts.append("db")
+        hosts += p.ddev_addons
+        hosts += [l.split(":")[-1] for l in p.ddev_links]
+        if p.site_host:
+            hosts.append(p.site_host)
+    return list(dict.fromkeys(hosts))
+
+
 def gen_compose(p: Project) -> str:
     _, user = base_image(p)
     vol = ["      # The project, writable.", "      - ..:/workspace:cached",
@@ -618,6 +675,13 @@ def gen_compose(p: Project) -> str:
         email = p.git_email or "change-me@example.com"
         env += [f"      GIT_AUTHOR_NAME: {json.dumps(name)}", f"      GIT_AUTHOR_EMAIL: {email}",
                 f"      GIT_COMMITTER_NAME: {json.dumps(name)}", f"      GIT_COMMITTER_EMAIL: {email}"]
+    proxy = f"http://{PROXY_HOST}:{PROXY_PORT}"
+    no_proxy = ",".join(no_proxy_hosts(p))
+    env += ["      # Web traffic goes through the egress proxy, which allows allowed-domains.txt by host",
+            "      # name, so CDN address changes don't matter (curl, Composer, npm, git, gh, Claude Code",
+            "      # and WP-CLI all honour these). Local names go direct.",
+            *[f'      {var}: "{proxy}"' for var in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")],
+            f'      NO_PROXY: "{no_proxy}"', f'      no_proxy: "{no_proxy}"']
     out = [f"# Generated by cps-devcontainer {VERSION}.", "services:", "  claude:",
            "    build:", "      context: .", "      dockerfile: Dockerfile",
            "    command: sleep infinity", "    volumes:", *vol, "    environment:", *env]
@@ -632,10 +696,19 @@ def gen_compose(p: Project) -> str:
             links += ["      # The site itself, through DDEV's router, so BrowserSync/Vite can proxy it.",
                       f"      - ddev-router:{p.site_host}"]
         out += ["    # The same host names DDEV's web container sees.", "    external_links:", *links]
-    out += ["    cap_add:", "      - NET_ADMIN", "      - NET_RAW"]
+    out += ["    cap_add:", "      - NET_ADMIN", "      - NET_RAW", *IPV6_OFF,
+            "    depends_on:", f"      - {PROXY_HOST}"]
     if p.uses_ddev:
-        out += ["    networks:", "      - ddev", "", "networks:", "  ddev:", "    external: true",
-                "    name: ddev_default"]
+        # default is this project's own network, where the proxy lives; the proxy never joins
+        # ddev_default, so another project's proxy can't answer to the same name.
+        out += ["    networks:", "      - ddev", "      - default"]
+    out += ["", f"  {PROXY_HOST}:",
+            "    # Squid: CONNECT/HTTP only to host names in allowed-domains.txt, which it re-reads every",
+            "    # 15 s. The folder, not the file, is mounted so an editor's save-by-rename shows up.",
+            "    build:", "      context: .", "      dockerfile: Dockerfile.proxy",
+            "    restart: unless-stopped", "    volumes:", "      - .:/etc/sandbox:ro", *IPV6_OFF]
+    if p.uses_ddev:
+        out += ["", "networks:", "  ddev:", "    external: true", "    name: ddev_default"]
     out += ["", "volumes:", "  claude-config:", "  command-history:", "  vscode-extensions:", "  gh-config:",
             f"    name: {GH_CONFIG_VOLUME}"]
     if p.node_modules:
@@ -770,6 +843,8 @@ def gen_allowed_domains(p: Project) -> str:
         groups.append(("npm", NPM_HOSTS))
     if p.composer:
         groups.append(("Composer / Packagist", COMPOSER_HOSTS))
+    if "wordpress" in p.stack or "wpackagist.org" in json.dumps(p.composer.get("repositories", [])):
+        groups.append(("WordPress core, plugin and theme downloads (wpackagist points here), checksums", WORDPRESS_HOSTS))
     if "craftcms" in p.stack:
         groups.append(("Craft CMS (plugin repo, licensing)", CRAFT_HOSTS))
     extra = []
@@ -780,16 +855,21 @@ def gen_allowed_domains(p: Project) -> str:
                 extra.append(host)
     if extra:
         groups.append(("Composer repositories from composer.json", sorted(set(extra))))
+    if "connect.advancedcustomfields.com" in extra:
+        groups.append(("ACF Pro downloads (redirected to signed Google Cloud Storage URLs)", ["storage.googleapis.com"]))
     if p.python:
         groups.append(("Python packages", PYTHON_HOSTS))
     if "context7" in p.mcp:
         groups.append(("Context7 docs MCP", CONTEXT7_HOSTS))
+    groups.append(("GitHub: git, gh, release assets, Actions logs and artifacts, container images",
+                   GITHUB_TOOL_HOSTS))
     groups.append(("CleanShot screenshots and videos", CLEANSHOT_HOSTS))
     out = [f"# Generated by cps-devcontainer {VERSION}.",
-           "# Hosts the sandbox may reach. GitHub's IP ranges are added automatically, and the",
-           "# container's own network (DDEV's, when used) is always reachable.",
-           "# Edit on the Mac, then reopen the container (or run `sudo /usr/local/sbin/sandbox-firewall.sh`",
-           "# inside); no rebuild needed. Inside, the file is read-only.", ""]
+           "# Hosts the sandbox may reach, by exact name. The egress proxy matches them by name and",
+           "# re-reads this file every 15 s; the firewall also allows their current addresses (for",
+           "# anything that ignores HTTPS_PROXY), GitHub's IP ranges and the container's own network.",
+           "# Edit on the Mac. The proxy picks it up by itself; for the firewall, reopen the container or",
+           "# run `sudo /usr/local/sbin/sandbox-firewall.sh` inside. Inside, the file is read-only.", ""]
     for title, hosts in groups:
         out.append(f"# {title}")
         out += hosts
@@ -806,11 +886,15 @@ def gen_managed_settings(p: Project) -> str:
             "deny": ["Read(**/.env)", "Read(**/.env.*)", "Read(**/.env.php)", "Read(**/*.key)", "Read(**/*.pem)",
                      "Read(**/.aws/**)", "Read(**/.ssh/**)", "Read(**/auth.json)", "Read(**/*.sql)",
                      "Read(**/.config/gh/**)", "Bash(gh auth token:*)", "Bash(gh repo delete:*)"],
-            # A push to main or staging deploys, so publishing always asks, token or not.
-            "ask": ["Bash(git push:*)", "Bash(gh pr create:*)", "Bash(gh pr merge:*)",
-                    "Bash(gh pr edit:*)", "Bash(gh release create:*)", "Bash(gh workflow run:*)",
-                    "Bash(gh run rerun:*)", "Bash(gh api:*)"],
+            # A push or merge to main or staging deploys, and so can a release or a workflow run:
+            # those always ask. Other gh commands (PRs, issues, runs, logs, the API) don't; the
+            # safety guard still asks before an explicit -X POST/PUT/PATCH/DELETE to the API.
+            "ask": ["Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(gh release create:*)",
+                    "Bash(gh release upload:*)", "Bash(gh workflow run:*)", "Bash(gh run rerun:*)"],
         },
+        # Read by safety-guard.sh: PR and issue writes stop asking here (they still do on the Mac).
+        # Managed settings are root-owned, so nothing inside can turn this on for itself.
+        "env": {"AI_CONFIG_GH_LIGHT_WRITES": "allow"},
     }
     if (p.path / ".claude" / "hooks" / "safety-guard.sh").exists():
         cfg["hooks"] = {"PreToolUse": [{
@@ -874,12 +958,28 @@ def gen_readme(p: Project) -> str:
     lines += ["## Manual follow-ups", ""]
     lines += [f"- [ ] {n}" for n in p.notes] if p.notes else ["None."]
     lines += ["", "## If something's blocked", "",
-              "- A site you need: add it to `allowed-domains.txt` on the Mac, then reopen the container or run "
-              "`sudo /usr/local/sbin/sandbox-firewall.sh` inside (no rebuild).",
-              "- npm/Composer or the DB stops answering (after `ddev restart`, or CDN IPs rotate): "
-              "`sudo /usr/local/sbin/sandbox-firewall.sh`.",
+              "- A site you need: add it to `allowed-domains.txt` on the Mac. The egress proxy picks it up within "
+              "15 s; tools that ignore `HTTPS_PROXY` need a reopen or `sudo /usr/local/sbin/sandbox-firewall.sh` "
+              "inside (no rebuild).",
+              f"- Proxy refusals show in `docker logs` of the `{PROXY_HOST}` container on the Mac (`TCP_DENIED` "
+              "= not on the list).",
+              "- The DB stops answering after `ddev restart`: `sudo /usr/local/sbin/sandbox-firewall.sh`.",
               "- `.devcontainer/` and the guardrail files are read-only inside: edit them on the Mac.", ""]
     return "\n".join(lines)
+
+
+def gen_proxy_dockerfile() -> str:
+    return "\n".join([
+        f"# Generated by cps-devcontainer {VERSION}. The egress proxy (see egress-proxy.sh).",
+        "FROM debian:bookworm-slim",
+        "RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \\",
+        "    && apt-get install -y --no-install-recommends squid \\",
+        "    && apt-get clean && rm -rf /var/lib/apt/lists/*",
+        "COPY egress-proxy.sh /usr/local/sbin/egress-proxy.sh",
+        "RUN chmod 755 /usr/local/sbin/egress-proxy.sh",
+        f"EXPOSE {PROXY_PORT}",
+        'ENTRYPOINT ["/usr/local/sbin/egress-proxy.sh"]',
+        ""])
 
 
 def write_kit(p: Project, dest: Path) -> list[str]:
@@ -887,6 +987,7 @@ def write_kit(p: Project, dest: Path) -> list[str]:
     files = {
         "Dockerfile": gen_dockerfile(p),
         "docker-compose.yml": gen_compose(p),
+        "Dockerfile.proxy": gen_proxy_dockerfile(),
         "devcontainer.json": gen_devcontainer_json(p),
         "allowed-domains.txt": gen_allowed_domains(p),
         "managed-settings.json": gen_managed_settings(p),

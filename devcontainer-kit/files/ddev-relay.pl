@@ -22,7 +22,7 @@ use File::Basename qw(dirname);
 use IO::Socket::INET;
 use POSIX qw(strftime);
 
-our $VERSION = 1;
+our $VERSION = 2;
 my $PORT = $ENV{CPS_DDEV_RELAY_PORT} || 20090;
 my $STATE = "$ENV{HOME}/.cache/cps-devcontainer/relay";
 my $TOKENS = "$STATE/tokens";
@@ -238,6 +238,8 @@ sub plan {
             if ($arg =~ /^--database=(.+)$/) { $database = $1; next; }
             if (($arg eq '-d' || $arg eq '--database') && defined $rest[0]) { $database = shift @rest; next; }
             if ($verb eq 'import-db' && ($arg eq '--no-drop' || $arg eq '--no-progress')) { push @flags, $arg; next; }
+            # A bare --gzip is DDEV's default spelled out; pass it on as --gzip=true.
+            if ($verb eq 'export-db' && $arg eq '--gzip') { push @flags, '--gzip=true'; next; }
             if ($verb eq 'export-db' && $arg =~ /^--gzip=(true|false)$/) { push @flags, $arg; next; }
             return (undef, undef, "ddev $verb: '$arg' is not allowed here");
         }

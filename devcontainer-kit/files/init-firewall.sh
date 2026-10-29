@@ -73,15 +73,14 @@ for domain in $domains; do
 done
 printf '%s' "$batch" | ipset -exist restore
 
-# 5. Allow the container's own network: DDEV's (its databases, add-ons, router)
-#    when the project uses DDEV, otherwise the compose default network.
+# 5. Allow the container's own networks: DDEV's (its databases, add-ons, router) when the
+#    project uses DDEV, and the compose project's network, where the egress proxy runs.
 #    Allowing the subnet, not single IPs, survives DB containers restarting.
-DDEV_SUBNET=$(ip -o -f inet addr show eth0 | awk '{print $4}' | head -n1)
-if [ -n "$DDEV_SUBNET" ]; then
-  iptables -A INPUT  -s "$DDEV_SUBNET" -j ACCEPT
-  iptables -A OUTPUT -d "$DDEV_SUBNET" -j ACCEPT
-  echo "Allowed DDEV network $DDEV_SUBNET"
-fi
+for subnet in $(ip -o -f inet addr show | awk '$2 != "lo" {print $4}'); do
+  iptables -A INPUT  -s "$subnet" -j ACCEPT
+  iptables -A OUTPUT -d "$subnet" -j ACCEPT
+  echo "Allowed container network $subnet"
+done
 
 # 5b. The DDEV relay on the Mac (ddev-relay.pl): one port, nothing else on the host.
 if [ -r /run/ddev-relay/token ]; then
@@ -116,3 +115,18 @@ if ! curl -s -o /dev/null --connect-timeout 5 https://api.anthropic.com; then
   echo "ERROR: firewall check failed, api.anthropic.com is unreachable"; exit 1
 fi
 echo "Firewall active: example.com blocked, api.anthropic.com reachable."
+
+# 8. The egress proxy (a sibling compose service) may still be starting. A failure here only
+#    warns: direct connections to the allowlist's addresses keep working without it.
+PROXY=http://egress-proxy:3128
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  curl -s -o /dev/null --connect-timeout 3 -x "$PROXY" https://api.anthropic.com && break
+  sleep 1
+done
+if ! curl -s -o /dev/null --connect-timeout 5 -x "$PROXY" https://api.anthropic.com; then
+  echo "WARNING: egress proxy not answering; tools using HTTPS_PROXY will fail until it does."
+elif curl -s -o /dev/null --connect-timeout 5 -x "$PROXY" https://example.com; then
+  echo "ERROR: egress proxy let example.com through"; exit 1
+else
+  echo "Egress proxy active: allowlist by host name."
+fi
