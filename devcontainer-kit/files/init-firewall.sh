@@ -58,7 +58,9 @@ fi
 # 4. Domains from the allowlist file, looked up in parallel ("<domain> <ip>" per answer).
 resolve() { dig +noall +answer A "$1" | awk -v d="$1" '$4 == "A" {print d, $5}'; }
 export -f resolve
-domains=$(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$ALLOWLIST" | grep -v '^$' || true)
+# A leading dot (.cps.ca) means "and every subdomain" to the proxy; here only the name itself
+# can be looked up, so the subdomains still go through the proxy.
+domains=$(sed -e 's/#.*//' -e 's/[[:space:]]//g' -e 's/^\.//' "$ALLOWLIST" | grep -v '^$' || true)
 resolved=$(printf '%s\n' $domains | xargs -r -P 16 -n 1 bash -c 'resolve "$1"' _ || true)
 for domain in $domains; do
   ips=$(echo "$resolved" | awk -v d="$domain" '$1 == d {print $2}')
