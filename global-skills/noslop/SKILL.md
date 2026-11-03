@@ -39,9 +39,10 @@ These come from Robert's own rules and win wherever the upstream rules below dis
    1. Run `cloudflare.sh config`. If the token is missing, ask Robert to run
       `! ~/.claude/skills/noslop/scripts/cloudflare.sh setup`, then run `cloudflare.sh check`.
       Never read the token any other way, and never print it.
-   2. In a new folder for the page, run `cloudflare.sh new . "<topic>"`. It names the page
-      `<topic>-<random hash>`, checks with Cloudflare that the name is unused, and prints the
-      address `https://share.cps.ca/<name>/`. Keep the topic short and free of personal names.
+   2. In a new folder for the page, run `cloudflare.sh new . "<topic>" [days]`. It names the
+      page `<topic>-<random hash>`, checks with Cloudflare that the name is unused, sets it to
+      expire in 30 days unless Robert asks for another span, and prints the address
+      `https://share.cps.ca/<name>/`. Keep the topic short and free of personal names.
       To update a page, work in its folder: `new` keeps the existing name and address. Set
       `PAGE_TITLE` in `wrangler.jsonc` to the header line's "what this is".
    3. Build into `dist/` with relative asset links (Vite: `base: './'`), because the page is
@@ -54,9 +55,13 @@ These come from Robert's own rules and win wherever the upstream rules below dis
       401, and a POST of the passcode to `<address>__unlock` must answer 303. A 403 page that
       says "Sorry, you have been blocked" is a Cloudflare security rule on the zone, not the
       gate: tell Robert and leave the rule alone.
-   7. End with 3 lines: the link, the passcode, and the delete command
-      `cloudflare.sh wrangler delete --name <name>`. The page is temporary: offer to delete it
-      once Robert is done. Deleting the Worker removes its route.
+   7. End with 3 lines: the link, the passcode, and the expiry date. After that date the page
+      answers "expired" by itself.
+
+   Managing pages: `cloudflare.sh list` shows every page on share.cps.ca with its dates.
+   `cloudflare.sh prune` lists the expired ones, and `prune --delete` removes them.
+   `cloudflare.sh delete <name>` removes one page early. Both deletes need Robert's yes, and
+   neither touches a Worker that isn't served from share.cps.ca.
 
    Don't create a GitHub repo or push unless Robert asks. Cloudflare serves from outside
    Canada and the passcode is light protection for mock-ups, so never put personal information

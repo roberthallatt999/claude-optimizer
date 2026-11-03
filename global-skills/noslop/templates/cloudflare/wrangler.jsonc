@@ -24,6 +24,8 @@
     // Shown on the passcode screen, e.g. "October update for Dana". Not secret.
     "PAGE_TITLE": "Private page",
     // The page's path on the shared host. Build the page with relative asset links.
-    "BASE_PATH": "/{{WORKER_NAME}}"
+    "BASE_PATH": "/{{WORKER_NAME}}",
+    // After this date (UTC) the gate answers "expired", and `cloudflare.sh prune` lists the page.
+    "EXPIRES": "{{EXPIRES}}"
   }
 }

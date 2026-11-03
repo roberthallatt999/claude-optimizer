@@ -127,6 +127,10 @@ echo -e "${CYAN}=== Secrets: allowed / ask ===${NC}"
 bash_expect none 'cat .env.example'
 # shellcheck disable=SC2088  # the literal command Claude runs, tilde and all
 bash_expect none '~/.claude/skills/noslop/scripts/cloudflare.sh config'
+# shellcheck disable=SC2088  # the literal command Claude runs, tilde and all
+bash_expect none '~/.claude/skills/noslop/scripts/cloudflare.sh prune'
+# shellcheck disable=SC2088  # the literal command Claude runs, tilde and all
+bash_expect none '~/.claude/skills/noslop/scripts/cloudflare.sh list'
 bash_expect none 'npx wrangler whoami'
 bash_expect none 'grep -r process.env src/'
 bash_expect none 'grep -rn "import.meta.env" src'
@@ -240,6 +244,10 @@ bash_expect ask 'pnpm dlx wrangler secret put PASSCODE'
 bash_expect ask '~/.claude/skills/noslop/scripts/cloudflare.sh wrangler deploy'
 # shellcheck disable=SC2088  # the literal command Claude runs, tilde and all
 bash_expect ask '~/.claude/skills/noslop/scripts/cloudflare.sh wrangler delete --name mockup'
+# shellcheck disable=SC2088  # the literal command Claude runs, tilde and all
+bash_expect ask '~/.claude/skills/noslop/scripts/cloudflare.sh delete q3-traffic-7f3a9c2e'
+# shellcheck disable=SC2088  # the literal command Claude runs, tilde and all
+bash_expect ask '~/.claude/skills/noslop/scripts/cloudflare.sh prune --delete'
 bash_expect ask 'npx vercel --prod'
 bash_expect ask 'npx -y netlify-cli deploy --prod'
 bash_expect ask 'ddev push'

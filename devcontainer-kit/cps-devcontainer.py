@@ -89,7 +89,7 @@ GH_CONFIG_VOLUME = "cps-gh-config"
 # containers can't reach) for the plausible skill, which is mounted from the Mac read-only.
 PLAUSIBLE_CONFIG_VOLUME = "cps-plausible-config"
 # And one Cloudflare account ID + API token for the noslop skill's web version (wrangler deploys
-# each page to its own subdomain of share.cps.ca). The skill is mounted from the Mac read-only.
+# each page to its own path on share.cps.ca). The skill is mounted from the Mac read-only.
 CLOUDFLARE_CONFIG_VOLUME = "cps-cloudflare-config"
 # The published pages are under share.cps.ca, which CPS_HOSTS (.cps.ca) already allows.
 CLOUDFLARE_HOSTS = ["api.cloudflare.com"]

@@ -13,12 +13,17 @@
 #   cloudflare.sh config                # account, share domain, whether a token is stored
 #   cloudflare.sh check                 # verify the token
 #   cloudflare.sh domain <host>         # set the share domain (default share.cps.ca)
-#   cloudflare.sh new <dir> <topic>     # name a page <topic>-<hash>, copy the gate into <dir>;
-#                                       # a <dir> that already has a page keeps its name
+#   cloudflare.sh new <dir> <topic> [days]  # name a page <topic>-<hash> that expires in [days]
+#                                       # (default 30), copy the gate into <dir>; a <dir> that
+#                                       # already has a page keeps its name
 #   cloudflare.sh url <name>            # the page's https://<share domain>/<name>/ address
-#   cloudflare.sh wrangler <args...>    # run wrangler with the token (deploy, secret put, delete …)
+#   cloudflare.sh list                  # every page on the share domain: created, expires, status
+#   cloudflare.sh prune                 # the expired pages; --delete removes them
+#   cloudflare.sh delete <name>         # remove one page: its routes, custom domain and Worker
+#   cloudflare.sh wrangler <args...>    # run wrangler with the token (deploy, secret put …)
 #
 # Deploying, setting a secret and deleting are outward-facing: the safety hook asks before each one.
+# list, prune and delete only ever touch Workers served from the share domain.
 
 set -euo pipefail
 
@@ -27,6 +32,7 @@ CONFIG_FILE="${CLOUDFLARE_CONFIG:-$HOME/.config/cps-cloudflare/config}"
 TOKEN_FILE="${CLOUDFLARE_TOKEN_FILE:-$(dirname "$CONFIG_FILE")/api-token}"
 API="https://api.cloudflare.com/client/v4"
 DEFAULT_SHARE_DOMAIN="share.cps.ca"
+DEFAULT_DAYS=30
 TEMPLATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../templates/cloudflare" && pwd)"
 
 die() {
@@ -87,6 +93,14 @@ api_get() {
   token=''
 }
 
+# Any method; prints the response body. Used for the DELETEs in cmd_delete.
+api_call() {
+  local method=$1 token
+  token=$(read_token) && [ -n "$token" ] || die "no API token in $(token_store) - run: $0 setup"
+  printf 'header = "Authorization: Bearer %s"\n' "$token" | curl -sS -K - -X "$method" "$API$2"
+  token=''
+}
+
 # HTTP status of a GET, or 000 when there is no token or no answer.
 api_status() {
   local token
@@ -99,6 +113,13 @@ api_status() {
 random_hash() {
   if command -v openssl >/dev/null 2>&1; then openssl rand -hex 4
   else od -An -N4 -tx1 /dev/urandom | tr -d ' \n'; fi
+}
+
+today() { date -u +%F; }
+
+# The date <days> from today, on BSD (macOS) or GNU date.
+days_from_today() {
+  date -u -v+"$1"d +%F 2>/dev/null || date -u -d "+$1 days" +%F
 }
 
 # Lowercase letters, digits and single hyphens, at most 40 characters.
@@ -172,8 +193,9 @@ cmd_domain() {
 }
 
 cmd_new() {
-  local dir=${1:-} topic=${2:-} name slug status f
-  [ -n "$dir" ] && [ -n "$topic" ] || die "usage: $0 new <dir> <topic>"
+  local dir=${1:-} topic=${2:-} days=${3:-$DEFAULT_DAYS} name slug status f expires
+  [ -n "$dir" ] && [ -n "$topic" ] || die "usage: $0 new <dir> <topic> [days]"
+  [[ "$days" =~ ^[1-9][0-9]{0,2}$ ]] || die "days must be 1 to 999: $days"
   load_config
   # A folder that already holds a page keeps its name: redeploying updates the same address.
   if [ -f "$dir/wrangler.jsonc" ]; then
@@ -197,12 +219,14 @@ cmd_new() {
   done
   [ -n "$name" ] || die "five random names were all taken - try another topic"
   valid_name "$name" || die "bad page name: $name"
+  expires=$(days_from_today "$days")
   mkdir -p "$dir"
   for f in worker.js wrangler.jsonc; do
     sed -e "s/{{WORKER_NAME}}/$name/g" -e "s/{{SHARE_DOMAIN}}/$CLOUDFLARE_SHARE_DOMAIN/g" \
-      -e "s/{{SHARE_ZONE}}/$CLOUDFLARE_SHARE_ZONE/g" "$TEMPLATE_DIR/$f" >"$dir/$f"
+      -e "s/{{SHARE_ZONE}}/$CLOUDFLARE_SHARE_ZONE/g" -e "s/{{EXPIRES}}/$expires/g" \
+      "$TEMPLATE_DIR/$f" >"$dir/$f"
   done
-  printf 'page %s\n%s\n' "$name" "$(cmd_url "$name")"
+  printf 'page %s, expires %s\n%s\n' "$name" "$expires" "$(cmd_url "$name")"
   printf 'Build the page into %s/dist with relative asset links, then deploy and set PASSCODE.\n' "$dir"
 }
 
@@ -211,6 +235,94 @@ cmd_url() {
   valid_name "$name" || die "usage: $0 url <name>"
   load_config
   printf 'https://%s/%s/\n' "$CLOUDFLARE_SHARE_DOMAIN" "$name"
+}
+
+zone_id() {
+  api_get "/zones?name=$CLOUDFLARE_SHARE_ZONE" | jq -r '.result[0].id // empty'
+}
+
+# One line per page on the share domain: name<TAB>address<TAB>created<TAB>expires.
+# A page is a Worker with a route under the share domain, or a custom domain on it.
+share_pages() {
+  local zone acct=$CLOUDFLARE_ACCOUNT_ID share=$CLOUDFLARE_SHARE_DOMAIN routes domains scripts name
+  [ -n "$acct" ] || die "no account ID - run: $0 setup"
+  zone=$(zone_id)
+  [ -n "$zone" ] || die "can't read zone $CLOUDFLARE_SHARE_ZONE: give the token Zone > Workers Routes for it"
+  routes=$(api_get "/zones/$zone/workers/routes")
+  domains=$(api_get "/accounts/$acct/workers/domains")
+  scripts=$(api_get "/accounts/$acct/workers/scripts")
+  {
+    jq -r --arg s "$share/" '.result[]? | select(.script and (.pattern | startswith($s))) | .script' <<<"$routes"
+    jq -r --arg s "$share" '.result[]? | select(.hostname == $s or (.hostname | endswith("." + $s))) | .service' <<<"$domains"
+  } | sort -u | while read -r name; do
+    [ -n "$name" ] || continue
+    local address created expires
+    address=$(jq -r --arg n "$name" --arg s "$share" '
+      ([.result[]? | select(.service == $n) | "https://\(.hostname)/"] | first) // empty' <<<"$domains")
+    [ -n "$address" ] || address=$(cmd_url "$name")
+    created=$(jq -r --arg n "$name" '.result[]? | select(.id == $n) | .created_on[0:10]' <<<"$scripts")
+    expires=$(api_get "/accounts/$acct/workers/scripts/$name/settings" \
+      | jq -r '[.result.bindings[]? | select(.type == "plain_text" and .name == "EXPIRES") | .text] | first // empty')
+    printf '%s\t%s\t%s\t%s\n' "$name" "$address" "${created:-?}" "$expires"
+  done
+}
+
+# Expired: its EXPIRES date has passed, or it has none and was created over DEFAULT_DAYS ago.
+is_expired() {
+  local created=$1 expires=$2 now
+  now=$(today)
+  if [ -n "$expires" ]; then [[ "$expires" < "$now" ]]; return; fi
+  [[ "$created" != "?" && "$(date -u -j -f %F "$created" +%s 2>/dev/null || date -u -d "$created" +%s)" -lt \
+     "$(( $(date -u +%s) - DEFAULT_DAYS * 86400 ))" ]]
+}
+
+cmd_list() {
+  load_config
+  local pages name address created expires state
+  pages=$(share_pages)
+  [ -n "$pages" ] || { printf 'No pages on %s.\n' "$CLOUDFLARE_SHARE_DOMAIN"; return; }
+  printf '%-36s %-10s %-10s %-8s %s\n' PAGE CREATED EXPIRES STATE ADDRESS
+  while IFS=$'\t' read -r name address created expires; do
+    state=live
+    is_expired "$created" "$expires" && state=expired
+    printf '%-36s %-10s %-10s %-8s %s\n' "$name" "$created" "${expires:-none}" "$state" "$address"
+  done <<<"$pages"
+}
+
+cmd_prune() {
+  load_config
+  local pages name address created expires found=0
+  pages=$(share_pages)
+  while IFS=$'\t' read -r name address created expires; do
+    [ -n "$name" ] || continue
+    is_expired "$created" "$expires" || continue
+    found=1
+    printf 'expired: %s (created %s, expires %s) %s\n' "$name" "$created" "${expires:-none}" "$address"
+    [ "${1:-}" = "--delete" ] && cmd_delete "$name"
+  done <<<"$pages"
+  [ "$found" = 1 ] || printf 'Nothing has expired on %s.\n' "$CLOUDFLARE_SHARE_DOMAIN"
+  if [ "$found" = 1 ] && [ "${1:-}" != "--delete" ]; then printf 'Run %s prune --delete to remove them.\n' "$0"; fi
+}
+
+# Removes one page: its routes, any custom domain, then the Worker. Refuses anything that isn't
+# served from the share domain, so other Workers in the account are never touched.
+cmd_delete() {
+  local name=${1:-} zone acct id body
+  valid_name "$name" || die "usage: $0 delete <name>"
+  load_config
+  acct=$CLOUDFLARE_ACCOUNT_ID
+  cut -f1 <<<"$(share_pages)" | grep -qx -- "$name" \
+    || die "$name is not a page on $CLOUDFLARE_SHARE_DOMAIN - nothing deleted"
+  zone=$(zone_id)
+  for id in $(api_get "/zones/$zone/workers/routes" | jq -r --arg n "$name" '.result[]? | select(.script == $n) | .id'); do
+    api_call DELETE "/zones/$zone/workers/routes/$id" | jq -e '.success' >/dev/null || die "could not remove a route of $name"
+  done
+  for id in $(api_get "/accounts/$acct/workers/domains" | jq -r --arg n "$name" '.result[]? | select(.service == $n) | .id'); do
+    api_call DELETE "/accounts/$acct/workers/domains/$id" >/dev/null || die "could not detach the custom domain of $name"
+  done
+  body=$(api_call DELETE "/accounts/$acct/workers/scripts/$name?force=true")
+  jq -e '.success' >/dev/null <<<"$body" || die "could not delete $name: $(jq -c '.errors' <<<"$body")"
+  printf 'deleted %s\n' "$name"
 }
 
 cmd_wrangler() {
@@ -236,6 +348,9 @@ case "${1:-}" in
   domain) shift; cmd_domain "$@" ;;
   new) shift; cmd_new "$@" ;;
   url) shift; cmd_url "$@" ;;
+  list) cmd_list ;;
+  prune) shift; cmd_prune "$@" ;;
+  delete) shift; cmd_delete "$@" ;;
   wrangler) shift; cmd_wrangler "$@" ;;
   *) sed -n '/^# Usage:/,/^# Deploying/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
 esac

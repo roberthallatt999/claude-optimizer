@@ -15,6 +15,9 @@ export default {
     if (!env.PASSCODE) {
       return page(env, base, 'This page isn’t ready yet.', 503, false);
     }
+    if (env.EXPIRES && new Date().toISOString().slice(0, 10) > env.EXPIRES) {
+      return page(env, base, `This page expired on ${env.EXPIRES}. Ask the sender for a new link.`, 410, false);
+    }
     if (base && url.pathname === base) {
       // Relative asset links only resolve under the trailing slash.
       return noindex(Response.redirect(`${url.origin}${base}/${url.search}`, 301));

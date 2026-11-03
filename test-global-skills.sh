@@ -94,6 +94,11 @@ assert_true  "cloudflare: the page gets its own path on share.cps.ca" \
   grep -q "\"pattern\": \"share.cps.ca/$name/\\*\", \"zone_name\": \"cps.ca\"" "$site/wrangler.jsonc"
 assert_true  "cloudflare: the gate knows its path" grep -q "\"BASE_PATH\": \"/$name\"" "$site/wrangler.jsonc"
 assert_true  "cloudflare: no workers.dev address" grep -q '"workers_dev": false' "$site/wrangler.jsonc"
+assert_true  "cloudflare: a new page expires in 30 days by default" \
+  grep -q "\"EXPIRES\": \"$(date -u -v+30d +%F 2>/dev/null || date -u -d '+30 days' +%F)\"" "$site/wrangler.jsonc"
+assert_false "cloudflare: days must be a number" "$CF" new "$(tmp_dir)" topic soon
+assert_true  "cloudflare: the gate refuses an expired page" grep -q 'expired on' "$NOSLOP/templates/cloudflare/worker.js"
+assert_false "cloudflare: delete without a token deletes nothing" "$CF" delete q3-traffic-7f3a9c2e
 other=$(tmp_dir)
 "$CF" new "$other" "Q3 Member Centre traffic!" >/dev/null 2>&1
 assert_false "cloudflare: the same topic twice gets two routes" \
