@@ -223,6 +223,16 @@ cmd_check() {
     || die "token rejected: $(jq -c '.errors' <<<"$body" 2>/dev/null)"
   printf 'token: active\n'
   printf 'pages go to: https://%s/<name>/\n' "$CLOUDFLARE_SHARE_DOMAIN"
+  # Path routes only run when the host has a proxied DNS record of its own.
+  if command -v dig >/dev/null 2>&1; then
+    if [ -n "$(dig +short A "$CLOUDFLARE_SHARE_DOMAIN" @1.1.1.1 2>/dev/null)" ]; then
+      printf 'dns: %s resolves\n' "$CLOUDFLARE_SHARE_DOMAIN"
+    else
+      printf 'dns: %s does not resolve, so no page can be reached. Add a proxied DNS record for\n' "$CLOUDFLARE_SHARE_DOMAIN"
+      printf '     it in the %s zone (AAAA 100::, proxy on).\n' "$CLOUDFLARE_SHARE_ZONE"
+      return 1
+    fi
+  fi
 }
 
 cmd_domain() {
