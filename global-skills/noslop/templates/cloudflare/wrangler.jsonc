@@ -1,4 +1,4 @@
-// Passcode-gated page on a temporary workers.dev address (noslop skill, web version).
+// Passcode-gated page at https://{{SHARE_DOMAIN}}/{{WORKER_NAME}}/ (noslop skill, web version).
 // Deploy: cloudflare.sh wrangler deploy. Passcode: cloudflare.sh wrangler secret put PASSCODE.
 {
   "name": "{{WORKER_NAME}}",
@@ -11,10 +11,19 @@
     "binding": "ASSETS",
     "run_worker_first": true
   },
-  "workers_dev": true,
+  // Its own path on the shared host: /{{WORKER_NAME}} and everything under it. The name ends in
+  // a random hash, so no two pages share a route.
+  "routes": [
+    { "pattern": "{{SHARE_DOMAIN}}/{{WORKER_NAME}}", "zone_name": "{{SHARE_ZONE}}" },
+    { "pattern": "{{SHARE_DOMAIN}}/{{WORKER_NAME}}/*", "zone_name": "{{SHARE_ZONE}}" }
+  ],
+  // No second, unlisted address on workers.dev.
+  "workers_dev": false,
   "preview_urls": false,
   "vars": {
     // Shown on the passcode screen, e.g. "October update for Dana". Not secret.
-    "PAGE_TITLE": "Private page"
+    "PAGE_TITLE": "Private page",
+    // The page's path on the shared host. Build the page with relative asset links.
+    "BASE_PATH": "/{{WORKER_NAME}}"
   }
 }

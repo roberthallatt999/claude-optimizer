@@ -243,8 +243,12 @@ readable text such as `(brand green: not set)` rather than a fake value.
   as the upstream plugin so a stranger's repo can't change Claude's instructions unreviewed.
   The web version and shareable mock-ups deploy to Cloudflare, not GitHub and Vercel:
   `scripts/cloudflare.sh` (token in the Keychain, or on the shared `cps-cloudflare-config`
-  volume in containers, never printed) scaffolds a passcode-gated Worker on a temporary
-  workers.dev address; the gate serves nothing until `PASSCODE` is set and sends noindex.
+  volume in containers, never printed) scaffolds a passcode-gated Worker at its own path,
+  `share.cps.ca/<topic>-<8-hex hash>/` (path routes on the cps.ca zone; two-level subdomains
+  like `x.share.cps.ca` aren't covered by Universal SSL). The hash keeps every route unique,
+  and `new` checks the name with Cloudflare; rerunning it in a page's folder keeps the name.
+  The gate scopes its cookie to the page's path, serves nothing until `PASSCODE` is set, and
+  sends noindex.
   Dev containers (kit 1.11.0) mount the skill read-only and install wrangler on its own Node 22.
   `safety-guard.sh` now sees deploys through `npx --yes wrangler@4`, `pnpm dlx` and the helper.
   The Response Style block gained a short plain-language section adapted from the same rules.

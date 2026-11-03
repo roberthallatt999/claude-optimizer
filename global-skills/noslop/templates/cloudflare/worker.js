@@ -1,45 +1,60 @@
 // Passcode gate for a noslop web-version page. Serves the built page (ASSETS) only to a visitor
 // who has entered PASSCODE, a Worker secret. Without the secret every request gets a 503, so a
 // forgotten `secret put` never leaves the page open. Every response says noindex.
+//
+// BASE_PATH ("/q3-traffic-7f3a9c2e") puts the page under its own path of the shared host
+// (share.cps.ca/q3-traffic-7f3a9c2e/), so many pages share one host name. Empty serves the root.
 
 const COOKIE = 'noslop_gate';
 const MAX_AGE = 60 * 60 * 24 * 30;
 
 export default {
   async fetch(request, env) {
-    if (!env.PASSCODE) {
-      return page(env, 'This page isn’t ready yet.', 503, false);
-    }
     const url = new URL(request.url);
-    const token = await gateToken(env.PASSCODE, url.host);
+    const base = (env.BASE_PATH ?? '').replace(/\/+$/, '');
+    if (!env.PASSCODE) {
+      return page(env, base, 'This page isn’t ready yet.', 503, false);
+    }
+    if (base && url.pathname === base) {
+      // Relative asset links only resolve under the trailing slash.
+      return noindex(Response.redirect(`${url.origin}${base}/${url.search}`, 301));
+    }
+    if (base && !url.pathname.startsWith(`${base}/`)) {
+      return page(env, base, 'There’s no page here.', 404, false);
+    }
+    const token = await gateToken(env.PASSCODE, `${url.host}${base}`);
 
-    if (url.pathname === '/__unlock' && request.method === 'POST') {
+    if (url.pathname === `${base}/__unlock` && request.method === 'POST') {
       const form = await request.formData();
       const tried = String(form.get('passcode') ?? '');
       if (!(await sameText(tried, env.PASSCODE))) {
-        return page(env, 'That passcode didn’t work. Check it and try again.', 401, true);
+        return page(env, base, 'That passcode didn’t work. Check it and try again.', 401, true);
       }
       return noindex(new Response(null, {
         status: 303,
         headers: {
-          Location: '/',
-          'Set-Cookie': `${COOKIE}=${token}; Path=/; Max-Age=${MAX_AGE}; HttpOnly; Secure; SameSite=Lax`,
+          Location: `${base}/`,
+          // Scoped to this page's path, so each page on the shared host keeps its own passcode.
+          'Set-Cookie': `${COOKIE}=${token}; Path=${base}/; Max-Age=${MAX_AGE}; HttpOnly; Secure; SameSite=Lax`,
         },
       }));
     }
 
     if (readCookie(request, COOKIE) !== token) {
-      return page(env, '', 401, true);
+      return page(env, base, '', 401, true);
     }
-    return noindex(await env.ASSETS.fetch(request));
+    // The built files sit at the root of ASSETS, so drop the page's path before looking them up.
+    const assetUrl = new URL(request.url);
+    assetUrl.pathname = assetUrl.pathname.slice(base.length) || '/';
+    return noindex(await env.ASSETS.fetch(new Request(assetUrl, request)));
   },
 };
 
 // The cookie proves the passcode without holding it, and changes when the passcode changes.
-async function gateToken(passcode, host) {
+async function gateToken(passcode, scope) {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(passcode),
     { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${host}:noslop-gate-v1`));
+  const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${scope}:noslop-gate-v1`));
   return [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
@@ -50,6 +65,8 @@ async function sameText(a, b) {
   return crypto.subtle.timingSafeEqual(x, y);
 }
 
+// Another page's cookie has the same name but a different Path, so the browser never sends it
+// here; any value that isn't this page's token simply fails.
 function readCookie(request, name) {
   const header = request.headers.get('Cookie') ?? '';
   const match = header.split(/;\s*/).find((part) => part.startsWith(`${name}=`));
@@ -67,11 +84,11 @@ function escapeHtml(text) {
 }
 
 // The passcode screen, in the same look as the page behind it (style kit, WCAG AA colours).
-function page(env, message, status, withForm) {
+function page(env, base, message, status, withForm) {
   const title = escapeHtml(env.PAGE_TITLE || 'Private page');
   const note = message ? `<p class="note" role="alert">${escapeHtml(message)}</p>` : '';
   const form = withForm ? `
-      <form method="post" action="/__unlock">
+      <form method="post" action="${escapeHtml(base)}/__unlock">
         <label for="passcode">Passcode</label>
         <input id="passcode" name="passcode" type="password" autocomplete="current-password" required autofocus>
         <button type="submit">Open the page</button>

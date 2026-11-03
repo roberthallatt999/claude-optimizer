@@ -86,17 +86,30 @@ cfdir=$(tmp_dir)
 export CLOUDFLARE_CONFIG="$cfdir/config" CLOUDFLARE_TOKEN_FILE="$cfdir/api-token"
 export CLOUDFLARE_KEYCHAIN_SERVICE="noslop-test-$$-absent"
 site=$(tmp_dir)
-assert_true  "cloudflare: new scaffolds the gate" "$CF" new "$site" cps-test-20261103
-assert_true  "cloudflare: worker named in wrangler.jsonc" grep -q '"name": "cps-test-20261103"' "$site/wrangler.jsonc"
+assert_true  "cloudflare: new scaffolds the gate" "$CF" new "$site" "Q3 Member Centre traffic!"
+name=$(sed -n 's/^  "name": "\([^"]*\)".*/\1/p' "$site/wrangler.jsonc")
+assert_true  "cloudflare: name is the topic plus an 8-character hash" grep -Eq '^q3-member-centre-traffic-[0-9a-f]{8}$' <<< "$name"
 assert_true  "cloudflare: every request goes through the gate" grep -q '"run_worker_first": true' "$site/wrangler.jsonc"
+assert_true  "cloudflare: the page gets its own path on share.cps.ca" \
+  grep -q "\"pattern\": \"share.cps.ca/$name/\\*\", \"zone_name\": \"cps.ca\"" "$site/wrangler.jsonc"
+assert_true  "cloudflare: the gate knows its path" grep -q "\"BASE_PATH\": \"/$name\"" "$site/wrangler.jsonc"
+assert_true  "cloudflare: no workers.dev address" grep -q '"workers_dev": false' "$site/wrangler.jsonc"
+other=$(tmp_dir)
+"$CF" new "$other" "Q3 Member Centre traffic!" >/dev/null 2>&1
+assert_false "cloudflare: the same topic twice gets two routes" \
+  test "$(sed -n 's/^  "name": "\([^"]*\)".*/\1/p' "$other/wrangler.jsonc")" = "$name"
 echo "// mine" > "$site/worker.js"
-"$CF" new "$site" cps-test-20261103 >/dev/null
+assert_true  "cloudflare: new in a page's folder keeps its name" grep -q "kept existing page $name" <<< "$("$CF" new "$site" other 2>&1)"
 assert_true  "cloudflare: new never overwrites" grep -qx '// mine' "$site/worker.js"
-assert_false "cloudflare: new refuses an invalid name" "$CF" new "$(tmp_dir)" 'Bad_Name'
-assert_false "cloudflare: url needs a known subdomain" "$CF" url cps-test-20261103
-printf 'CLOUDFLARE_ACCOUNT_ID=abc\nCLOUDFLARE_WORKERS_SUBDOMAIN=cps-demo\n' > "$CLOUDFLARE_CONFIG"
-assert_true  "cloudflare: url builds the workers.dev address" \
-  test "$("$CF" url cps-test-20261103)" = "https://cps-test-20261103.cps-demo.workers.dev"
+assert_false "cloudflare: new refuses a topic with no letters" "$CF" new "$(tmp_dir)" '!!!'
+assert_true  "cloudflare: url defaults to share.cps.ca" \
+  test "$("$CF" url "$name")" = "https://share.cps.ca/$name/"
+printf 'CLOUDFLARE_ACCOUNT_ID=abc\n' > "$CLOUDFLARE_CONFIG"
+"$CF" domain share.example.org >/dev/null
+assert_true  "cloudflare: domain sets the share domain" \
+  test "$("$CF" url q3-traffic-0a1b2c3d)" = "https://share.example.org/q3-traffic-0a1b2c3d/"
+assert_true  "cloudflare: domain keeps the account ID" grep -qx 'CLOUDFLARE_ACCOUNT_ID=abc' "$CLOUDFLARE_CONFIG"
+assert_false "cloudflare: domain refuses a non-host" "$CF" domain 'not a host'
 printf 'sekret-token-value\n' > "$CLOUDFLARE_TOKEN_FILE"
 assert_false "cloudflare: config never prints the token" grep -q sekret-token-value <<< "$("$CF" config 2>&1)"
 if command -v node >/dev/null 2>&1; then
