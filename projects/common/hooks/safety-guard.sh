@@ -388,6 +388,10 @@ m() { [[ "$lc" =~ $1 ]]; }
 # allowing env assignments and wrappers (sudo, xargs…).
 S='(^|[;&|({`"'"'"']|\$\()[[:space:]]*(([a-z_][a-z0-9_]*=("[^"]*"|'"'[^']*'"'|[^[:space:]]*)|sudo|command|exec|time|nohup|xargs)[[:space:]]+)*'
 # `git` plus any global options before the subcommand (git -C dir push).
+# Package runners that fetch and run a CLI (npx -y wrangler@4 …), and the noslop skill's Cloudflare
+# helper, which hands wrangler its token: a deploy through either must still be seen as a deploy.
+R='((npx|bunx|pnpm[[:space:]]+(dlx|exec)|yarn[[:space:]]+dlx)([[:space:]]+-[^[:space:]]*)*[[:space:]]+)?'
+CF_HELPER='[^[:space:]]*cloudflare\.sh[[:space:]]+wrangler'
 G='git([[:space:]]+(-c|--git-dir|--work-tree)[[:space:]]+[^[:space:]]+|[[:space:]]+--?[a-z][a-z-]*(=[^[:space:]]+)?)*[[:space:]]+'
 
 # --- Tracked config files that must stay committable ------------------------
@@ -1239,9 +1243,9 @@ ask_rules=(
   "${S}gh[[:space:]]+(pr[[:space:]]+merge|release[[:space:]]+(create|upload|delete|edit)|repo[[:space:]]+(create|delete|edit|rename|archive|fork)|issue[[:space:]]+delete|workflow[[:space:]]+run|run[[:space:]]+(rerun|cancel)|secret|variable)([[:space:]]|$)	GitHub write via gh — ${PUBLISH}"
   "${S}gh[[:space:]]+api[[:space:]].*(-x|--method)[[:space:]]*(post|put|patch|delete)	GitHub API write — ${PUBLISH}"
   "${S}(npm|pnpm|yarn|bun)[[:space:]]+publish|${S}(twine[[:space:]]+upload|gem[[:space:]]+push|cargo[[:space:]]+publish|docker[[:space:]]+push)	package/image publish — ${PUBLISH}"
-  "${S}vercel([[:space:]].*)?[[:space:]](--prod|--production|deploy|promote|rollback|redeploy|alias|domains|dns|remove|rm)([[:space:]]|$)|${S}vercel[[:space:]]*($|[;&|])|${S}vercel[[:space:]]+env[[:space:]]+(add|rm|remove)	Vercel deploy/config — ${PROD}"
-  "${S}netlify[[:space:]]+(deploy|env:set|env:unset|env:import|sites:delete|link)	Netlify deploy/config — ${PROD}"
-  "${S}(wrangler|npx[[:space:]]+wrangler)[[:space:]]+(deploy|publish|delete|rollback|secret|versions[[:space:]]+deploy|d1[[:space:]]+.*--remote|kv[[:space:]].*(put|delete)|r2[[:space:]].*(put|delete))	Cloudflare deploy/data — ${PROD}"
+  "${S}${R}vercel(@[^[:space:]]*)?([[:space:]].*)?[[:space:]](--prod|--production|deploy|promote|rollback|redeploy|alias|domains|dns|remove|rm)([[:space:]]|$)|${S}${R}vercel(@[^[:space:]]*)?[[:space:]]*($|[;&|])|${S}${R}vercel(@[^[:space:]]*)?[[:space:]]+env[[:space:]]+(add|rm|remove)	Vercel deploy/config — ${PROD}"
+  "${S}${R}netlify(-cli)?(@[^[:space:]]*)?[[:space:]]+(deploy|env:set|env:unset|env:import|sites:delete|link)	Netlify deploy/config — ${PROD}"
+  "${S}(${R}wrangler(@[^[:space:]]*)?|${CF_HELPER})[[:space:]]+(deploy|publish|delete|rollback|secret|versions[[:space:]]+deploy|d1[[:space:]]+.*--remote|kv[[:space:]].*(put|delete)|r2[[:space:]].*(put|delete))	Cloudflare deploy/data — ${PROD}"
   "${S}(firebase[[:space:]]+deploy|flyctl?[[:space:]]+(deploy|secrets|destroy|scale)|heroku[[:space:]]|railway[[:space:]]+(up|variables)|dep[[:space:]]+deploy|cap[[:space:]]+production|envoy[[:space:]]+run|forge[[:space:]]+deploy|ansible-playbook)	deploy — ${PROD}"
   "${S}(terraform|tofu)[[:space:]]+(apply|destroy|import|taint|state[[:space:]]+(rm|mv|push))|${S}pulumi[[:space:]]+(up|destroy|refresh)|${S}kubectl[[:space:]]+(apply|create|delete|edit|patch|replace|scale|rollout|set|drain|cordon|exec)|${S}helm[[:space:]]+(install|upgrade|uninstall|rollback|delete)	infrastructure change — ${PROD}"
   "${S}(aws|gcloud|gsutil|az|doctl|linode-cli|hcloud)[[:space:]]	cloud provider CLI — ${PROD}"
