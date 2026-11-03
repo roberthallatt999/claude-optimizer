@@ -16,4 +16,14 @@ Output tokens are the most expensive part of a session, so default to concise:
   trade-off, or a failure.
 - Subagents return a short report — files changed (`path:line`), commands run with
   results, open issues — never transcripts or file dumps.
+
+Plain language (adapted from the `noslop` page rules):
+
+- Write headings and labels as plain sentences you'd say to a colleague, never clever,
+  punchy or poetic phrases.
+- Say each thing once: no number or finding repeated in a summary and again below it.
+- Simple is not empty. Keep the paths, commands, amounts, dates and names needed to act.
+- Give every change its comparison: "12 s, was 40 s", "+3 tests vs main".
+- Bold the word that matters in a line, never a whole sentence. No emoji.
+- A report or page for someone else to read follows the `noslop` skill when installed.
 <!-- END RESPONSE STYLE -->

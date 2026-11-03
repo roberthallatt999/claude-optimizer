@@ -241,7 +241,16 @@ readable text such as `(brand green: not set)` rather than a fake value.
   GitHub/Vercel web version, Canadian spelling). `scripts/sync-noslop.sh` builds `SKILL.md`;
   `--update` pulls a newer upstream for review, never commits. Pinned rather than installed
   as the upstream plugin so a stranger's repo can't change Claude's instructions unreviewed.
-  Tests: `test-global-skills.sh`.
+  The web version and shareable mock-ups deploy to Cloudflare, not GitHub and Vercel:
+  `scripts/cloudflare.sh` (token in the Keychain, or on the shared `cps-cloudflare-config`
+  volume in containers, never printed) scaffolds a passcode-gated Worker on a temporary
+  workers.dev address; the gate serves nothing until `PASSCODE` is set and sends noindex.
+  Dev containers (kit 1.11.0) mount the skill read-only and install wrangler on its own Node 22.
+  `safety-guard.sh` now sees deploys through `npx --yes wrangler@4`, `pnpm dlx` and the helper.
+  The Response Style block gained a short plain-language section adapted from the same rules.
+  Polish tools from the newsletter (Emil Kowalski's skills, Impeccable, Magic UI) are offered
+  per page, never installed globally: 16 skill descriptions and an edit hook in every session
+  cost more than they return. Tests: `test-global-skills.sh`.
 - **Per-request token budget** — measured on CPS projects, 15–31k tokens of instructions loaded
   into every request. Four causes, each fixed so a refresh can't bring it back: (1) rules
   edited before path scoping kept no `paths:` frontmatter and loaded always;
