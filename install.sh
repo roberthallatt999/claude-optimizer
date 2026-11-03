@@ -141,7 +141,7 @@ echo -e "  ${GREEN}✓${NC} Aliases added"
 echo ""
 
 # Install global Claude config if directories exist
-if [[ -d "$SCRIPT_DIR/stacks" ]] || [[ -f "$SCRIPT_DIR/global/CLAUDE.md" ]]; then
+if [[ -d "$SCRIPT_DIR/stacks" ]] || [[ -d "$SCRIPT_DIR/global-skills" ]] || [[ -f "$SCRIPT_DIR/global/CLAUDE.md" ]]; then
   echo -e "${CYAN}Installing global Claude configuration...${NC}"
   CLAUDE_DIR="$HOME/.claude"
   mkdir -p "$CLAUDE_DIR"
@@ -157,6 +157,23 @@ if [[ -d "$SCRIPT_DIR/stacks" ]] || [[ -f "$SCRIPT_DIR/global/CLAUDE.md" ]]; the
       fi
     done
     [[ $STACK_COUNT -gt 0 ]] && echo -e "  ${GREEN}✓${NC} Installed $STACK_COUNT stack knowledge files"
+  fi
+
+  # Link global skills (global-skills/<name>/) into ~/.claude/skills/. Symlinks, so a git pull
+  # updates them. An existing skill that isn't our link is left alone.
+  if [[ -d "$SCRIPT_DIR/global-skills" ]]; then
+    mkdir -p "$CLAUDE_DIR/skills"
+    for skill_dir in "$SCRIPT_DIR/global-skills"/*/; do
+      [[ -f "${skill_dir}SKILL.md" ]] || continue
+      skill_name="$(basename "$skill_dir")"
+      link="$CLAUDE_DIR/skills/$skill_name"
+      if [[ -L "$link" || ! -e "$link" ]]; then
+        ln -sfn "${skill_dir%/}" "$link"
+        echo -e "  ${GREEN}✓${NC} Linked global skill $skill_name"
+      else
+        echo -e "  ${YELLOW}○${NC} Left ~/.claude/skills/$skill_name alone: it isn't a link to this repo"
+      fi
+    done
   fi
 
   # Install global CLAUDE.md (only if it doesn't exist)

@@ -61,6 +61,7 @@ This repository provides automated Claude Code configuration deployment across *
 - `serve-docs.sh` - Local documentation server (aliased as `ai-config-docs`)
 - `ai-config-fleet.sh` - Run `--doctor` / `--refresh` across every project under a folder (aliased as `ai-config-fleet`)
 - `run-tests.sh` - Run every `test-*.sh` suite (CI: `.github/workflows/tests.yml`)
+- `scripts/sync-noslop.sh` - Build (or `--update`) the global `noslop` skill from its CPS overlay and pinned upstream copy
 
 ### Template Structure
 ```
@@ -227,6 +228,20 @@ readable text such as `(brand green: not set)` rather than a fake value.
 
 ## Recent Changes
 
+- **Global `noslop` skill** — Ruben Hassid's "no slop" rules ([rubenhassid1/grenade](https://github.com/rubenhassid1/grenade),
+  MIT) for pages someone else reads: the form picked from the reader's job (decision page,
+  report, dashboard, guide, slides, tool, cheat sheet), a header line saying what it is and who
+  it's from, visuals over paragraphs, hard limits, a fix procedure and a pre-ship checklist.
+  It lives in `global-skills/noslop/` and is linked into `~/.claude/skills/` by `install.sh`
+  (symlink, so a pull updates it), not deployed per project: reports aren't tied to one site,
+  and a skill costs only its description until used. The upstream text is kept verbatim in
+  `upstream/` at a recorded commit, with its licence; `cps-overlay.md` carries the frontmatter
+  and CPS overrides (first person from Robert, not for site templates, WCAG AA fixes for two
+  style-kit colours that fail 4.5:1, per-action approval and no personal information for the
+  GitHub/Vercel web version, Canadian spelling). `scripts/sync-noslop.sh` builds `SKILL.md`;
+  `--update` pulls a newer upstream for review, never commits. Pinned rather than installed
+  as the upstream plugin so a stranger's repo can't change Claude's instructions unreviewed.
+  Tests: `test-global-skills.sh`.
 - **Per-request token budget** — measured on CPS projects, 15–31k tokens of instructions loaded
   into every request. Four causes, each fixed so a refresh can't bring it back: (1) rules
   edited before path scoping kept no `paths:` frontmatter and loaded always;
