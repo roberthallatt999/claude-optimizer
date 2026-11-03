@@ -38,7 +38,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VERSION = "1.10.0"
+VERSION = "1.11.0"
 KIT = Path(__file__).resolve().parent
 KIT_SCRIPTS = ("ddev-shim.sh", "ensure-ddev.sh", "init-firewall.sh", "ddev-relay.pl", "ddev-relay-client.sh",
                "egress-proxy.sh")
@@ -88,6 +88,15 @@ GH_CONFIG_VOLUME = "cps-gh-config"
 # Likewise one Plausible config + API key (the Mac keeps its key in the Keychain, which
 # containers can't reach) for the plausible skill, which is mounted from the Mac read-only.
 PLAUSIBLE_CONFIG_VOLUME = "cps-plausible-config"
+# And one Cloudflare account ID + API token for the noslop skill's web version (wrangler deploys
+# to a temporary workers.dev address). The skill is mounted from the Mac read-only.
+CLOUDFLARE_CONFIG_VOLUME = "cps-cloudflare-config"
+CLOUDFLARE_HOSTS = ["api.cloudflare.com"]
+# The Mac's noslop config names the account's workers.dev subdomain once `cloudflare.sh check`
+# has run there; only that subdomain is allowed, not every Worker on workers.dev.
+CLOUDFLARE_MAC_CONFIG = Path.home() / ".config" / "cps-cloudflare" / "config"
+# wrangler needs Node 22, which projects on 18 or 20 don't have, so it gets its own runtime.
+WRANGLER_NODE = "22"
 
 # DDEV's own commands; everything else under .ddev/commands/web is the project's.
 DDEV_DEFAULT_WEB_CMDS = {"README.txt", "blackfire", "drush", "magento", "typo3", "xhprof", "artisan", "craft"}
@@ -508,7 +517,7 @@ def gen_dockerfile(p: Project) -> str:
         lines += ["# DDEV's MariaDB has no TLS; newer MariaDB clients require it by default.",
                   "RUN mkdir -p /etc/mysql/mariadb.conf.d \\",
                   "    && printf '[client]\\nskip-ssl\\n' > /etc/mysql/mariadb.conf.d/99-ddev-no-ssl.cnf", ""]
-    lines += node_and_claude_lines(p, image, user) + [
+    lines += node_and_claude_lines(p, image, user) + wrangler_lines() + [
         "# Root-owned, baked into the image: nothing inside the container can edit these.",
         "# (A non-standard path: a dev container feature once replaced /usr/local/bin/init-firewall.sh.)",
         "# allowed-domains.txt isn't copied: the firewall reads it from the read-only .devcontainer",
@@ -540,6 +549,37 @@ def gen_dockerfile(p: Project) -> str:
         "",
     ] + history_lines(user) + github_lines(user)
     return "\n".join(lines)
+
+
+def wrangler_lines() -> list[str]:
+    """wrangler (Cloudflare's CLI) for the noslop skill's web version, on its own Node runtime.
+
+    Current wrangler needs Node 22; CPS projects run 18 or 20. Node and npm are copied from the
+    official image into /opt/wrangler, and /usr/local/bin/wrangler runs wrangler with that Node,
+    so the project's own Node is untouched.
+    """
+    tag = f"node:{WRANGLER_NODE}-bookworm-slim"
+    return [f"# wrangler for the noslop skill's Cloudflare pages, on its own Node {WRANGLER_NODE} (the project's",
+            "# Node may be older). Cached layer; Rebuild Without Cache to update it.",
+            f"COPY --from={tag} /usr/local/bin/node /opt/wrangler/bin/node",
+            f"COPY --from={tag} /usr/local/lib/node_modules/npm /opt/wrangler/npm",
+            "RUN /opt/wrangler/bin/node /opt/wrangler/npm/bin/npm-cli.js install --global --prefix /opt/wrangler \\",
+            "      --no-fund --no-audit --loglevel=error wrangler@4 \\",
+            "    && printf '%s\\n' '#!/bin/sh' \\",
+            "      'exec /opt/wrangler/bin/node /opt/wrangler/lib/node_modules/wrangler/bin/wrangler.js \"$@\"' \\",
+            "      > /usr/local/bin/wrangler \\",
+            "    && chmod 755 /usr/local/bin/wrangler",
+            ""]
+
+
+def cloudflare_subdomain_hosts() -> list[str]:
+    """The account's workers.dev subdomain, from the Mac's noslop config, when it is known."""
+    try:
+        text = CLOUDFLARE_MAC_CONFIG.read_text()
+    except OSError:
+        return []
+    m = re.search(r"^CLOUDFLARE_WORKERS_SUBDOMAIN=['\"]?([a-z0-9-]+)['\"]?\s*$", text, re.M)
+    return [f".{m.group(1)}.workers.dev"] if m else []
 
 
 def node_major(p: Project) -> str:
@@ -583,7 +623,8 @@ def node_and_claude_lines(p: Project, image: str, user: str) -> list[str]:
 
 
 def own_volume_lines(p: Project, user: str) -> list[str]:
-    paths = [f"/home/{user}/.config/gh", f"/home/{user}/.config/plausible"] + ([p.node_modules] if p.node_modules else [])
+    paths = [f"/home/{user}/.config/gh", f"/home/{user}/.config/plausible", f"/home/{user}/.config/cps-cloudflare"] \
+        + ([p.node_modules] if p.node_modules else [])
     return ["set -e"] + [f"mkdir -p {d} && chown {user}:{user} {d}" for d in paths]
 
 
@@ -650,6 +691,10 @@ def gen_compose(p: Project) -> str:
             "      # API key, shared by every CPS container. The key can only read stats; revoke it in Plausible.",
             f"      - plausible-config:/home/{user}/.config/plausible",
             f"      - ${{HOME}}/.claude/skills/plausible:/home/{user}/.claude/skills/plausible:ro",
+            "      # Pages for a reader: the Mac's noslop skill, read-only, and the Cloudflare account and",
+            "      # API token its web version deploys with, shared by every CPS container. Revoke it in Cloudflare.",
+            f"      - cloudflare-config:/home/{user}/.config/cps-cloudflare",
+            f"      - ${{HOME}}/.claude/skills/noslop:/home/{user}/.claude/skills/noslop:ro",
             "      # VS Code extensions survive rebuilds (Claude Code's alone is 135 MB).",
             f"      - vscode-extensions:/home/{user}/.vscode-server/extensions"]
     if p.node_modules:
@@ -721,7 +766,8 @@ def gen_compose(p: Project) -> str:
     if p.uses_ddev:
         out += ["", "networks:", "  ddev:", "    external: true", "    name: ddev_default"]
     out += ["", "volumes:", "  claude-config:", "  command-history:", "  vscode-extensions:", "  gh-config:",
-            f"    name: {GH_CONFIG_VOLUME}", "  plausible-config:", f"    name: {PLAUSIBLE_CONFIG_VOLUME}"]
+            f"    name: {GH_CONFIG_VOLUME}", "  plausible-config:", f"    name: {PLAUSIBLE_CONFIG_VOLUME}",
+            "  cloudflare-config:", f"    name: {CLOUDFLARE_CONFIG_VOLUME}"]
     if p.node_modules:
         out.append("  node-modules:")
     out.append("")
@@ -876,6 +922,10 @@ def gen_allowed_domains(p: Project) -> str:
                    GITHUB_TOOL_HOSTS))
     groups.append(("CleanShot screenshots and videos", CLEANSHOT_HOSTS))
     groups.append(("CPS domains and all their subdomains (live sites, staging, Plausible)", CPS_HOSTS))
+    sub = cloudflare_subdomain_hosts()
+    groups.append(("Cloudflare: wrangler deploys for the noslop skill, and the pages it publishes"
+                   + ("" if sub else " (run `cloudflare.sh check` on the Mac, then add .<subdomain>.workers.dev)"),
+                   CLOUDFLARE_HOSTS + sub))
     out = [f"# Generated by cps-devcontainer {VERSION}.",
            "# Hosts the sandbox may reach, by exact name; a leading dot (.cps.ca) also allows every",
            "# subdomain, but only through the proxy. The egress proxy matches them by name and",
@@ -898,7 +948,8 @@ def gen_managed_settings(p: Project) -> str:
         "permissions": {
             "deny": ["Read(**/.env)", "Read(**/.env.*)", "Read(**/.env.php)", "Read(**/*.key)", "Read(**/*.pem)",
                      "Read(**/.aws/**)", "Read(**/.ssh/**)", "Read(**/auth.json)", "Read(**/*.sql)",
-                     "Read(**/.config/gh/**)", "Bash(gh auth token:*)", "Bash(gh repo delete:*)"],
+                     "Read(**/.config/gh/**)", "Read(**/.config/plausible/api-key)",
+                     "Read(**/.config/cps-cloudflare/api-token)", "Bash(gh auth token:*)", "Bash(gh repo delete:*)"],
             # A push or merge to main or staging deploys, and so can a release or a workflow run:
             # those always ask. Other gh commands (PRs, issues, runs, logs, the API) don't; the
             # safety guard still asks before an explicit -X POST/PUT/PATCH/DELETE to the API.
