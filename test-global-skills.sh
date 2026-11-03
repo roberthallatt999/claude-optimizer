@@ -80,6 +80,31 @@ assert_true  "build: picks up the overlay change" grep -qx drift "$built"
 assert_true  "overlay: light --text-3 override" grep -qF -- '--text-3: rgba(0,0,0,.55)' "$NOSLOP/SKILL.md"
 assert_true  "overlay: --clay-strong override" grep -qF -- '--clay-strong: #b5502f' "$NOSLOP/SKILL.md"
 
+# Cloudflare helper (web version): scaffolding, addresses, and no token ever printed.
+CF="$NOSLOP/scripts/cloudflare.sh"
+cfdir=$(tmp_dir)
+export CLOUDFLARE_CONFIG="$cfdir/config" CLOUDFLARE_TOKEN_FILE="$cfdir/api-token"
+export CLOUDFLARE_KEYCHAIN_SERVICE="noslop-test-$$-absent"
+site=$(tmp_dir)
+assert_true  "cloudflare: new scaffolds the gate" "$CF" new "$site" cps-test-20261103
+assert_true  "cloudflare: worker named in wrangler.jsonc" grep -q '"name": "cps-test-20261103"' "$site/wrangler.jsonc"
+assert_true  "cloudflare: every request goes through the gate" grep -q '"run_worker_first": true' "$site/wrangler.jsonc"
+echo "// mine" > "$site/worker.js"
+"$CF" new "$site" cps-test-20261103 >/dev/null
+assert_true  "cloudflare: new never overwrites" grep -qx '// mine' "$site/worker.js"
+assert_false "cloudflare: new refuses an invalid name" "$CF" new "$(tmp_dir)" 'Bad_Name'
+assert_false "cloudflare: url needs a known subdomain" "$CF" url cps-test-20261103
+printf 'CLOUDFLARE_ACCOUNT_ID=abc\nCLOUDFLARE_WORKERS_SUBDOMAIN=cps-demo\n' > "$CLOUDFLARE_CONFIG"
+assert_true  "cloudflare: url builds the workers.dev address" \
+  test "$("$CF" url cps-test-20261103)" = "https://cps-test-20261103.cps-demo.workers.dev"
+printf 'sekret-token-value\n' > "$CLOUDFLARE_TOKEN_FILE"
+assert_false "cloudflare: config never prints the token" grep -q sekret-token-value <<< "$("$CF" config 2>&1)"
+if command -v node >/dev/null 2>&1; then
+  cp "$NOSLOP/templates/cloudflare/worker.js" "$cfdir/worker.mjs"
+  assert_true "cloudflare: worker.js parses" node --check "$cfdir/worker.mjs"
+fi
+assert_true  "cloudflare: worker fails closed without PASSCODE" grep -q 'if (!env.PASSCODE)' "$NOSLOP/templates/cloudflare/worker.js"
+
 echo
 echo "Passed: $PASS  Failed: $FAIL"
 [[ $FAIL -eq 0 ]]

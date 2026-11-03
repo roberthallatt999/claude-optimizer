@@ -1,0 +1,20 @@
+// Passcode-gated page on a temporary workers.dev address (noslop skill, web version).
+// Deploy: cloudflare.sh wrangler deploy. Passcode: cloudflare.sh wrangler secret put PASSCODE.
+{
+  "name": "{{WORKER_NAME}}",
+  "main": "worker.js",
+  "compatibility_date": "2026-06-01",
+  // The page's built files. Every request goes through worker.js first, so nothing is served
+  // without the passcode.
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    // Shown on the passcode screen, e.g. "October update for Dana". Not secret.
+    "PAGE_TITLE": "Private page"
+  }
+}
