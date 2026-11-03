@@ -56,6 +56,7 @@ jobs:
           projects/common/okf/okf-check.sh
           projects/common/okf/template-map.sh
           scripts/sync-noslop.sh
+          scripts/install-noslop-prune.sh
           global-skills/noslop/scripts/cloudflare.sh
           test-global-skills.sh
 

@@ -248,7 +248,10 @@ readable text such as `(brand green: not set)` rather than a fake value.
   like `x.share.cps.ca` aren't covered by Universal SSL). The hash keeps every route unique,
   and `new` checks the name with Cloudflare; rerunning it in a page's folder keeps the name.
   The gate scopes its cookie to the page's path, serves nothing until `PASSCODE` is set, and
-  sends noindex.
+  sends noindex. Pages expire (`EXPIRES`, default 30 days; the gate answers 410 after it). `cloudflare.sh
+  list`/`prune [--delete]`/`delete` manage them and touch only Workers on the share domain;
+  `scripts/install-noslop-prune.sh` installs a weekly LaunchAgent (Mondays 09:00) that runs
+  `prune --delete` and logs to `~/Library/Logs/noslop-prune.log`. Robert installs it himself.
   Dev containers (kit 1.11.0) mount the skill read-only and install wrangler on its own Node 22.
   `safety-guard.sh` now sees deploys through `npx --yes wrangler@4`, `pnpm dlx` and the helper.
   The Response Style block gained a short plain-language section adapted from the same rules.
