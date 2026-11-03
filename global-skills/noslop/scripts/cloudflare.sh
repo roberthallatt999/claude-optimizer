@@ -17,6 +17,8 @@
 #                                       # (default 30), copy the gate into <dir>; a <dir> that
 #                                       # already has a page keeps its name
 #   cloudflare.sh url <name>            # the page's https://<share domain>/<name>/ address
+#   cloudflare.sh passcode <name>       # make a passcode, set it on the page, record it here
+#   cloudflare.sh describe <name>       # a page's address, title, dates, folder and passcode
 #   cloudflare.sh list                  # every page on the share domain: created, expires, status
 #   cloudflare.sh prune                 # the expired pages; --delete removes them
 #   cloudflare.sh delete <name>         # remove one page: its routes, custom domain and Worker
@@ -24,12 +26,17 @@
 #
 # Deploying, setting a secret and deleting are outward-facing: the safety hook asks before each one.
 # list, prune and delete only ever touch Workers served from the share domain.
+#
+# Cloudflare never returns a secret, so each page's passcode is recorded when this script sets
+# it, with the page's address, topic and folder, in PAGES_DIR/<name>.json (mode 600). Records
+# live on the machine that made them: the Mac, or the volume all CPS containers share.
 
 set -euo pipefail
 
 KEYCHAIN_SERVICE="${CLOUDFLARE_KEYCHAIN_SERVICE:-cloudflare-api}"
 CONFIG_FILE="${CLOUDFLARE_CONFIG:-$HOME/.config/cps-cloudflare/config}"
 TOKEN_FILE="${CLOUDFLARE_TOKEN_FILE:-$(dirname "$CONFIG_FILE")/api-token}"
+PAGES_DIR="${CLOUDFLARE_PAGES_DIR:-$(dirname "$CONFIG_FILE")/pages}"
 API="https://api.cloudflare.com/client/v4"
 DEFAULT_SHARE_DOMAIN="share.cps.ca"
 DEFAULT_DAYS=30
@@ -116,6 +123,41 @@ random_hash() {
 }
 
 today() { date -u +%F; }
+
+# Plain words for passcodes: short, unambiguous when read aloud or typed on a phone.
+WORDS=(amber anchor apple arrow aspen badge basin beacon birch bison blaze bloom brook cabin
+  cactus camel canoe canyon cedar cherry cliff clover cobalt comet copper coral crane crater
+  daisy delta desert dune eagle ember falcon fern fjord flint forest fossil garnet geyser
+  glacier granite harbor hazel heron hollow iris island ivory jasper juniper kayak kettle
+  lagoon lantern larch lemon lilac linden lotus maple marble meadow mesa meteor mint moose
+  nectar oasis ocean olive onyx orbit otter owl panda pebble pepper pine planet plum prairie
+  quartz quill raven reef ridge river robin saffron sage salmon shore sierra spruce summit
+  sunset thistle thunder tide timber topaz tulip tundra valley velvet violet walnut willow
+  wren yarrow zephyr acorn alpine aurora bamboo bramble breeze cascade cinder dawn drift)
+
+# Three words and two digits, from /dev/urandom: about 1 in 200 million to guess.
+make_passcode() {
+  local n=${#WORDS[@]} out='' r
+  for _ in 1 2 3; do
+    r=$(od -An -N2 -tu2 /dev/urandom | tr -d ' ')
+    out+="${WORDS[r % n]}-"
+  done
+  r=$(od -An -N2 -tu2 /dev/urandom | tr -d ' ')
+  printf '%s%02d' "$out" $((r % 100))
+}
+
+record_file() { printf '%s/%s.json' "$PAGES_DIR" "$1"; }
+
+# Merge fields into a page's record (JSON object args), creating it with mode 600.
+record_set() {
+  local name=$1 file tmp
+  shift
+  file=$(record_file "$name")
+  mkdir -p "$PAGES_DIR" && chmod 700 "$PAGES_DIR"
+  tmp=$(umask 077; mktemp "$PAGES_DIR/.tmp.XXXXXX")
+  jq -s 'add' <( [ -f "$file" ] && cat "$file" || echo '{}' ) <(jq -n "$@") >"$tmp"
+  chmod 600 "$tmp" && mv "$tmp" "$file"
+}
 
 # The date <days> from today, on BSD (macOS) or GNU date.
 days_from_today() {
@@ -226,6 +268,9 @@ cmd_new() {
       -e "s/{{SHARE_ZONE}}/$CLOUDFLARE_SHARE_ZONE/g" -e "s/{{EXPIRES}}/$expires/g" \
       "$TEMPLATE_DIR/$f" >"$dir/$f"
   done
+  record_set "$name" --arg name "$name" --arg address "$(cmd_url "$name")" --arg topic "$topic" \
+    --arg folder "$(cd "$dir" && pwd)" --arg created "$(today)" --arg expires "$expires" \
+    '{name: $name, address: $address, topic: $topic, folder: $folder, created: $created, expires: $expires}'
   printf 'page %s, expires %s\n%s\n' "$name" "$expires" "$(cmd_url "$name")"
   printf 'Build the page into %s/dist with relative asset links, then deploy and set PASSCODE.\n' "$dir"
 }
@@ -276,6 +321,66 @@ is_expired() {
      "$(( $(date -u +%s) - DEFAULT_DAYS * 86400 ))" ]]
 }
 
+# Sets a new passcode on a deployed page and records it. The passcode reaches Cloudflare in the
+# request body on stdin, never in argv.
+cmd_passcode() {
+  local name=${1:-} code token body
+  valid_name "$name" || die "usage: $0 passcode <name>"
+  load_config
+  cut -f1 <<<"$(share_pages)" | grep -qx -- "$name" \
+    || die "$name is not a deployed page on $CLOUDFLARE_SHARE_DOMAIN - deploy it first"
+  code=$(make_passcode)
+  token=$(read_token) && [ -n "$token" ] || die "no API token in $(token_store) - run: $0 setup"
+  body=$(jq -n --arg t "$code" '{name: "PASSCODE", text: $t, type: "secret_text"}' \
+    | curl -sS -K <(printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\n' "$token") \
+        -X PUT --data-binary @- "$API/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$name/secrets")
+  token=''
+  jq -e '.success' >/dev/null <<<"$body" || die "could not set the passcode: $(jq -c '.errors' <<<"$body")"
+  record_set "$name" --arg name "$name" --arg code "$code" --arg at "$(date -u +%FT%TZ)" \
+    '{name: $name, passcode: $code, passcode_set: $at}'
+  printf 'passcode for %s: %s\n' "$name" "$code"
+}
+
+# Everything known about one page: Cloudflare's view plus this machine's record.
+cmd_describe() {
+  local name=${1:-} file pages line address created expires state title modified
+  valid_name "$name" || die "usage: $0 describe <name>"
+  load_config
+  file=$(record_file "$name")
+  if ! pages=$(share_pages 2>/dev/null); then
+    state="unknown (can't reach Cloudflare)"
+  fi
+  line=$(awk -F'\t' -v n="$name" '$1 == n' <<<"$pages")
+  if [ -n "$state" ]; then
+    :
+  elif [ -n "$line" ]; then
+    IFS=$'\t' read -r _ address created expires <<<"$line"
+    state=live
+    is_expired "$created" "$expires" && state=expired
+    local settings
+    settings=$(api_get "/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$name/settings")
+    title=$(jq -r '[.result.bindings[]? | select(.type == "plain_text" and .name == "PAGE_TITLE") | .text] | first // empty' <<<"$settings")
+    modified=$(api_get "/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts" \
+      | jq -r --arg n "$name" '.result[]? | select(.id == $n) | .modified_on[0:10]')
+  else
+    state="not deployed"
+  fi
+  printf 'page:      %s\n' "$name"
+  printf 'state:     %s\n' "$state"
+  printf 'address:   %s\n' "${address:-$(jq -r '.address // empty' "$file" 2>/dev/null)}"
+  printf 'title:     %s\n' "${title:-?}"
+  printf 'created:   %s\n' "${created:-$(jq -r '.created // "?"' "$file" 2>/dev/null)}"
+  printf 'updated:   %s\n' "${modified:-?}"
+  printf 'expires:   %s\n' "${expires:-$(jq -r '.expires // "none"' "$file" 2>/dev/null || echo none)}"
+  if [ -f "$file" ]; then
+    printf 'topic:     %s\n' "$(jq -r '.topic // "?"' "$file")"
+    printf 'folder:    %s\n' "$(jq -r '.folder // "?"' "$file")"
+    printf 'passcode:  %s\n' "$(jq -r 'if .passcode then "\(.passcode) (set \(.passcode_set[0:10]))" else "not recorded" end' "$file")"
+  else
+    printf 'passcode:  not recorded on this machine. %s passcode %s sets a new one.\n' "$0" "$name"
+  fi
+}
+
 cmd_list() {
   load_config
   local pages name address created expires state
@@ -322,6 +427,7 @@ cmd_delete() {
   done
   body=$(api_call DELETE "/accounts/$acct/workers/scripts/$name?force=true")
   jq -e '.success' >/dev/null <<<"$body" || die "could not delete $name: $(jq -c '.errors' <<<"$body")"
+  rm -f "$(record_file "$name")"
   printf 'deleted %s\n' "$name"
 }
 
@@ -351,6 +457,8 @@ case "${1:-}" in
   list) cmd_list ;;
   prune) shift; cmd_prune "$@" ;;
   delete) shift; cmd_delete "$@" ;;
+  passcode) shift; cmd_passcode "$@" ;;
+  describe) shift; cmd_describe "$@" ;;
   wrangler) shift; cmd_wrangler "$@" ;;
   *) sed -n '/^# Usage:/,/^# Deploying/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
 esac

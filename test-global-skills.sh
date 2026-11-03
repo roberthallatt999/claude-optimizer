@@ -99,6 +99,21 @@ assert_true  "cloudflare: a new page expires in 30 days by default" \
 assert_false "cloudflare: days must be a number" "$CF" new "$(tmp_dir)" topic soon
 assert_true  "cloudflare: the gate refuses an expired page" grep -q 'expired on' "$NOSLOP/templates/cloudflare/worker.js"
 assert_false "cloudflare: delete without a token deletes nothing" "$CF" delete q3-traffic-7f3a9c2e
+record="$cfdir/pages/$name.json"
+assert_true  "cloudflare: new records the page" test -f "$record"
+assert_true  "cloudflare: the record is private" test "$(stat -f %Lp "$record" 2>/dev/null || stat -c %a "$record")" = 600
+assert_true  "cloudflare: the record keeps the folder and address" \
+  jq -e --arg f "$(cd "$site" && pwd)" --arg a "https://share.cps.ca/$name/" '.folder == $f and .address == $a' "$record"
+assert_true  "cloudflare: describe works offline from the record" \
+  grep -q "^folder: *$(cd "$site" && pwd)$" <<< "$("$CF" describe "$name" 2>&1)"
+assert_true  "cloudflare: describe says when Cloudflare can't be reached" \
+  grep -q "can't reach Cloudflare" <<< "$("$CF" describe "$name" 2>&1)"
+assert_true  "cloudflare: describe offers a new passcode when none is recorded" \
+  grep -q "passcode: *not recorded" <<< "$("$CF" describe "$name" 2>&1)"
+assert_false "cloudflare: passcode needs a deployed page" "$CF" passcode "$name"
+passcodes=$(bash -c 'eval "$(sed -n "/^WORDS=/,/^}/p" "$1")"; for _ in 1 2 3 4 5; do make_passcode; echo; done' _ "$CF")
+assert_true  "cloudflare: passcodes are three words and two digits" \
+  test "$(grep -cE '^[a-z]+-[a-z]+-[a-z]+-[0-9]{2}$' <<< "$passcodes")" -eq 5
 other=$(tmp_dir)
 "$CF" new "$other" "Q3 Member Centre traffic!" >/dev/null 2>&1
 assert_false "cloudflare: the same topic twice gets two routes" \

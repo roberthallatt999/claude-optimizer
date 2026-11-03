@@ -48,9 +48,9 @@ These come from Robert's own rules and win wherever the upstream rules below dis
    3. Build into `dist/` with relative asset links (Vite: `base: './'`), because the page is
       served under its path. A single HTML page goes in `dist/index.html`.
    4. Deploy with `cloudflare.sh wrangler deploy`. The safety hook asks Robert first.
-   5. Make a passcode of three plain words and two digits. Set it with
-      `printf '%s' '<passcode>' | cloudflare.sh wrangler secret put PASSCODE --name <name>`.
-      Until it is set, the page answers "not ready" to everyone.
+   5. Set the passcode with `cloudflare.sh passcode <name>`. It makes one of three plain words
+      and two digits, sets it on the page and records it on this machine. Until it is set, the
+      page answers "not ready" to everyone.
    6. Check from outside with curl: the address from `cloudflare.sh url <name>` must answer
       401, and a POST of the passcode to `<address>__unlock` must answer 303. A 403 page that
       says "Sorry, you have been blocked" is a Cloudflare security rule on the zone, not the
@@ -58,7 +58,10 @@ These come from Robert's own rules and win wherever the upstream rules below dis
    7. End with 3 lines: the link, the passcode, and the expiry date. After that date the page
       answers "expired" by itself.
 
-   Managing pages: `cloudflare.sh list` shows every page on share.cps.ca with its dates.
+   Managing pages: `cloudflare.sh describe <name>` shows a page's address, title, dates, source
+   folder and recorded passcode. Cloudflare can't return a passcode, so when none is recorded,
+   `cloudflare.sh passcode <name>` sets a new one. `cloudflare.sh list` shows every page on
+   share.cps.ca with its dates.
    `cloudflare.sh prune` lists the expired ones, and `prune --delete` removes them.
    `cloudflare.sh delete <name>` removes one page early. Both deletes need Robert's yes, and
    neither touches a Worker that isn't served from share.cps.ca.
