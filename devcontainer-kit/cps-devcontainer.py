@@ -38,7 +38,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VERSION = "1.11.0"
+VERSION = "1.12.0"
 KIT = Path(__file__).resolve().parent
 KIT_SCRIPTS = ("ddev-shim.sh", "ensure-ddev.sh", "init-firewall.sh", "ddev-relay.pl", "ddev-relay-client.sh",
                "egress-proxy.sh")
@@ -95,6 +95,15 @@ CLOUDFLARE_HOSTS = ["api.cloudflare.com"]
 # The Mac's noslop config names the account's workers.dev subdomain once `cloudflare.sh check`
 # has run there; only that subdomain is allowed, not every Worker on workers.dev.
 CLOUDFLARE_MAC_CONFIG = Path.home() / ".config" / "cps-cloudflare" / "config"
+# Playwright for checking pages in a real browser (the webapp-testing skill writes Python
+# scripts). Python package and Chromium are baked into the image at build time, which runs on
+# the Mac outside the firewall. The npm package of the same version uses the same browser build.
+PLAYWRIGHT_VERSION = "1.64.1"
+PLAYWRIGHT_BROWSERS = "/opt/ms-playwright"
+# Where `playwright install` fetches browsers. Firefox, WebKit and ffmpeg download from here; Chromium
+# for another Playwright version redirects to storage.googleapis.com, which stays closed (any GCS
+# bucket would be reachable). Match PLAYWRIGHT_VERSION instead, or allow it per project.
+PLAYWRIGHT_HOSTS = ["cdn.playwright.dev", "playwright.download.prss.microsoft.com"]
 # wrangler needs Node 22, which projects on 18 or 20 don't have, so it gets its own runtime.
 WRANGLER_NODE = "22"
 
@@ -517,7 +526,7 @@ def gen_dockerfile(p: Project) -> str:
         lines += ["# DDEV's MariaDB has no TLS; newer MariaDB clients require it by default.",
                   "RUN mkdir -p /etc/mysql/mariadb.conf.d \\",
                   "    && printf '[client]\\nskip-ssl\\n' > /etc/mysql/mariadb.conf.d/99-ddev-no-ssl.cnf", ""]
-    lines += node_and_claude_lines(p, image, user) + wrangler_lines() + [
+    lines += node_and_claude_lines(p, image, user) + wrangler_lines() + playwright_lines(user) + [
         "# Root-owned, baked into the image: nothing inside the container can edit these.",
         "# (A non-standard path: a dev container feature once replaced /usr/local/bin/init-firewall.sh.)",
         "# allowed-domains.txt isn't copied: the firewall reads it from the read-only .devcontainer",
@@ -569,6 +578,27 @@ def wrangler_lines() -> list[str]:
             "      'exec /opt/wrangler/bin/node /opt/wrangler/lib/node_modules/wrangler/bin/wrangler.js \"$@\"' \\",
             "      > /usr/local/bin/wrangler \\",
             "    && chmod 755 /usr/local/bin/wrangler",
+            ""]
+
+
+def playwright_lines(user: str) -> list[str]:
+    """Python Playwright and headless Chromium with its system libraries, as a cached layer.
+
+    Installing at runtime fails: `playwright install --with-deps` needs apt and root, and the
+    browser CDN wasn't allowlisted. The browsers folder belongs to the user, so `npx playwright
+    install chromium` for another version can add its build next to this one.
+    """
+    return [f"# Playwright {PLAYWRIGHT_VERSION} (Python) and headless Chromium with its system libraries, so Claude",
+            "# can open pages and take screenshots. `python` is python3. Cached layer; bump the version",
+            "# in the kit to update.",
+            f"ENV PLAYWRIGHT_BROWSERS_PATH={PLAYWRIGHT_BROWSERS}",
+            "RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \\",
+            "    && apt-get install -y --no-install-recommends python3-pip python-is-python3 \\",
+            "    && python3 -m pip install --no-cache-dir --break-system-packages --root-user-action=ignore \\",
+            f"         playwright=={PLAYWRIGHT_VERSION} \\",
+            "    && python3 -m playwright install --with-deps chromium \\",
+            f"    && chown -R {user}:{user} {PLAYWRIGHT_BROWSERS} \\",
+            "    && apt-get clean && rm -rf /var/lib/apt/lists/*",
             ""]
 
 
@@ -695,6 +725,8 @@ def gen_compose(p: Project) -> str:
             "      # API token its web version deploys with, shared by every CPS container. Revoke it in Cloudflare.",
             f"      - cloudflare-config:/home/{user}/.config/cps-cloudflare",
             f"      - ${{HOME}}/.claude/skills/noslop:/home/{user}/.claude/skills/noslop:ro",
+            "      # Browser checks: the Mac's webapp-testing skill, read-only (Playwright is in the image).",
+            f"      - ${{HOME}}/.claude/skills/webapp-testing:/home/{user}/.claude/skills/webapp-testing:ro",
             "      # VS Code extensions survive rebuilds (Claude Code's alone is 135 MB).",
             f"      - vscode-extensions:/home/{user}/.vscode-server/extensions"]
     if p.node_modules:
@@ -920,6 +952,7 @@ def gen_allowed_domains(p: Project) -> str:
         groups.append(("Context7 docs MCP", CONTEXT7_HOSTS))
     groups.append(("GitHub: git, gh, release assets, Actions logs and artifacts, container images",
                    GITHUB_TOOL_HOSTS))
+    groups.append(("Playwright browser downloads (a project's own Playwright version)", PLAYWRIGHT_HOSTS))
     groups.append(("CleanShot screenshots and videos", CLEANSHOT_HOSTS))
     groups.append(("CPS domains and all their subdomains (live sites, staging, Plausible)", CPS_HOSTS))
     sub = cloudflare_subdomain_hosts()
