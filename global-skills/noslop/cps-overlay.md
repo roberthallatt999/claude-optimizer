@@ -37,7 +37,9 @@ These come from Robert's own rules and win wherever the upstream rules below dis
    Robert asks for a website or the web version.
    - Make a Claude artifact instead only when Robert asks for an artifact.
    - If the page would hold personal information about members, patients, families or staff,
-     stop before building and ask Robert where it should go.
+     stop before building and ask Robert how to protect it. A shared passcode can't say who
+     opened the page, so it isn't enough; neither is a Claude artifact. Never publish such a
+     page as a Claude artifact.
    - When the Artifact tool does publish, its page contract (allowed CDNs, dark-mode token
      guards, size limit) still holds. Every design decision comes from this skill.
 5. **Publishing to share.cps.ca, through Cloudflare (not GitHub and Vercel).** These steps
@@ -75,8 +77,9 @@ These come from Robert's own rules and win wherever the upstream rules below dis
    neither touches a Worker that isn't served from share.cps.ca.
 
    Don't create a GitHub repo or push unless Robert asks. Cloudflare serves from outside
-   Canada and the passcode is light protection for mock-ups, so never put personal information
-   about members, patients, families or staff on these pages.
+   Canada and the passcode is light protection: one shared code, no record of who viewed the
+   page, no limit on guesses. Never put personal information about members, patients,
+   families or staff behind the passcode alone.
 6. **Polish tools are opt-in, per page.** Emil Kowalski's skills, Impeccable and Magic UI
    are not installed by default. Offer them once when building the web version. Install them
    only in that page's folder and only on Robert's yes, never globally.
