@@ -125,6 +125,7 @@ expect deny Edit file_path '/p/certs/server.key'
 echo ""
 echo -e "${CYAN}=== Secrets: allowed / ask ===${NC}"
 bash_expect none 'cat .env.example'
+# shellcheck disable=SC2088  # the literal command Claude runs, tilde and all
 bash_expect none '~/.claude/skills/noslop/scripts/cloudflare.sh config'
 bash_expect none 'npx wrangler whoami'
 bash_expect none 'grep -r process.env src/'
@@ -235,7 +236,9 @@ bash_expect ask 'netlify deploy --prod'
 bash_expect ask 'npx wrangler deploy'
 bash_expect ask 'npx --yes wrangler@4 deploy'
 bash_expect ask 'pnpm dlx wrangler secret put PASSCODE'
+# shellcheck disable=SC2088  # the literal command Claude runs, tilde and all
 bash_expect ask '~/.claude/skills/noslop/scripts/cloudflare.sh wrangler deploy'
+# shellcheck disable=SC2088  # the literal command Claude runs, tilde and all
 bash_expect ask '~/.claude/skills/noslop/scripts/cloudflare.sh wrangler delete --name mockup'
 bash_expect ask 'npx vercel --prod'
 bash_expect ask 'npx -y netlify-cli deploy --prod'
