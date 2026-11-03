@@ -101,7 +101,8 @@ assert_true  "cloudflare: the gate refuses an expired page" grep -q 'expired on'
 assert_false "cloudflare: delete without a token deletes nothing" "$CF" delete q3-traffic-7f3a9c2e
 record="$cfdir/pages/$name.json"
 assert_true  "cloudflare: new records the page" test -f "$record"
-assert_true  "cloudflare: the record is private" test "$(stat -f %Lp "$record" 2>/dev/null || stat -c %a "$record")" = 600
+# ls -l reads the same on macOS and Linux; `stat -f` means different things on the two.
+assert_true  "cloudflare: the record is private" test "$(ls -l "$record" | cut -c1-10)" = "-rw-------"
 assert_true  "cloudflare: the record keeps the folder and address" \
   jq -e --arg f "$(cd "$site" && pwd)" --arg a "https://share.cps.ca/$name/" '.folder == $f and .address == $a' "$record"
 assert_true  "cloudflare: describe works offline from the record" \
