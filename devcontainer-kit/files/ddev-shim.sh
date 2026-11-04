@@ -21,7 +21,24 @@ case "$cmd" in
   npm|npx|node|yarn|pnpm) cd "$ROOT" && exec "$cmd" "$@" ;;
   php|python|python3|pip) exec "$cmd" "$@" ;;
   exec)                  cd "$ROOT" && exec "$@" ;;
-  mysql|mariadb)         exec mariadb -h db -u db -pdb "${DDEV_DB_NAME:-db}" "$@" ;;
+  mysql|mariadb)
+    # `ddev mysql [--project=NAME] [database] [mariadb options…]`. --database only sets the
+    # default, so a name given as an argument wins, as with real `ddev mysql` (ee-migrate.sh
+    # runs `ddev mysql admin_cps -N …`). --project reaches another DDEV project's database
+    # server over ddev_default; its default database is `db`, so name the site's one.
+    host=db db_name="${DDEV_DB_NAME:-db}" project="" other_project=false
+    case "${1:-}" in
+      --project=*) other_project=true project="${1#--project=}"; shift ;;
+      --project)   other_project=true project="${2:-}"; shift; shift || true ;;
+    esac
+    if [ "$other_project" = true ]; then
+      if ! [[ "$project" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
+        echo "ddev mysql: --project needs a DDEV project name, e.g. --project=cfk" >&2
+        exit 2
+      fi
+      host="ddev-$project-db" db_name=db
+    fi
+    exec mariadb -h "$host" -u db -pdb --database="$db_name" "$@" ;;
 esac
 
 # Project custom web commands, e.g. `ddev ee`, `ddev mcp-serve`, `ddev wp`.
