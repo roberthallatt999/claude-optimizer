@@ -13,16 +13,27 @@
 # Never: exec, ssh (the web container mounts .ddev writable, and an exec-host hook planted
 # there would run on the Mac at the next start), config, add-on, delete, poweroff, push, pull.
 #
-# Modes: --serve (ensure-ddev.sh starts it detached), --ping (prints the running version).
+# `ddev ee-migrate <staging|prod> <status|rehearse|apply --expect=…>` runs the project's
+# .admin-scripts/ee-migrate.sh here, with Robert's SSH, so EE migrations reach the servers
+# without any server credential inside the container. The container can edit that script, so
+# the relay never runs the repo's copy: it runs the copy Robert approved in a terminal
+# (--approve-ee-migrate shows the diff), and only while the repo's file is identical to it.
+# Its stamps live in the relay's state folder, out of the container's reach (a forged
+# rehearsal stamp would unlock prod apply). rehearse and apply ask first in a dialog; status doesn't.
+#
+# Modes: --serve (ensure-ddev.sh starts it detached), --ping (prints the running version),
+# --approve-ee-migrate [project…] (in a terminal on the Mac; no project = every one with a script).
 # State and audit log: ~/.cache/cps-devcontainer/relay/. macOS's own perl, core modules only.
 use strict;
 use warnings;
 use Cwd qw(abs_path);
+use Digest::SHA qw(sha256_hex);
+use File::Path qw(make_path);
 use File::Basename qw(dirname);
 use IO::Socket::INET;
 use POSIX qw(strftime);
 
-our $VERSION = 2;
+our $VERSION = 3;
 my $PORT = $ENV{CPS_DDEV_RELAY_PORT} || 20090;
 my $STATE = "$ENV{HOME}/.cache/cps-devcontainer/relay";
 my $TOKENS = "$STATE/tokens";
@@ -30,6 +41,11 @@ my $CONTAINER_ROOT = '/workspace';
 my $CONFIRM_TIMEOUT = 120;
 my $MAX_ARGS = 32;
 my $NAME = qr/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
+my $APPROVED = "$STATE/approved";
+my $EE_TEMPLATE = $ENV{CPS_EE_MIGRATE_TEMPLATE}
+    // "$ENV{HOME}/Web/code/github.com/canadian-paediatric-society/claude-config-repo/projects/expressionengine/templates/ee-migrate/ee-migrate.sh";
+# Tests only: answer the dialog without showing it. Ignored on the real relay's port.
+my $ASSUME = ($ENV{CPS_DDEV_RELAY_PORT} && $ENV{CPS_DDEV_RELAY_PORT} != 20090) ? ($ENV{CPS_DDEV_RELAY_ASSUME} // '') : '';
 
 $ENV{PATH} = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
 
@@ -42,7 +58,8 @@ if ($mode eq '--ping') {
     print "$1\n";
     exit 0;
 }
-die "usage: $0 --serve | --ping\n" unless $mode eq '--serve';
+if ($mode eq '--approve-ee-migrate') { approve_ee_migrate(@ARGV); exit 0; }
+die "usage: $0 --serve | --ping | --approve-ee-migrate [project...]\n" unless $mode eq '--serve';
 serve();
 
 sub log_line {
@@ -96,6 +113,14 @@ sub same {
     return $diff == 0;
 }
 
+sub slurp_raw {
+    my ($path) = @_;
+    open(my $fh, '<:raw', $path) or return undef;
+    local $/;
+    my $data = <$fh>;
+    return $data // '';
+}
+
 sub slurp {
     my ($path) = @_;
     open(my $fh, '<', $path) or return '';
@@ -146,26 +171,35 @@ sub handle {
     alarm 0;
 
     my $request = join(' ', @args);
-    my ($argv, $confirm, $error) = plan($project, $root, $cwd, @args);
+    my ($argv, $confirm, $error, $opts) = plan($project, $root, $cwd, @args);
+    $opts ||= {};
     if ($error) {
         log_line("$project DENIED  ddev $request  ($error)");
         reply_exit($sock, 2, $error);
     }
     if ($confirm) {
-        unless (confirmed($project, $confirm)) {
+        unless (confirmed($project, $confirm, $opts->{note})) {
             log_line("$project REFUSED ddev $request  (not allowed in the dialog)");
             reply_exit($sock, 3, 'not allowed: you clicked Deny on the Mac, or the dialog timed out');
         }
         log_line("$project ALLOWED ddev $request  (in the dialog)");
+    }
+    if ($confirm && !$opts->{no_snapshot}) {
         my $snap = 'relay-before-' . $args[0] . '-' . strftime('%Y%m%d-%H%M%S', localtime);
         print $sock "ddev (relay): taking snapshot $snap first\n";
-        if (run($sock, $root, 'ddev', 'snapshot', '--name', $snap) != 0) {
+        if (run($sock, $root, {}, 'ddev', 'snapshot', '--name', $snap) != 0) {
             log_line("$project FAILED  ddev $request  (safety snapshot failed)");
             reply_exit($sock, 1, 'the safety snapshot failed, so nothing was changed');
         }
     }
+    my $lock;
+    if ($opts->{lock}) {
+        $lock = take_lock($opts->{lock});
+        reply_exit($sock, 1, "another ddev $args[0] for $project is still running; wait for it to finish") unless $lock;
+    }
     log_line("$project RUN     ddev $request");
-    my $code = run($sock, $root, @$argv);
+    my $code = run($sock, $root, $opts->{env} || {}, @$argv);
+    rmdir_lock($lock) if $lock;
     log_line("$project EXIT $code  ddev $request");
     reply_exit($sock, $code);
 }
@@ -274,17 +308,175 @@ sub plan {
         return (['ddev', 'export-db', "--file=$mac", @flags], undef, undef);
     }
 
+    return plan_ee_migrate($project, $root, @rest) if $verb eq 'ee-migrate';
+
     return (undef, undef, "ddev $verb is not allowed from the sandbox; run it in a terminal on the Mac");
 }
 
+sub approved_copy { return "$APPROVED/$_[0]/ee-migrate.sh"; }
+sub approve_hint { return "on the Mac, run: perl ~/.cache/cps-devcontainer/relay/ddev-relay.pl --approve-ee-migrate $_[0]"; }
+
+# Symlinks in these folders could point a file ee-migrate.sh writes (the downloaded dump, stamps,
+# baselines) at any path on the Mac.
+sub symlink_in {
+    my ($root) = @_;
+    for my $dir ("$root/.admin-scripts", "$root/.admin-scripts/.ee-migrate") {
+        return $dir if -l $dir;
+        next unless -d $dir;
+        opendir(my $dh, $dir) or return $dir;
+        for my $entry (readdir $dh) {
+            next if $entry eq '.' || $entry eq '..';
+            return "$dir/$entry" if -l "$dir/$entry";
+        }
+    }
+    return undef;
+}
+
+sub plan_ee_migrate {
+    my ($project, $root, $target, $action, @more) = @_;
+    my $usage = 'ddev ee-migrate: allowed are <staging|prod> status, <staging|prod> rehearse, '
+              . '<staging|prod> apply --expect=m1,m2';
+    $target //= '';
+    return (undef, undef, 'ddev ee-migrate: local test runs inside the container: '
+                          . '.admin-scripts/ee-migrate.sh local test <migration>') if $target eq 'local';
+    return (undef, undef, $usage) unless $target =~ /^(staging|prod)$/ && defined $action;
+    my @pass = ($target, $action);
+    my $names;
+    if ($action eq 'status' || $action eq 'rehearse') {
+        return (undef, undef, $usage) if @more;
+    } elsif ($action eq 'apply') {
+        return (undef, undef, $usage)
+            unless @more == 1 && $more[0] =~ /^--expect=([A-Za-z0-9_]{1,128}(?:,[A-Za-z0-9_]{1,128}){0,49})$/;
+        $names = $1;
+        push @pass, $more[0];
+    } else {
+        return (undef, undef, $usage);
+    }
+
+    my $script = "$root/.admin-scripts/ee-migrate.sh";
+    return (undef, undef, "ddev ee-migrate: $project has no .admin-scripts/ee-migrate.sh") unless -f $script && !-l $script;
+    my $link = symlink_in($root);
+    return (undef, undef, "ddev ee-migrate: refused, $link is a symlink") if defined $link;
+    my $approved = approved_copy($project);
+    my $have = slurp_raw($approved);
+    return (undef, undef, "ddev ee-migrate: ${project}'s ee-migrate.sh isn't approved yet; " . approve_hint($project))
+        unless defined $have;
+    my $now = slurp_raw($script);
+    return (undef, undef, "ddev ee-migrate: ${project}'s ee-migrate.sh changed since it was approved; "
+                          . approve_hint($project) . ' (it shows the diff)') unless defined $now && $now eq $have;
+
+    my $stamps = "$STATE/ee-migrate-stamps/$project";
+    make_path($stamps, { mode => 0700 });
+    my %env = (EE_MIGRATE_REPO_ROOT => $root, EE_MIGRATE_STAMP_DIR => $stamps, EE_MIGRATE_VIA_RELAY => '1',
+               EE_MIGRATE_FUNCTIONS => undef, EE_MIGRATE_RELAY_TOKEN => undef, BASH_ENV => undef, ENV => undef);
+    my $where = $target eq 'prod' ? 'PRODUCTION' : 'staging';
+    my ($confirm, $note);
+    if ($action eq 'rehearse') {
+        $confirm = "Rehearse the pending $where migrations of $project? This copies the $target database "
+                 . 'into DDEV, migrates the copy, then restores the DDEV snapshot it takes first.';
+        $note = 'Runs ee-migrate.sh on the Mac with your SSH.';
+    } elsif ($action eq 'apply') {
+        $confirm = "Apply to $where for $project: " . join(', ', split(/,/, $names))
+                 . '? ee-migrate takes a server backup first and stops at the first failed check.';
+        $note = 'Runs ee-migrate.sh on the Mac with your SSH.';
+    }
+    return (['bash', $approved, @pass], $confirm, undef,
+            { no_snapshot => 1, note => $note, env => \%env, lock => "$project.ee-migrate" });
+}
+
+# One ee-migrate run per project at a time (rehearse snapshots and restores the DDEV database).
+sub take_lock {
+    my ($name) = @_;
+    my $dir = "$STATE/locks/$name";
+    make_path("$STATE/locks", { mode => 0700 });
+    for (1 .. 2) {
+        if (mkdir $dir, 0700) {
+            if (open(my $fh, '>', "$dir/pid")) { print $fh "$$\n"; close $fh; }
+            return $dir;
+        }
+        my $pid = slurp("$dir/pid");
+        return undef if $pid =~ /^\d+$/ && kill(0, $pid);
+        unlink "$dir/pid";
+        rmdir $dir;
+    }
+    return undef;
+}
+
+sub rmdir_lock {
+    my ($dir) = @_;
+    unlink "$dir/pid";
+    rmdir $dir;
+}
+
+sub without_site_config {
+    my ($text) = @_;
+    $text =~ s/^# >>> site config.*?^# <<< site config[^\n]*\n//ms;
+    return $text;
+}
+
+sub approve_ee_migrate {
+    my @projects = @_;
+    open(my $tty, '+<', '/dev/tty') or die "--approve-ee-migrate asks you to confirm: run it in a terminal on the Mac\n";
+    my $all = !@projects;
+    if ($all) {
+        opendir(my $dh, $TOKENS) or die "no relay tokens in $TOKENS: open a dev container first\n";
+        @projects = sort map { /^([A-Za-z0-9_.-]+)\.root$/ ? $1 : () } readdir $dh;
+    }
+    for my $project (@projects) {
+        die "bad project name: $project\n" unless $project =~ $NAME;
+        my $root = slurp("$TOKENS/$project.root");
+        unless ($root && -d $root) { print "$project: no relay token (open its dev container first)\n"; next; }
+        my $script = "$root/.admin-scripts/ee-migrate.sh";
+        unless (-f $script && !-l $script) {
+            print "$project: no .admin-scripts/ee-migrate.sh\n" unless $all;
+            next;
+        }
+        my $now = slurp_raw($script);
+        my $approved = approved_copy($project);
+        my $have = slurp_raw($approved);
+        if (defined $have && $have eq $now) { print "$project: already approved\n"; next; }
+
+        print "\n==== $project: $script\n";
+        if (defined $have) {
+            print "Changes since the approved copy:\n";
+            system('diff', '-u', $approved, $script);
+        } else {
+            print "First approval for $project.\n";
+        }
+        if (-f $EE_TEMPLATE) {
+            my $tpl = slurp_raw($EE_TEMPLATE);
+            if (without_site_config($tpl) eq without_site_config($now)) {
+                print "Outside its site config block it is identical to the kit template ($EE_TEMPLATE).\n";
+            } else {
+                print "WARNING: outside its site config block it differs from the kit template ($EE_TEMPLATE).\n";
+            }
+        }
+        my ($config) = $now =~ /^(# >>> site config.*?^# <<< site config[^\n]*\n)/ms;
+        print "Site config block:\n", ($config // "(none found)\n");
+        print $tty "Approve this ee-migrate.sh for $project? [y/N] ";
+        my $answer = <$tty> // '';
+        unless ($answer =~ /^y(es)?$/i) { print "$project: not approved\n"; next; }
+        make_path("$APPROVED/$project", { mode => 0700 });
+        my $tmp = "$approved.new.$$";
+        open(my $out, '>:raw', $tmp) or die "cannot write $tmp: $!\n";
+        print $out $now;
+        close $out or die "cannot write $tmp: $!\n";
+        chmod 0600, $tmp;
+        rename $tmp, $approved or die "cannot save $approved: $!\n";
+        log_line("$project APPROVED ee-migrate.sh sha256 " . sha256_hex($now));
+        print "$project: approved\n";
+    }
+}
+
 sub confirmed {
-    my ($project, $text) = @_;
+    my ($project, $text, $note) = @_;
+    return $ASSUME eq 'allow' if $ASSUME;
     my @script = ('on run argv',
                   'display dialog (item 1 of argv) with title "DDEV request from the Claude sandbox" '
                   . 'buttons {"Deny", "Allow"} default button "Deny" cancel button "Deny" '
                   . "giving up after $CONFIRM_TIMEOUT with icon caution",
                   'end run');
-    my $msg = "$text\n\nA snapshot is taken first. Asked by the dev container for $project.";
+    my $msg = "$text\n\n" . ($note // 'A snapshot is taken first.') . " Asked by the dev container for $project.";
     open(my $osa, '-|', 'osascript', (map { ('-e', $_) } @script), $msg) or return 0;
     my $answer = do { local $/; <$osa> } // '';
     close $osa;
@@ -293,7 +485,7 @@ sub confirmed {
 
 # Runs a command in the project's folder, streaming its output to the socket.
 sub run {
-    my ($sock, $root, @cmd) = @_;
+    my ($sock, $root, $env, @cmd) = @_;
     local $SIG{CHLD} = q{DEFAULT};
     my $pid = open(my $out, q{-|});
     return 1 unless defined $pid;
@@ -301,6 +493,9 @@ sub run {
         open(STDERR, '>&', \*STDOUT);
         open(STDIN, '<', '/dev/null');
         chdir $root or exit 1;
+        for my $key (keys %$env) {
+            if (defined $env->{$key}) { $ENV{$key} = $env->{$key}; } else { delete $ENV{$key}; }
+        }
         exec { $cmd[0] } @cmd or exit 127;
     }
     while (my $line = <$out>) { print $sock $line; }

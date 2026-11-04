@@ -5,7 +5,7 @@
 # Note: the remote backup verification script (stat -c, ls -t, chmod) and the server-side
 # schema-check baseline are first exercised against a real server on the first real staging run.
 set -uo pipefail
-EE_MIGRATE_VERSION="1.5.2"
+EE_MIGRATE_VERSION="1.6.0"
 # >>> site config (preserved by ee-migrate-install.sh)
 SITE=""                 # e.g. cps
 SSH_HOST=""             # e.g. websvr-cps
@@ -46,7 +46,12 @@ SNAPSHOT=""
 REPO_ROOT="${EE_MIGRATE_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 EM_DIR="$REPO_ROOT/.admin-scripts/.ee-migrate"
 EM_REL=".admin-scripts/.ee-migrate"    # same dir as seen from the DDEV project root
-STAMP_DIR="$EM_DIR/stamps"
+# The DDEV relay keeps its runs' stamps where the dev container can't write (a forged rehearsal
+# stamp would unlock prod apply); a run on the Mac keeps them in the repo as before.
+STAMP_DIR="${EE_MIGRATE_STAMP_DIR:-$EM_DIR/stamps}"
+# Inside the Claude dev container, staging/prod commands go to the DDEV relay on the Mac, which
+# runs a copy of this script that Robert approved, with his SSH. The relay sets EE_MIGRATE_VIA_RELAY.
+RELAY_TOKEN="${EE_MIGRATE_RELAY_TOKEN:-/run/ddev-relay/token}"
 STAMP_MAX_AGE=86400
 
 die() { echo "ee-migrate: $*" >&2; exit 2; }
@@ -875,6 +880,9 @@ cmd_local_test() {
 
 main() {
   parse_args "$@"
+  if [[ "$MODE" == "remote" && -z "${EE_MIGRATE_VIA_RELAY:-}" && -r "$RELAY_TOKEN" ]]; then
+    exec ddev ee-migrate "$@"
+  fi
   require_config
   check_backup_dir
   cd "$REPO_ROOT" || die "cannot enter $REPO_ROOT"

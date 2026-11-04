@@ -140,7 +140,7 @@ check "backup dir inside releases -> exit 2" '[[ $RC -eq 2 && "$OUT" == *"outsid
 EQREL="$(make_runner eqrel PROD_BACKUP_DIR=/srv/prod/httpdocs/current)"
 run "$EQREL" prod status
 check "backup dir equal to release path -> exit 2" '[[ $RC -eq 2 && "$OUT" == *"outside the release tree"* ]]'
-grep -q '^EE_MIGRATE_VERSION="1.5.2"' "$TEMPLATE" && ok "EE_MIGRATE_VERSION present" || ko "EE_MIGRATE_VERSION present"
+grep -q '^EE_MIGRATE_VERSION="1.6.0"' "$TEMPLATE" && ok "EE_MIGRATE_VERSION present" || ko "EE_MIGRATE_VERSION present"
 EMPTY="$(make_runner empty SSH_HOST=)"
 run "$EMPTY" prod status
 check "empty config -> exit 2" '[[ $RC -eq 2 && "$OUT" == *"SSH_HOST is empty"* ]]'
@@ -718,6 +718,32 @@ touch "$STUB_DIR/impact-titles-fail"
 run "$RUNNER" staging rehearse
 check "entry lookup fails -> unavailable, rehearsal still passes" \
   '[[ $RC -eq 0 && "$OUT" == *"report unavailable (entry lookup failed)"* && -f "$STAMPS/staging.json" ]]'
+
+# ---- 1.6.0: DDEV relay (dev container) and relay-owned stamps ----
+reset_stub
+echo token > "$work/relay-token"
+EE_MIGRATE_RELAY_TOKEN="$work/relay-token" run "$RUNNER" staging apply --expect=a,b
+check "in the container: remote command goes to the relay, unchanged" \
+  '[[ "$(cat "$STUB_LOG")" == "ddev ee-migrate staging apply --expect=a,b" ]] && ! grep -q "^ssh " "$STUB_LOG"'
+reset_stub
+EE_MIGRATE_RELAY_TOKEN="$work/relay-token" run "$RUNNER" prod apply "--expect=a;rm"
+check "in the container: bad arguments refused before the relay" '[[ $RC -eq 2 ]] && ! grep -q "ee-migrate" "$STUB_LOG"'
+reset_stub
+EE_MIGRATE_RELAY_TOKEN="$work/relay-token" run "$RUNNER" local test a
+check "in the container: local test is not forwarded" '! grep -q "ddev ee-migrate" "$STUB_LOG"'
+reset_stub
+EE_MIGRATE_RELAY_TOKEN="$work/relay-token" EE_MIGRATE_VIA_RELAY=1 run "$RUNNER" staging status
+check "run by the relay: not forwarded again" '[[ $RC -eq 0 ]] && grep -q "^ssh " "$STUB_LOG" && ! grep -q "ddev ee-migrate" "$STUB_LOG"'
+
+reset_stub
+mkdir -p "$work/relay-stamps"
+EE_MIGRATE_STAMP_DIR="$work/relay-stamps" run "$RUNNER" staging apply --expect=a,b
+check "EE_MIGRATE_STAMP_DIR: a stamp in the repo does not count" '[[ $RC -eq 1 && "$OUT" == *"no rehearsal"* ]]'
+reset_stub
+cp "$STAMPS/staging.json" "$work/relay-stamps/staging.json"
+EE_MIGRATE_STAMP_DIR="$work/relay-stamps" run "$RUNNER" staging apply --expect=a,b
+check "EE_MIGRATE_STAMP_DIR: its own stamp counts and records the apply" \
+  '[[ $RC -eq 0 && "$(jq -r .apply "$work/relay-stamps/staging.json")" == pass ]]'
 
 echo
 echo "Passed: $pass  Failed: $fail"

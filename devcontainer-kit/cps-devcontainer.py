@@ -38,7 +38,15 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VERSION = "1.12.0"
+VERSION = "1.13.0"
+EE_MIGRATE_RELAY_NOTE = (
+    "`.admin-scripts/ee-migrate.sh <staging|prod> status|rehearse|apply --expect=…` hands itself to the relay "
+    "(as `ddev ee-migrate …`), which runs it on the Mac with your SSH, so no server credential is in here. "
+    "`rehearse` and `apply` open the Allow/Deny dialog; `status` doesn't. The relay runs only the copy you "
+    "approved: after a change to the script, approve it in a Mac terminal with "
+    "`perl ~/.cache/cps-devcontainer/relay/ddev-relay.pl --approve-ee-migrate` (shows the diff). Those runs keep "
+    "their stamps in the relay's state folder, so a rehearsal done here and one done in a Mac terminal don't "
+    "count for each other. `local test` runs here directly.")
 KIT = Path(__file__).resolve().parent
 KIT_SCRIPTS = ("ddev-shim.sh", "ensure-ddev.sh", "init-firewall.sh", "ddev-relay.pl", "ddev-relay-client.sh",
                "egress-proxy.sh")
@@ -1016,6 +1024,8 @@ def gen_readme(p: Project) -> str:
                   "on the Mac and take a snapshot first. Everything else is refused: `exec`/`ssh` above all, since the "
                   "web container can write `.ddev`, whose hooks run on the Mac. Every request is logged in "
                   "`~/.cache/cps-devcontainer/relay/relay.log`.", ""]
+        if (p.path / ".admin-scripts" / "ee-migrate.sh").is_file():
+            lines += [EE_MIGRATE_RELAY_NOTE, ""]
     lines += ["## GitHub", "",
               "Sign in once, in any CPS container: `gh auth login` (GitHub.com, HTTPS, paste a token). The login "
               f"lives on the shared `{GH_CONFIG_VOLUME}` Docker volume, so every CPS container uses it, and git "

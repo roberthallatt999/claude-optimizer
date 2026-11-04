@@ -32,7 +32,7 @@ What it decides per project:
 | composer.json repos, Craft, `.mcp.json` context7 | Added to `allowed-domains.txt`; private repos flagged (no auth.json inside) |
 | `.claude/hooks/safety-guard.sh` | Re-registered in root-owned managed settings |
 | Guardrail files that exist | Mounted read-only, along with `.devcontainer/` itself and (1.6.1) `.ddev/`, whose `exec-host` hooks run on the Mac at the next `ddev start` |
-| Site database (1.8.0) | `ddev mysql` opens `$DDEV_DB_NAME` (default `db`). Many CPS sites import production into a database named after it (`admin_cps`) and leave DDEV's `db` empty, so the kit lists the databases in the project's DDEV volume (read-only, through a throwaway `alpine` container), takes the populated one written most recently, and sets `DDEV_DB_NAME` when it isn't `db`. `--db-name` overrides; if the volume can't be read, the survey says so |
+| Site database (1.8.0) | `ddev mysql` opens `$DDEV_DB_NAME` (default `db`). Many CPS sites import production into a database named after it (`admin_cps`) and leave DDEV's `db` empty, so the kit lists the databases in the project's DDEV volume (read-only, through a throwaway `alpine` container), takes the populated one written most recently, and sets `DDEV_DB_NAME` when it isn't `db`. `--db-name` overrides; if the volume can't be read, the survey says so (1.13.0) The name goes in as `--database=`, so `ddev mysql admin_cps -e …` (what ee-migrate.sh runs) works; before, the client saw two database names and printed its help. `ddev mysql --project=<ddev-name> [db]` reaches another running project's server (`ddev-<name>-db`, default database `db`) |
 | Claude Code traffic (1.7.0) | `DISABLE_TELEMETRY`, `DISABLE_ERROR_REPORTING`, `DISABLE_BUG_COMMAND`, `DISABLE_AUTOUPDATER`. Not `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, which also stops the plan-usage fetch, so the Account & Usage panel showed "Failed to load usage data" |
 | Shell history (always) | `command-history` volume at `/commandhistory`; bash and zsh write to it after every command, so it survives rebuilds |
 | GitHub (always, 1.3.0) | git push/pull and `gh` work inside through one `gh auth login`, kept on the `cps-gh-config` volume every CPS container shares; git's GitHub helper is `gh auth git-credential` and SSH remotes are rewritten to HTTPS inside only. Use a fine-grained token scoped to the org's repos. Managed settings still ask before `git push`, PR create/merge/edit, `gh workflow run`, `gh run rerun` and `gh api`, and deny `gh auth token`, `gh repo delete` and reading `~/.config/gh` |
@@ -83,6 +83,7 @@ and nothing else on the Mac. The token picks the project; a request can't name a
 | `snapshot` | create, `--name NAME`, `--list`; `restore NAME\|--latest` asks first |
 | `import-db --file=…` | File must resolve (symlinks followed) inside the project; asks first |
 | `export-db --file=….sql[.gz]` | New file only, inside the project, not in a dot folder |
+| `ee-migrate <staging\|prod> status\|rehearse\|apply --expect=…` (1.13.0) | Runs the approved copy of `.admin-scripts/ee-migrate.sh` on the Mac with Robert's SSH; `rehearse` and `apply` ask first (no extra DDEV snapshot: rehearse takes and restores its own); one run per project at a time |
 
 "Asks first" is a macOS Allow/Deny dialog (Deny after 120 s), then an automatic
 `relay-before-<verb>-<time>` snapshot before the command runs. Refused for good: `exec` and `ssh` (the web
@@ -90,3 +91,15 @@ container mounts `.ddev` writable, and an `exec-host` hook planted there would r
 start), `config`, `add-on`, `delete`, `poweroff`, `push`, `pull`. Every request is logged in
 `~/.cache/cps-devcontainer/relay/relay.log`. The shared relay copy only moves forward: a repo with a newer
 `$VERSION` replaces it and restarts the relay.
+
+**EE migrations (1.13.0).** `ee-migrate.sh` (runner 1.6.0+) hands `staging`/`prod` commands to the relay
+itself, so Claude runs `.admin-scripts/ee-migrate.sh staging rehearse` as on the Mac. The container can edit
+that script, so the relay never runs the repo's file. It runs `~/.cache/cps-devcontainer/relay/approved/<project>/ee-migrate.sh`,
+and only while the repo's file is byte-identical to it. Approve in a Mac terminal (it reads the answer from
+`/dev/tty`, so nothing can pipe a yes): `perl ~/.cache/cps-devcontainer/relay/ddev-relay.pl --approve-ee-migrate [project…]`
+shows the diff against the last approved copy, whether the logic matches the kit template, and the site
+config block. Relay runs keep their stamps in `~/.cache/cps-devcontainer/relay/ee-migrate-stamps/<project>/`,
+out of the container's reach, because a forged rehearsal stamp would unlock `prod apply`. Stamps from Mac
+terminal runs don't count for relay runs, or the other way round. The relay also refuses while any symlink sits in
+`.admin-scripts/` or `.admin-scripts/.ee-migrate/`, since the dump it downloads is written there. Tests:
+`test-ddev-relay.sh`, `test-ddev-shim.sh`.
