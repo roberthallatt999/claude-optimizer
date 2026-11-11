@@ -929,11 +929,8 @@ fi
 PRINTS_SECRET_RE="${S}(gh[[:space:]]+auth[[:space:]]+token|security[[:space:]]+find-(generic|internet)-password([[:space:]][^;&|]*)?[[:space:]]-[a-z]*[wg]([[:space:]]|$)|op[[:space:]]+read[[:space:]]|op[[:space:]]+document[[:space:]]+get[[:space:]]|op[[:space:]]+signin[^;&|]*--raw|op[[:space:]]+item[[:space:]]+get[^;&|]*--reveal|aws[[:space:]]+configure[[:space:]]+(get|export-credentials)|gcloud[[:space:]]+auth[[:space:]]+(application-default[[:space:]]+)?print-(access|identity)-token|heroku[[:space:]]+auth:token|doppler[[:space:]]+secrets|vault[[:space:]]+(kv[[:space:]]+get|read)[[:space:]]|${G}credential[[:space:]]+fill|npm[[:space:]]+token[[:space:]]+create|bw[[:space:]]+(get[[:space:]]+(password|item|notes|totp|attachment)|list[[:space:]]+items|export)|bws[[:space:]]+(secret|secrets)[[:space:]]+(get|list))"
 if m "$PRINTS_SECRET_RE"; then
   _top="$lc"
-  # op document get --out-file writes the document to a file instead of printing it.
-  if [[ "$lc" =~ op[[:space:]]+document[[:space:]]+get[^\;\&\|]*(--out-file|[[:space:]]-o[[:space:]]) ]] \
-     && ! [[ "${lc//op document get/}" =~ $PRINTS_SECRET_RE ]]; then
-    _top=""
-  fi
+  # No exemption for op document get --out-file: /dev/stdout, a later cat, or a second call
+  # can still print it. Claude never fetches a stored document; the developer does.
   # A commit message describing such a command is prose, not a call. Its -m strings are
   # removed first; then a heredoc is dropped only when it directly follows -F - / --file=- on
   # the git commit line, outside quotes, and its terminator line is found. Otherwise every line
