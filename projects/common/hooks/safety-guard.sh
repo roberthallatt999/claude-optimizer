@@ -789,7 +789,11 @@ done
 # of a search exclusion (grep --exclude=/--exclude-dir=, rg -g/--glob/--iglob '!…'): the
 # command never opens that file, so neither the name check nor the content scan applies.
 excluded_only() {
-  local tok="$1" rest="$2" flag q
+  local tok="$1" rest="$2" flag q search_re='(^|[;&|(`[:space:]])(grep|egrep|fgrep|zgrep|rg|ag|ack)([[:space:]]|$)'
+  # Only for a search tool that honours these flags, and never once "--" ends the options
+  # (after it, "--exclude=x" is just a file name).
+  [[ "$rest" =~ $search_re ]] || return 1
+  [[ "$rest" =~ [[:space:]]--([[:space:]]|$) ]] && return 1
   for flag in "--exclude=" "--exclude " "--exclude-dir=" "--exclude-dir " "-g !" "--glob=!" "--glob !" "--iglob=!" "--iglob !"; do
     for q in "" "'" '"'; do rest="${rest//"$flag$q$tok"/ }"; done
     rest="${rest//"$flag'!$tok"/ }"; rest="${rest//"$flag\"!$tok"/ }"

@@ -66,6 +66,8 @@ check "--exclude-dir naming a folder ABOVE the root"    deny  "$(bash_d "grep -r
 mkdir -p "$P/vault"; printf 'DB_%s=%s\n' PASSWORD 'in-a-folder-4321' > "$P/vault/.env.local"
 check "--exclude=<folder name> doesn't skip that folder" deny "$(bash_d "grep -r --exclude=vault --exclude='.env' in-a-folder .")"
 check "--exclude-dir=<folder> does skip it"             allow "$(bash_d "grep -r --exclude-dir=vault --exclude='.env' in-a-folder .")"
+check "exclude flag on a non-search command"            deny  "$(bash_d "tar --exclude=.env -cf - .env")"
+check "exclude after -- is a file name, not a flag"     deny  "$(bash_d "grep x -- --exclude=.env .env")"
 rm -rf "$P/vault"
 mkdir -p "$P/decoys"; for i in $(seq 1 60); do touch "$P/decoys/credentials-$i.json"; done
 check "more than 50 secret files fails closed"          deny  "$(bash_d 'grep -r zzzz-no-such-text .')"
