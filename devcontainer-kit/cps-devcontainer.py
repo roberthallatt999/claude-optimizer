@@ -723,9 +723,14 @@ def shared_skill_mounts(user: str, home: Path | None = None) -> list[str]:
         if (home / ".claude" / "skills" / name / "SKILL.md").exists():
             lines += [f"      # {what}: the Mac's {name} skill, read-only.",
                       f"      - ${{HOME}}/.claude/skills/{name}:/home/{user}/.claude/skills/{name}:ro"]
-    if (home / ".config" / "ai-config" / "profiles").is_dir():
+    # Only what profile.sh reads: the profiles and this Mac's default. Not the rest of the
+    # private repo (its own skills, its .git history).
+    cfg = home / ".config" / "ai-config"
+    if (cfg / "profiles").is_dir():
         lines += ["      # ai-config profiles (who pages are from, the share domain), read-only.",
-                  f"      - ${{HOME}}/.config/ai-config:/home/{user}/.config/ai-config:ro"]
+                  f"      - ${{HOME}}/.config/ai-config/profiles:/home/{user}/.config/ai-config/profiles:ro"]
+        if (cfg / "profile").is_file():
+            lines += [f"      - ${{HOME}}/.config/ai-config/profile:/home/{user}/.config/ai-config/profile:ro"]
     return lines
 
 

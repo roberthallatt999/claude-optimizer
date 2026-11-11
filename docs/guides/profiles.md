@@ -84,7 +84,7 @@ The active profile is the first of these:
 3. The machine default in `~/.config/ai-config/profile`
 
 `global-skills/noslop/scripts/profile.sh` prints it. Dev containers mount
-`~/.config/ai-config` read-only.
+`profiles/` and `profile` read-only, and nothing else from the private repo.
 
 ### Setting up and editing your profiles
 
