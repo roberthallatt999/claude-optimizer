@@ -25,7 +25,31 @@
 
 set -uo pipefail
 
-input="$(cat)"
+# --pre-commit: run as a git pre-commit hook (no JSON on stdin); see staged_leaks below.
+GUARD_MODE=hook
+if [[ "${1:-}" == --pre-commit ]]; then
+  GUARD_MODE="pre-commit"
+  input=""
+else
+  input="$(cat)"
+fi
+
+# Two copies can be registered: the global one (~/.claude/hooks, put in ~/.claude/settings.json
+# by scripts/install-global-guard.sh) and a project's own. The global copy ALWAYS evaluates:
+# project files (a cloned repo's settings and hook) must never be able to switch it off. To
+# avoid checking a call twice, the PROJECT copy stands aside instead, and only when the
+# user-owned settings register the global guard and the global copy is byte-identical to this
+# one, so the same checks run anyway. Otherwise both run.
+# Only for a real Claude Code call (it always sends session_id): --doctor's live test and the
+# test suites run a project copy directly, and must see it decide.
+if [[ "${AI_CONFIG_GUARD_SCOPE:-}" != global && "$GUARD_MODE" == hook && "$input" == *'"session_id"'* ]] \
+   && cmp -s "$HOME/.claude/hooks/safety-guard.sh" "${BASH_SOURCE[0]}" \
+   && command -v jq >/dev/null 2>&1 \
+   && jq -e '[.hooks.PreToolUse[]? | select((.matcher // "") as $m | $m == "" or $m == "*" or ($m | test("Bash") and test("Read") and test("mcp")))
+              | .hooks[]?.command | strings | test("^AI_CONFIG_GUARD_SCOPE=global ")] | any' \
+        "$HOME/.claude/settings.json" >/dev/null 2>&1; then
+  exit 0
+fi
 
 # $1 is a dotted path; a `name[]` segment iterates an array (one value per line).
 json_field() {
@@ -50,8 +74,12 @@ sys.stdout.write("\n".join(v for v in vals if isinstance(v, str)))
   fi
 }
 
+# Every deny ends with the hand-off: the developer runs the step, outside the chat.
+HANDOFF=" If this step is still needed, don't route around the block with another command or tool: give the developer the exact command to run in their own terminal (a separate window; a ! command in this chat sends its output back here), or the numbered steps in the service's web dashboard, and ask only for a non-secret result (done, an exit status, a count). Never ask them to paste a secret into the chat."
+
 decide() {
   local reason="$2"
+  [[ "$1" == deny && "$reason" != *"own terminal"* ]] && reason="$reason$HANDOFF"
   reason="${reason//\\/\\\\}"
   reason="${reason//\"/\\\"}"
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"%s","permissionDecisionReason":"%s"}}\n' "$1" "$reason"
@@ -72,8 +100,74 @@ for _conf in "${BASH_SOURCE[0]%/*}/protected-paths.conf" "${CLAUDE_PROJECT_DIR:-
     case "$_line" in ''|'#'*|'['*) continue ;; esac
     PROTECTED_PATTERNS+=("$(lower "$_line")")
   done < "$_conf"
-  break
+  # The global copy also takes the project's list (a CMS stack's *.sql, say): patterns only
+  # ever add protection, so reading a project's file here can't weaken anything.
+  [[ "${AI_CONFIG_GUARD_SCOPE:-}" == global ]] || break
 done
+
+# --- Test fixtures the project vouches for ------------------------------------
+# A test suite for credential handling needs realistic fake credentials. ai-config.conf:
+#   [scan]
+#   allow = test-*.sh, tests/fixtures/**
+# Content scanning (reads, searches, commits) skips those project-relative globs. Path
+# rules still apply, so .env or a key file can't be allowed. Editing ai-config.conf asks.
+SCAN_ALLOW=()
+if [[ -n "${CLAUDE_PROJECT_DIR:-}" && -f "$CLAUDE_PROJECT_DIR/ai-config.conf" ]]; then
+  _sec=""
+  while IFS= read -r _l || [[ -n "$_l" ]]; do
+    _l="${_l%$'\r'}"; _l="${_l%%#*}"
+    _l="${_l#"${_l%%[![:space:]]*}"}"; _l="${_l%"${_l##*[![:space:]]}"}"
+    [[ "$_l" == '['* ]] && { _sec="$_l"; continue; }
+    [[ "$_sec" == "[scan]" && "$_l" == allow*=* ]] || continue
+    IFS=, read -ra _parts <<< "${_l#*=}"
+    for _g in "${_parts[@]}"; do
+      _g="${_g#"${_g%%[![:space:]]*}"}"; _g="${_g%"${_g##*[![:space:]]}"}"
+      # The literal part before the first wildcard must be a whole folder ("tests/fixtures/…")
+      # or a file-name prefix of 4+ characters ending in - _ or . ("test-*.sh"). "*", "**",
+      # "*.php" or "t*" would switch the scan off far beyond a fixture folder: ignored.
+      [[ -n "$_g" && "$_g" != /* && "$_g" != *..* ]] || continue
+      _lit="${_g%%[*?[]*}"
+      if [[ "$_lit" == "$_g" || "$_lit" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*/$ \
+            || "$_lit" =~ ^([A-Za-z0-9_.-]+/)*[A-Za-z0-9_.]{3,}[-_.]$ ]]; then
+        SCAN_ALLOW+=("$_g")
+      fi
+    done
+  done < "$CLAUDE_PROJECT_DIR/ai-config.conf"
+fi
+
+# glob_to_re <glob> — a path-aware regex: "**" crosses "/", "*" and "?" don't.
+glob_to_re() {
+  local g="$1" out="" c i=0
+  while [[ $i -lt ${#g} ]]; do
+    c="${g:$i:1}"
+    if [[ "$c" == "*" && "${g:$((i + 1)):1}" == "*" ]]; then
+      out+=".*"; i=$((i + 2))
+      [[ "${g:$i:1}" == "/" ]] && { out+="/?"; i=$((i + 1)); }
+      continue
+    fi
+    case "$c" in
+      "*") out+="[^/]*" ;;
+      "?") out+="[^/]" ;;
+      '.'|'+'|'^'|'$'|'('|')'|'{'|'}'|'|'|'\'|'['|']') out+="\\$c" ;;
+      *) out+="$c" ;;
+    esac
+    i=$((i + 1))
+  done
+  printf '^%s$' "$out"
+}
+
+# scan_allowed <path> — true when [scan] allow covers it (path relative to the project).
+scan_allowed() {
+  local rel="$1" g re
+  [[ ${#SCAN_ALLOW[@]} -gt 0 ]] || return 1
+  rel="${rel#"${CLAUDE_PROJECT_DIR:-}"/}"; rel="${rel#./}"
+  [[ "$rel" == /* ]] && return 1
+  for g in "${SCAN_ALLOW[@]}"; do
+    re="$(glob_to_re "$g")"
+    [[ "$rel" =~ $re ]] && return 0
+  done
+  return 1
+}
 
 # matches_protected <lowercased path> — true when a deployed [deny] pattern matches.
 # Pattern syntax mirrors projects/common/protected-paths.conf:
@@ -129,6 +223,9 @@ is_secret_path() {
   matches_protected "$p"
 }
 
+# EE's system/user/config/config.php is a secret path but tracked (see git_stage_only).
+TRACKED_CONFIG_RE='(^|/)system/user/config/config\.php$'
+
 SECRET_REASON="may contain secrets (Safety Guardrail #1: never read secrets). Ask the developer for the specific non-secret value you need, or use the .env.example template."
 PUBLISH="Safety Guardrail #2: publishing needs the developer's explicit approval for this specific action."
 PROD="Safety Guardrail #3: this may change a production or remote environment; confirm the target and get explicit approval."
@@ -139,9 +236,10 @@ DESTRUCTIVE="This is irreversible; confirm it is intended."
 SECRET_CONTENT_RE='-----BEGIN [A-Z ]*PRIVATE KEY-----|(AKIA|ASIA)[0-9A-Z]{16}|sk-(ant|proj)-[A-Za-z0-9_-]{20,}|sk_live_[0-9A-Za-z]{16,}|rk_live_[0-9A-Za-z]{16,}|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{40,}|glpat-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}|SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}|npm_[A-Za-z0-9]{36}|dop_v1_[a-f0-9]{64}|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}'
 
 # Database and service credentials, matched case-insensitively: a connection URI with an
-# inline password, or a secret-ish key assigned a concrete value. This is what catches a
+# inline password, a secret-ish key assigned a concrete value, or the same key quoted in a
+# PHP array or JSON object ('password' => 'value', "api_key": "value"). This is what catches a
 # server log whose stack trace prints the DSN.
-SECRET_ASSIGN_RE='(mysql|mariadb|postgres|postgresql|mongodb\+srv|mongodb|redis|rediss|amqp|amqps|mssql|sqlserver|ftp|https?)://[^:/@[:space:]"]+:[^@[:space:]"]{3,}@|(db_password|db_pass|db_pwd|mysql_pwd|mysql_password|mysql_root_password|postgres_password|pgpassword|database_password|redis_password|mail_password|smtp_password|aws_secret_access_key|secret_access_key|api_key|api_secret|apikey|secret_key|access_token|auth_token|bearer_token|client_secret|encryption_key|app_key)[[:space:]]*[=:][[:space:]]*"?[^[:space:]",;&]{8,}'
+SECRET_ASSIGN_RE='(mysql|mariadb|postgres|postgresql|mongodb\+srv|mongodb|redis|rediss|amqp|amqps|mssql|sqlserver|ftp|https?)://[^:/@[:space:]"]+:[^@[:space:]"]{3,}@|(db_password|db_pass|db_pwd|mysql_pwd|mysql_password|mysql_root_password|postgres_password|pgpassword|database_password|redis_password|mail_password|smtp_password|aws_secret_access_key|secret_access_key|api_key|api_secret|apikey|secret_key|access_token|auth_token|bearer_token|client_secret|encryption_key|app_key)[[:space:]]*[=:][[:space:]]*"?[^[:space:]",;&]{8,}|['"'"'"](password|passwd|pwd|db_password|secret|client_secret|api_?key|auth_?key|private_key|access_token|token)['"'"'"][[:space:]]*(=>|:)[[:space:]]*['"'"'"]([^'"'"'"[:space:]|:,]{6,}[0-9][^'"'"'"[:space:]|:,]*|[^'"'"'"[:space:]|:,]*[0-9][^'"'"'"[:space:]|:,]{6,})['"'"'"]'
 
 # Lines the guard forgives. Without these the guard blocks .env.example, docs and any
 # code that reads a value from the environment — and a guard nobody can live with gets
@@ -150,8 +248,8 @@ SECRET_ASSIGN_RE='(mysql|mariadb|postgres|postgresql|mongodb\+srv|mongodb|redis|
 # x's (sk-ant-api03-xxxx…) and a line can say TODO next to a live key; template files are
 # already skipped by extension in secret_scan, so those markers bought nothing and cost a hole.
 # The last alternative is a value made only of snake_case words ending in a credential word
-# (DB_PASSWORD=database_password in a setup README); a value with a digit is never one.
-SECRET_PLACEHOLDER_RE='example|sample|placeholder|dummy|changeme|change[-_]me|your[-_]|redacted|replace_|\*\*\*|\.\.\.|<[^>]*>|\$\{|%[A-Za-z_]+%|process\.env|getenv|os\.environ|env\(|:(pass|password|passwd|pwd|secret|user|username|admin|root|test|demo|foo|bar)@|test[-_]?(key|token|secret|password)|fake[-_]?(key|token|secret)|[=:][[:space:]]*"?([a-z]+_)+(password|passwd|pwd|secret|token|key)"?[[:space:],;]*$'
+# (a setup README setting DB_PASSWORD to database_password); a value with a digit is never one.
+SECRET_PLACEHOLDER_RE='example|sample|placeholder|dummy|changeme|change[-_]me|your[-_]|redacted|replace_|\*\*\*|\.\.\.|<[A-Za-z][A-Za-z0-9_ .-]*>|\$\{|%[A-Za-z_]+%|process\.env|import\.meta\.env|deno\.env|getenv|os\.environ|env\(|:(pass|password|passwd|pwd|secret|user|username|admin|root|test|demo|foo|bar)@|test[-_]?(key|token|secret|password)|fake[-_]?(key|token|secret)|[=:][[:space:]]*"?([a-z]+_)+(password|passwd|pwd|secret|token|key)"?[[:space:],;]*$'
 
 # Largest file the guard will scan. Past this it denies rather than waving the file
 # through unchecked — an unscanned file is an unknown file.
@@ -165,7 +263,7 @@ SCAN_BIG_TAIL="Read a bounded, checked excerpt instead (for a log: the specific 
 # or it becomes dead code — test-secret-scanning.sh has a case per class to catch that.
 # One compiled regex, not a loop of index() calls: on BSD awk the loop costs 929ms on a
 # 4MB log where this costs 126ms, which is awk's floor for reading the file at all.
-SECRET_ANCHORS_RE='akia|asia|sk-ant-|sk-proj-|sk_live_|rk_live_|gh[pousr]_|github_pat_|glpat-|xox|aiza|sg\.|npm_|dop_v1_|eyj|-----begin|mysql://|mariadb://|postgres|mongodb|rediss?://|amqp|mssql://|sqlserver://|ftp://|https?://|password|passwd|_pwd|secret|token|api_?key|app_key|access_key|encryption_key'
+SECRET_ANCHORS_RE='akia|asia|sk-ant-|sk-proj-|sk_live_|rk_live_|gh[pousr]_|github_pat_|glpat-|xox|aiza|sg\.|npm_|dop_v1_|eyj|-----begin|mysql://|mariadb://|postgres|mongodb|rediss?://|amqp|mssql://|sqlserver://|ftp://|https?://|password|passwd|_pwd|secret|token|api_?key|app_key|access_key|encryption_key|auth_?key|private_key'
 
 # secret_scan <path> — echo a finding; 0 = credential found, 1 = clean/not applicable,
 # 2 = could not be scanned. Fail closed: callers deny on both 0 and 2.
@@ -182,6 +280,7 @@ SECRET_ANCHORS_RE='akia|asia|sk-ant-|sk-proj-|sk_live_|rk_live_|gh[pousr]_|githu
 secret_scan() {
   local f="$1" base size head_bytes text_bytes scan_target candidates lines
   [[ -f "$f" && -r "$f" ]] || return 1
+  scan_allowed "$f" && return 1
   base="$(lower "${f##*/}")"
   case "$base" in
     # Templates exist to show the shape of a secret; that is not a leak.
@@ -230,6 +329,186 @@ content_secret_hits() {
     LC_ALL=C grep -iE -e "$SECRET_ASSIGN_RE" <<< "$text" 2>/dev/null
   } | LC_ALL=C grep -vcE -e "$SECRET_PLACEHOLDER_RE"
 }
+
+# --- Recursive searches -----------------------------------------------------
+# A path rule blocks `grep x .env`, but `grep -r DB_PASSWORD .` opens .env without naming
+# it. These find the secret files a search would open and check whether the search pattern
+# actually matches a line in one: only then is it denied, so everyday searches never prompt.
+
+# secret_files_under <dir|file> — secret files a recursive search would open (max 50).
+secret_files_under() {
+  local root="$1" f rel
+  if [[ -f "$root" ]]; then
+    is_secret_path "$(lower "$root")" && printf '%s\n' "$root"
+    return 0
+  fi
+  [[ -d "$root" ]] || return 0
+  find "$root" -maxdepth 8 \( -type d \( -name node_modules -o -name vendor -o -name .git \
+      -o -name dist -o -name build -o -name .next -o -name .nuxt -o -name .cache -o -name .npm \
+      -o -name Library -o -name .Trash -o -name bower_components -o -name .venv -o -name __pycache__ \) -prune \) \
+    -o -type f \( -name '.env*' -o -name '*.env' -o -name '*.pem' -o -name '*.key' -o -name 'id_[rde]*' \
+      -o -name '*.p12' -o -name '*.pfx' -o -name '*credentials*' -o -name 'secrets.*' -o -name 'auth.json' \
+      -o -name 'wp-config*.php' -o -name 'wp-salt.php' -o -name '.npmrc' -o -name '.netrc' -o -name '.pgpass' \
+      -o -name '.my*.cnf' -o -name '.mysql*.cnf' -o -name '*.sql' -o -name 'database.y*ml' -o -name 'config.php' \
+      -o -name '*.secret*' -o -name '*.token' -o -name '.git-credentials' -o -name '.htpasswd' -o -name 'vault.y*ml' \) \
+    -print 2>/dev/null | head -50 | while IFS= read -r f; do
+      rel="${f#"$root"/}"
+      is_secret_path "$(lower "$rel")" && printf '%s\n' "$f"
+    done
+  return 0
+}
+
+# glob_hit <basename> <glob> — the glob as rg/grep apply it to a file name; {a,b} expanded.
+# shellcheck disable=SC2254
+glob_hit() {
+  local base="$1" g="${2#!}" pre alts post alt
+  g="${g##*/}"
+  if [[ "$g" =~ ^([^{]*)\{([^}]*)\}(.*)$ ]]; then
+    pre="${BASH_REMATCH[1]}" alts="${BASH_REMATCH[2]}" post="${BASH_REMATCH[3]}"
+    local IFS=,
+    for alt in $alts; do
+      case "$base" in $pre$alt$post) return 0 ;; esac
+    done
+    return 1
+  fi
+  case "$base" in $g) return 0 ;; esac
+  return 1
+}
+
+# search_leak <patterns> <fixed> <icase> <includes> <excludes> <hidden> <noignore> <root>...
+# Lists are \x1f-separated. Prints the first secret file whose lines the search would return.
+# An empty pattern list (e.g. grep -f) counts as matching when the file holds a credential.
+# SEARCH_ENGINE=rg (ripgrep, the Grep tool, ag, ack) tests the pattern with rg itself, so a
+# regex dialect difference (\d, \w, lookarounds) can't make a match look like a miss. Without
+# rg, a pattern with a backslash counts as matching (fail closed).
+search_leak() {
+  local pats="$1" fixed="$2" icase="$3" incs="$4" excs="$5" hidden="$6" noignore="$7" root f base g ok rc
+  shift 7
+  local -a gargs=() rargs=(-q --no-config -uuu)
+  local npats=0 engine="${SEARCH_ENGINE:-grep}"
+  if [[ "$fixed" == 1 ]]; then gargs+=(-F); rargs+=(-F); else gargs+=(-E); fi
+  [[ "$icase" == 1 ]] && { gargs+=(-i); rargs+=(-i); }
+  while IFS= read -r -d $'\x1f' g; do
+    [[ -n "$g" ]] && { gargs+=(-e "$g"); rargs+=(-e "$g"); npats=$((npats + 1)); }
+  done <<< "$pats"$'\x1f'
+  if [[ "$engine" == rg ]] && ! command -v rg >/dev/null 2>&1; then
+    [[ "$pats" == *\\* ]] && npats=0   # rg syntax grep may read differently: fail closed below
+    engine="grep"
+  fi
+  for root in "$@"; do
+    while IFS= read -r f; do
+      [[ -n "$f" ]] || continue
+      base="${f##*/}"
+      if [[ "$hidden" == 0 && "$base" == .* ]]; then continue; fi
+      if [[ "$noignore" == 0 ]] && git -C "$(dirname "$f")" check-ignore -q "$f" 2>/dev/null; then continue; fi
+      if [[ -n "$incs" ]]; then
+        ok=0
+        while IFS= read -r -d $'\x1f' g; do glob_hit "$base" "$g" && ok=1; done <<< "$incs"$'\x1f'
+        [[ $ok == 1 ]] || continue
+      fi
+      ok=1
+      while IFS= read -r -d $'\x1f' g; do
+        [[ -n "$g" ]] || continue
+        glob_hit "$base" "$g" && ok=0
+        [[ "$f" == *"/${g%/}/"* ]] && ok=0
+      done <<< "$excs"$'\x1f'
+      [[ $ok == 1 ]] || continue
+      if [[ $npats -gt 0 && "$engine" == rg ]]; then
+        LC_ALL=C rg "${rargs[@]}" -- "$f" >/dev/null 2>&1; rc=$?
+      elif [[ $npats -gt 0 ]]; then
+        LC_ALL=C grep -q "${gargs[@]}" -- "$f" 2>/dev/null; rc=$?
+      else
+        rc=2
+      fi
+      if [[ $rc == 0 ]]; then printf '%s' "$f"; return 0; fi
+      if [[ $rc == 2 ]]; then
+        secret_scan "$f" >/dev/null; case $? in 0|2) printf '%s' "$f"; return 0 ;; esac
+      fi
+    done < <(secret_files_under "$root")
+  done
+  return 1
+}
+
+SEARCH_TAIL="Search a narrower path, or exclude secret files (grep -r --exclude='.env*' …, rg -g '!.env*' …)."
+
+# --- Commits ------------------------------------------------------------------
+# staged_leaks <dir> <all> — what a commit would put into the repository's history: a staged
+# secret file, or an added line with a credential. With all=1 (git commit -a) unstaged
+# changes to tracked files count too. Prints "file<TAB>path" or "content<TAB>path:line", or
+# "gitleaks<TAB>path (rule)" for a finding only gitleaks makes. Never prints the value.
+staged_leaks() {
+  local dir="$1" all="$2" names f lf hit out
+  git -C "$dir" rev-parse --git-dir >/dev/null 2>&1 || return 1
+  names="$(git -C "$dir" diff --cached --name-only --diff-filter=ACMR 2>/dev/null
+           [[ "$all" == 1 ]] && git -C "$dir" diff --name-only --diff-filter=ACMR 2>/dev/null)"
+  while IFS= read -r f; do
+    [[ -n "$f" ]] || continue
+    lf="$(lower "$f")"
+    [[ "$lf" =~ $TRACKED_CONFIG_RE ]] && continue
+    if is_secret_path "$lf"; then printf 'file\t%s' "$f"; return 0; fi
+  done <<< "$names"
+  hit="$( { git -C "$dir" diff --cached -U0 --no-color --no-ext-diff --diff-filter=ACMR 2>/dev/null
+            [[ "$all" == 1 ]] && git -C "$dir" diff -U0 --no-color --no-ext-diff --diff-filter=ACMR 2>/dev/null
+          } | head -c 8000000 | SECRET_ANCHORS_RE="$SECRET_ANCHORS_RE" LC_ALL=C awk '
+      BEGIN { re = ENVIRON["SECRET_ANCHORS_RE"] }
+      # Templates and the tracked EE config are skipped here, in one pass: a shell loop per
+      # added line costs a process per line and takes minutes on a large first commit.
+      /^\+\+\+ / { f = substr($0, 5); sub(/^b\//, "", f); lf = tolower(f)
+                    skip = (lf ~ /\.(example|sample|template|dist|defaults|tpl)(\.[^\/]*)?$/ || lf ~ /(^|\/)system\/user\/config\/config\.php$/)
+                    next }
+      /^@@/ { split($3, a, ","); n = substr(a[1], 2) - 1; next }
+      /^\+/ { n++; if (!skip && tolower($0) ~ re) print f ":" n ":" substr($0, 2) }')"
+  # Both patterns over the same added lines (a here-string each: one stdin can't feed two greps).
+  hit="$( { LC_ALL=C grep -E -e "$SECRET_CONTENT_RE" <<< "$hit"; LC_ALL=C grep -iE -e "$SECRET_ASSIGN_RE" <<< "$hit"; } 2>/dev/null \
+    | LC_ALL=C grep -viE -e "$SECRET_PLACEHOLDER_RE" | head -50 | cut -d: -f1,2)"
+  # A hit in a [scan] allow fixture isn't waved through at commit time, where the content
+  # reaches git history: it asks. Any other hit denies.
+  local _h _fixture=""
+  while IFS= read -r _h; do
+    [[ -n "$_h" ]] || continue
+    if scan_allowed "${_h%%:*}"; then [[ -n "$_fixture" ]] || _fixture="$_h"
+    else printf 'content\t%s' "$_h"; return 0; fi
+  done <<< "$hit"
+  if [[ -n "$_fixture" ]]; then printf 'fixture\t%s' "$_fixture"; return 0; fi
+  if command -v gitleaks >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+    out="$(cd "$dir" && { gitleaks git --staged --pre-commit --no-banner --redact --exit-code 0 -f json -r - . 2>/dev/null
+                          [[ "$all" == 1 ]] && gitleaks git --pre-commit --no-banner --redact --exit-code 0 -f json -r - . 2>/dev/null; } \
+           | jq -rs 'add // [] | .[0] // empty | "\(.File):\(.StartLine) (\(.RuleID))"' 2>/dev/null)"
+    if [[ -n "$out" ]]; then printf 'gitleaks\t%s' "$out"; return 0; fi
+  fi
+  return 1
+}
+
+# commit_verdict <dir> <all> — deny for our own patterns, ask for gitleaks-only findings.
+commit_verdict() {
+  local r kind what
+  r="$(staged_leaks "$1" "$2")" || return 0
+  kind="${r%%$'\t'*}" what="${r#*$'\t'}"
+  case "$kind" in
+    file) COMMIT_DECISION=deny
+          COMMIT_REASON="Blocked by ai-config safety guard: the commit would add '${what}', a secret file, to the repository's history (and to GitHub on the next push). Unstage it with: git rm --cached '${what}' (the file stays on disk), and make sure .gitignore covers it." ;;
+    content) COMMIT_DECISION=deny
+          COMMIT_REASON="Blocked by ai-config safety guard: the commit adds credential-shaped content at ${what}. Move the value to the untracked .env and read it from the environment, then re-stage. Once a secret is in git history (and pushed), it has to be rotated." ;;
+    fixture) COMMIT_DECISION=ask
+          COMMIT_REASON="The commit adds credential-shaped content at ${what}, in a file ai-config.conf [scan] lists as a test fixture. Confirm it is a fake value before committing." ;;
+    gitleaks) COMMIT_DECISION=ask
+          COMMIT_REASON="gitleaks flags a possible secret in the staged changes at ${what}. Check that line before committing; approve only if it is a false positive (mark it with a gitleaks:allow comment to silence it)." ;;
+  esac
+  return 0
+}
+
+if [[ "$GUARD_MODE" == pre-commit ]]; then
+  COMMIT_DECISION=""
+  commit_verdict "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" 0
+  if [[ "$COMMIT_DECISION" == deny ]]; then
+    printf 'ai-config pre-commit: %s\n' "$COMMIT_REASON" >&2
+    exit 1
+  elif [[ "$COMMIT_DECISION" == ask ]]; then
+    printf 'ai-config pre-commit: %s\nCommit again with --no-verify only if you have checked it.\n' "$COMMIT_REASON" >&2
+    exit 1
+  fi
+  exit 0
+fi
 
 # Without jq or python3 nothing can be read and every call defers. The shared policy allows
 # ssh because this hook inspects it, so an ssh command must not pass unread.
@@ -294,8 +573,21 @@ case "$tool" in
         delete|remove|drop|truncate|destroy|trash|purge|erase) why="$DESTRUCTIVE $PROD" ;;
         *) why="$PROD" ;;
       esac
+      # Content sent out (a file pushed to GitHub, a message, a Worker script) is checked
+      # for credentials first: a secret in it is not a judgement call.
+      if [[ "$(printf '%s' "$input" | content_secret_hits)" != 0 ]]; then
+        decide deny "Blocked by ai-config safety guard: the content MCP tool ${tool} would send contains credential-shaped text (private key, API token or password). Remove it and reference an environment variable or the service's secret store instead."
+      fi
       decide ask "MCP tool ${tool} performs an outward or destructive action (${verb}) — ${why}"
     fi
+    # A read-led tool naming a secret file (get_file_contents path=.env) returns its contents.
+    for key in .tool_input.path .tool_input.file_path .tool_input.filename .tool_input.filePath; do
+      val="$(json_field "$key")"
+      [[ -n "$val" ]] || continue
+      if is_secret_path "$(lower "$val")"; then
+        decide deny "Blocked by ai-config safety guard: MCP tool ${tool} would return '${val##*/}', which $SECRET_REASON"
+      fi
+    done
 
     sql_re=' (query|execute|sql) '
     if [[ "$mcp_words" =~ $sql_re ]]; then
@@ -341,6 +633,26 @@ case "$tool" in
     # A path rule can only block what we can name. Reading is the leak, so check the
     # content itself before it reaches the transcript — this is what catches a server
     # log, a docker-compose.yml or a seeder nobody knew held a credential.
+    # Grep over a directory (or the whole project) opens every file under it.
+    if [[ "$tool" == "Grep" ]]; then
+      g_root="$(json_field .tool_input.path)"
+      g_cwd="$(json_field .cwd)"; g_cwd="${g_cwd:-${CLAUDE_PROJECT_DIR:-$PWD}}"
+      [[ -n "$g_root" ]] || g_root="$g_cwd"
+      [[ "$g_root" == /* ]] || g_root="$g_cwd/$g_root"
+      if [[ -d "$g_root" ]]; then
+        g_inc="$(json_field .tool_input.glob)"
+        g_type="$(json_field .tool_input.type)"
+        # A type is ripgrep's own glob set (rg --type-list). Unknown, or no rg to ask: no
+        # include filter, so every secret file under the root is still checked.
+        if [[ -n "$g_type" && -z "$g_inc" ]] && command -v rg >/dev/null 2>&1; then
+          g_inc="$(rg --no-config --type-list 2>/dev/null | awk -F': ' -v t="$g_type" '$1 == t { gsub(/, /, "\037", $2); print $2; exit }')"
+        fi
+        g_ci=0; [[ "$(json_field '.tool_input["-i"]')" == true ]] && g_ci=1
+        if g_hit="$(SEARCH_ENGINE=rg search_leak "$(json_field .tool_input.pattern)" 0 "$g_ci" "$g_inc" "" 1 1 "$g_root")"; then
+          decide deny "Blocked by ai-config safety guard: this search would return lines from '${g_hit#"$g_root"/}', which $SECRET_REASON $SEARCH_TAIL"
+        fi
+      fi
+    fi
     if [[ "$tool" == "Read" || "$tool" == "Grep" ]] && [[ -n "$target" ]]; then
       scan_msg="$(secret_scan "$target")"
       case $? in
@@ -400,7 +712,6 @@ G='git([[:space:]]+(-c|--git-dir|--work-tree)[[:space:]]+[^[:space:]]+|[[:space:
 # These git subcommands only move a file between working tree, index and remote, and
 # never print it, so a path named only as their argument is exempt. Anything that shows
 # content (cat, git diff/show/log -p, add -p, status -v) still hits the checks below.
-TRACKED_CONFIG_RE='(^|/)system/user/config/config\.php$'
 GIT_STAGE_RE="${S}${G}(add|commit|status|restore|reset|rm|push)([[:space:]]+[^;&|<>\`\$]*)?"
 GIT_SHOWS_CONTENT_RE='[[:space:]](-[a-z]*[piv][a-z]*|--patch|--interactive|--verbose|--edit)([[:space:]]|$)'
 
@@ -423,10 +734,23 @@ secret=""
 while IFS= read -r tok; do
   [[ -n "$tok" ]] || continue
   if is_secret_path "$tok"; then
+    # A bare word ("credentials", "secrets") is prose in an echo or a commit message far more
+    # often than a file name: only an existing file by that name counts. Key names still do.
+    if [[ "$tok" != */* && "$tok" != *.* && ! -e "$tok" ]] && [[ ! "$tok" =~ ^id_(rsa|dsa|ecdsa|ed25519)(\.pub)?$ ]]; then
+      continue
+    fi
     if git_stage_only "$tok"; then
       STAGE_ONLY_TOKS+="$tok "
       continue
     fi
+    # A search that EXCLUDES the file (grep --exclude='.env*', rg -g '!*.sql') never opens it.
+    _rest="$lc"
+    for _flag in "--exclude=" "--exclude " "--exclude-dir=" "--exclude-dir " "-g !" "--glob=!" "--glob !" "--iglob=!" "--iglob !"; do
+      for _q in "" "'" '"'; do _rest="${_rest//"$_flag$_q$tok"/ }"; done
+      _rest="${_rest//"$_flag'!$tok"/ }"; _rest="${_rest//"$_flag\"!$tok"/ }"
+    done
+    for _q in "'" '"'; do _rest="${_rest//"-g $_q!$tok"/ }"; _rest="${_rest//"--glob=$_q!$tok"/ }"; _rest="${_rest//"--glob $_q!$tok"/ }"; done
+    [[ "$_rest" != *"$tok"* ]] && continue
     # `ssh -i ~/.ssh/key` and `mysql --defaults-extra-file=~/.mysql-site.cnf` use a credential
     # file without printing it; only that exact argument is exempt.
     if [[ "$lc" =~ ${S}(ssh|scp|sftp)[[:space:]] && "$lc" == *"-i $tok"* ]]; then
@@ -515,6 +839,197 @@ if m "$READ_VERBS"; then
   done <<EOF
 $(printf '%s' "$cmd" | tr -c 'A-Za-z0-9._/~*@+:%-' '\n')
 EOF
+fi
+
+# --- Commands that print a credential ----------------------------------------
+# gh auth token, a Keychain lookup with -w, op read … put the secret itself on stdout.
+# Inside $( ) the value usually flows into another command (GH_TOKEN=$(gh auth token) gh api),
+# which is fine, unless that command echoes it.
+PRINTS_SECRET_RE="${S}(gh[[:space:]]+auth[[:space:]]+token|security[[:space:]]+find-(generic|internet)-password([[:space:]][^;&|]*)?[[:space:]]-[a-z]*[wg]([[:space:]]|$)|op[[:space:]]+read[[:space:]]|op[[:space:]]+item[[:space:]]+get[^;&|]*--reveal|aws[[:space:]]+configure[[:space:]]+(get|export-credentials)|gcloud[[:space:]]+auth[[:space:]]+(application-default[[:space:]]+)?print-(access|identity)-token|heroku[[:space:]]+auth:token|doppler[[:space:]]+secrets|vault[[:space:]]+(kv[[:space:]]+get|read)[[:space:]]|${G}credential[[:space:]]+fill|npm[[:space:]]+token[[:space:]]+create|bw[[:space:]]+(get[[:space:]]+(password|item|notes|totp|attachment)|list[[:space:]]+items|export)|bws[[:space:]]+(secret|secrets)[[:space:]]+(get|list))"
+if m "$PRINTS_SECRET_RE"; then
+  _top="$lc"
+  # A commit message describing such a command is prose, not a call. Its -m strings are
+  # removed first; then a heredoc is dropped only when it directly follows -F - / --file=- on
+  # the git commit line, outside quotes, and its terminator line is found. Otherwise every line
+  # is kept (fail closed). Anything chained after the commit still counts.
+  if m "${S}${G}commit([[:space:]]|$)"; then
+    _top="$(lower "$cmd" | sed -E "s/(-m|--message)[[:space:]]*(\"[^\"]*\"|'[^']*')/ /g" | awk '
+      function quotes_balanced(s,   d, q) { d = gsub(/"/, "&", s); q = gsub(/\047/, "&", s); return (d % 2 == 0 && q % 2 == 0) }
+      hd { body = body $0 "\n"; if ($0 == term) { hd = 0; body = "" } ; next }
+      {
+        print
+        # Only when git commit -F - is the line'"'"'s first command (optionally after cd … &&),
+        # the heredoc marker ends the line, and it is the line'"'"'s only "<<".
+        tmp = $0
+        if (gsub(/<</, "&", tmp) == 1 && match($0, /^[ \t]*(cd[ \t]+[^;&|<]*&&[ \t]*)?git([ \t]+-c[ \t]+[^ \t;&|<]+)*[ \t]+commit[ \t][^;&|<]*(-f|--file)[ \t]*=?[ \t]*-[ \t]*<<-?[ \t]*["\047]?[a-z_][a-z0-9_]*["\047]?[ \t]*$/)) {
+          pre = $0
+          sub(/<<.*/, "", pre)
+          if (quotes_balanced(pre)) {
+            term = substr($0, RSTART, RLENGTH); sub(/.*<<-?[ \t]*["\047]?/, "", term); sub(/["\047]$/, "", term)
+            hd = 1; body = ""
+          }
+        }
+      }
+      END { if (hd) printf "%s", body }' | tr '\n' ';')"
+  fi
+  while [[ "$_top" =~ \$\([^()]*\) ]]; do _top="${_top/"${BASH_REMATCH[0]}"/ }"; done
+  _top="$(printf '%s' "$_top" | sed 's/`[^`]*`/ /g')"
+  if [[ "$_top" =~ $PRINTS_SECRET_RE ]] || [[ "$_top" =~ ${S}(echo|printf|print|cat|tee)([[:space:]]|$) ]]; then
+    decide deny "Blocked by ai-config safety guard: this command prints a credential (token, password or key) into the transcript (Safety Guardrail #1). Pass it straight to the command that needs it instead, e.g. GH_TOKEN=\$(gh auth token) gh api …, or ask the developer to run it themselves."
+  fi
+fi
+
+# --- Recursive searches that would return lines from secret files -----------
+# The command is split with Python's shlex (quotes, -e, --include, rg -g '!x'): one line per
+# recursive search, fields as search_leak takes them.
+IFS= read -r -d '' SEARCH_PY <<'PY' || true
+import os, shlex, sys
+cmd, cwd = sys.argv[1], sys.argv[2]
+try:
+    lex = shlex.shlex(cmd, posix=True, punctuation_chars=';&|()')
+    lex.whitespace_split = True
+    toks = list(lex)
+except ValueError:
+    sys.exit(0)
+segs, cur = [], []
+for t in toks:
+    if t and set(t) <= set(';&|()'):
+        segs.append(cur); cur = []
+    else:
+        cur.append(t)
+segs.append(cur)
+US = '\x1f'
+d = cwd
+# options that take a value, per tool family
+GREP_SHORT, GREP_LONG = set('efmABCdD'), {'--regexp', '--file', '--max-count', '--after-context',
+    '--before-context', '--context', '--include', '--exclude', '--exclude-dir', '--exclude-from',
+    '--label', '--directories', '--devices', '--binary-files', '--group-separator'}
+RG_SHORT, RG_LONG = set('efgtTmABCMjErd'), {'--regexp', '--file', '--glob', '--iglob', '--type',
+    '--type-not', '--max-count', '--after-context', '--before-context', '--context', '--max-columns',
+    '--threads', '--encoding', '--replace', '--max-depth', '--type-add', '--sort', '--sortr',
+    '--colors', '--pre', '--pre-glob', '--ignore-file', '--path-separator', '--engine'}
+for s in segs:
+    while s and (s[0] in ('sudo', 'command', 'exec', 'time', 'nohup', 'xargs', 'env')
+                 or ('=' in s[0] and s[0].split('=', 1)[0].replace('_', 'a').isalnum())):
+        s = s[1:]
+    if not s:
+        continue
+    c = os.path.basename(s[0])
+    if c == 'cd':
+        if len(s) > 1:
+            d = os.path.normpath(os.path.join(d, os.path.expanduser(s[1])))
+        continue
+    if c not in ('grep', 'egrep', 'fgrep', 'zgrep', 'rg', 'ag', 'ack'):
+        continue
+    grepish = c in ('grep', 'egrep', 'fgrep', 'zgrep')
+    short, long_ = (GREP_SHORT, GREP_LONG) if grepish else (RG_SHORT, RG_LONG)
+    rec = not grepish
+    fixed = c == 'fgrep'
+    icase = False
+    hidden = c == 'ack' or grepish
+    noignore = c == 'ack' or grepish
+    pats, pos, inc, exc, patfile, u = [], [], [], [], False, 0
+    args, i = s[1:], 0
+    endopts = False
+    while i < len(args):
+        a = args[i]; i += 1
+        if endopts or not a.startswith('-') or a == '-':
+            pos.append(a); continue
+        if a == '--':
+            endopts = True; continue
+        if a.startswith('--'):
+            name, eq, val = a.partition('=')
+            if name in long_ and not eq:
+                val = args[i] if i < len(args) else ''; i += 1
+            if name == '--recursive' or name == '--dereference-recursive': rec = True
+            elif name in ('--fixed-strings',): fixed = True
+            elif name in ('--ignore-case',): icase = True
+            elif name == '--regexp': pats.append(val)
+            elif name == '--file': patfile = True
+            elif name == '--include': inc.append(val)
+            elif name in ('--exclude', '--exclude-dir'): exc.append(val)
+            elif name in ('--glob', '--iglob'):
+                (exc if val.startswith('!') else inc).append(val.lstrip('!'))
+            elif name in ('--hidden',): hidden = True
+            elif name in ('--no-ignore', '--no-ignore-vcs', '--skip-vcs-ignores'): noignore = True
+            elif name in ('--unrestricted',): hidden = noignore = True
+            elif name == '--directories' and val == 'recurse': rec = True
+            continue
+        j = 1
+        while j < len(a):
+            ch = a[j]; j += 1
+            if ch in short:
+                val = a[j:] if j < len(a) else (args[i] if i < len(args) else '')
+                if j >= len(a): i += 1
+                j = len(a)
+                if ch == 'e': pats.append(val)
+                elif ch == 'f': patfile = True
+                elif ch == 'g' and not grepish: (exc if val.startswith('!') else inc).append(val.lstrip('!'))
+                elif ch == 'd' and grepish and val == 'recurse': rec = True
+                continue
+            if grepish and ch in 'rR': rec = True
+            elif ch == 'F': fixed = True
+            elif ch == 'i': icase = True
+            elif ch == 'u' and not grepish: u += 1
+            elif ch == '.' and not grepish: hidden = True
+    if not rec:
+        continue
+    if u >= 1: noignore = True
+    if u >= 2: hidden = True
+    if not pats and not patfile:
+        if not pos:
+            continue
+        pats.append(pos.pop(0))
+    if patfile:
+        pats = []
+    roots = [os.path.normpath(os.path.join(d, os.path.expanduser(p))) for p in pos] or [d]
+    print('\x1e'.join([US.join(pats), '1' if fixed else '0', '1' if icase else '0', US.join(inc),
+                     US.join(exc), '1' if hidden else '0', '1' if noignore else '0',
+                     'grep' if grepish else 'rg', US.join(roots)]))
+PY
+if m "${S}(grep|egrep|fgrep|zgrep|rg|ag|ack)([[:space:]]|$)" && command -v python3 >/dev/null 2>&1; then
+  _cwd="$(json_field .cwd)"; _cwd="${_cwd:-${CLAUDE_PROJECT_DIR:-$PWD}}"
+  # \x1e, not a tab: bash collapses runs of whitespace IFS, which would drop empty fields.
+  while IFS=$'\x1e' read -r _pats _fx _ci _inc _exc _hid _noign _eng _roots; do
+    [[ -n "$_roots" ]] || continue
+    _rootv=()
+    while IFS= read -r -d $'\x1f' _r; do [[ -n "$_r" ]] && _rootv+=("$_r"); done <<< "$_roots"$'\x1f'
+    if _hit="$(SEARCH_ENGINE="$_eng" search_leak "$_pats" "$_fx" "$_ci" "$_inc" "$_exc" "$_hid" "$_noign" "${_rootv[@]}")"; then
+      decide deny "Blocked by ai-config safety guard: this search would print lines from '${_hit}', which $SECRET_REASON $SEARCH_TAIL"
+    fi
+  done < <(python3 -I -c "$SEARCH_PY" "$cmd" "$_cwd" 2>/dev/null)
+fi
+
+# --- Commits: nothing secret goes into git history ---------------------------
+if m "${S}${G}commit([[:space:]]|$)"; then
+  _dir="$(json_field .cwd)"; _dir="${_dir:-${CLAUDE_PROJECT_DIR:-$PWD}}"
+  _cdre='(^|[;&|(])[[:space:]]*cd[[:space:]]+([^;&|()[:space:]]+)'
+  if [[ "$cmd" =~ $_cdre ]]; then
+    _d="${BASH_REMATCH[2]//[\"\']/}"; case "$_d" in "~"*) _d="$HOME${_d#\~}" ;; esac
+    case "$_d" in /*) _dir="$_d" ;; *) _dir="$_dir/$_d" ;; esac
+  fi
+  if [[ "$cmd" =~ git[[:space:]]+-C[[:space:]]+([^[:space:];&|]+) ]]; then
+    _d="${BASH_REMATCH[1]//[\"\']/}"; case "$_d" in /*) _dir="$_d" ;; *) _dir="$_dir/$_d" ;; esac
+  fi
+  _all=0
+  m "commit([[:space:]]+[^;&|]*)?[[:space:]](-[b-z]*a[a-z]*|--all)([[:space:]]|$)" && _all=1
+  COMMIT_DECISION=""
+  commit_verdict "$_dir" "$_all"
+  [[ -n "$COMMIT_DECISION" ]] && decide "$COMMIT_DECISION" "$COMMIT_REASON"
+fi
+
+# --- Local database queries that return personal data ------------------------
+# Local CMS databases are often copies of production. A query that returns names, emails or
+# whole rows from a members/users table puts that personal data into the transcript. Counts,
+# ids and other columns pass; remote queries are handled (and asked about) below.
+LOCAL_DB_RE="${S}(ddev[[:space:]]+(mysql|psql|wp[[:space:]]+db[[:space:]]+query|craft[[:space:]]+db)|mysql|mariadb|psql|sqlite3|wp([[:space:]]+[^;&|]*)?[[:space:]]+db[[:space:]]+query|php[[:space:]]+craft[[:space:]]+db)([[:space:]]|$)"
+PII_TABLE_RE="select[[:space:]]+(.+)[[:space:]]from[[:space:]]+[\`\"]?[a-z0-9_.]*(member|user|customer|patient|donor|subscriber|contact|account|people|person|registrant|applicant|volunteer|famil|guardian|submission|form_entr|usermeta|order)"
+if m "$LOCAL_DB_RE" && [[ "$lc" =~ $PII_TABLE_RE ]]; then
+  _sel="${BASH_REMATCH[1]}"
+  _sel="$(printf '%s' "$_sel" | sed -E 's/count\([^)]*\)//g; s/[[:space:]]from[[:space:]].*//')"
+  if [[ "$_sel" =~ (\*|mail|name|phone|address|street|city|postal|zip|birth|dob|ssn|health|ip_address|password|meta_value|first|last|contact|note) ]]; then
+    decide ask "This query returns personal data (${BASH_REMATCH[1]} from a people table). Local databases are often copies of production, so the rows would go into the transcript. Select only the columns you need (ids, counts, statuses), or approve if this data is safe to see."
+  fi
 fi
 
 # --- Catastrophic / irreversible: deny ---------------------------------------

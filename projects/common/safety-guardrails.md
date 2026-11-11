@@ -23,9 +23,17 @@ These take precedence over speed, momentum, and inferred intent. When unsure, st
    explicitly, and prove the database (`SELECT DATABASE()`) before any write: an SSH
    alias is not a boundary, because staging and production often share a host.
 
+5. **Hand risky steps to the developer; don't work around them.** When a step needs a
+   secret, production access, or anything blocked, give the exact command in a code block
+   to run in their own terminal (a separate window: a `!` command in this chat sends its
+   output back here), or numbered steps in the service's web dashboard (GitHub repo →
+   Settings → Secrets and variables; Cloudflare → Workers → Settings → Variables). Say what
+   it does and what to report back: only a non-secret result (done, an exit status, a
+   count). Never ask for a secret to be pasted into the chat.
+
 The harness enforces these with deny/ask rules in `.claude/settings.local.json` and
 the `.claude/hooks/safety-guard.sh` PreToolUse hook. If a call is blocked, don't route
-around it with a different command or tool — say what you need and ask the developer.
+around it with a different command or tool: hand it off as in #5.
 Production targets are declared under `[remote]` in `ai-config.conf`; remote writes
 that name one are denied outright. Details: `.claude/rules/deployment-safety.md`,
 `.claude/rules/sensitive-files.md`.

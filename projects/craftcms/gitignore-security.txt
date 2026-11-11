@@ -37,3 +37,8 @@ database.yaml
 database.json
 db-config.*
 *database-credentials*
+
+# Database dumps: on a CMS a loose .sql file is a dump (Claude is denied reading it too).
+*.sql
+!*-schema.sql
+!*-migrations.sql

@@ -52,8 +52,9 @@ ai-config profile, so the same skill serves work, volunteer and side projects.
    apply when building the React version. The helper is
    `~/.claude/skills/noslop/scripts/cloudflare.sh`; it takes its share domain from the profile.
    1. Run `cloudflare.sh config`. If the token is missing, ask the user to run
-      `! ~/.claude/skills/noslop/scripts/cloudflare.sh setup`, then run `cloudflare.sh check`.
-      Never read the token any other way, and never print it.
+      `~/.claude/skills/noslop/scripts/cloudflare.sh setup` in their own terminal (a separate
+      window, not `!` in this chat) and say "done", then run `cloudflare.sh check`.
+      Never read the token any other way, never print it, and never ask for it in the chat.
    2. In a new folder for the page, run `cloudflare.sh new . "<topic>" [days]`. It names the
       page `<topic>-<random hash>`, checks with Cloudflare that the name is unused, sets it to
       expire in 30 days unless the user asks for another span, and prints the address

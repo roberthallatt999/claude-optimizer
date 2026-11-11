@@ -254,13 +254,19 @@ cp "$SCRIPT_DIR/projects/expressionengine/templates/cps_tools/addon.setup.php" "
 cp "$SCRIPT_DIR/projects/expressionengine/templates/ee-migrate/ee-migrate.sh" "$ee/.admin-scripts/ee-migrate.sh"
 out=$("$SETUP_SCRIPT" --project="$ee" --doctor 2>&1)
 assert_false "current cps_tools not reported" contains "$out" "older than the template"
-assert_true "ee-migrate skill deployed" test -f "$ee/.claude/skills/ee-migrate/SKILL.md"
+assert_false "ee-migrate skill not deployed before the tooling was installed" test -f "$ee/.claude/skills/ee-migrate/SKILL.md"
+run "$ee" --force --no-superpowers >/dev/null
+assert_true "ee-migrate skill deployed once the tooling is installed" test -f "$ee/.claude/skills/ee-migrate/SKILL.md"
 
 # EE-based stacks without their own skills/ dir still get the shared ee-migrate tooling
 for st in coilpack ee-nextjs; do
   cp_dir=$(make_ee)
   run "$cp_dir" --force --no-superpowers --stack="$st" >/dev/null
-  assert_true "$st deploy gets the ee-migrate skill" test -f "$cp_dir/.claude/skills/ee-migrate/SKILL.md"
+  assert_false "$st deploy without the tooling: no ee-migrate skill" test -f "$cp_dir/.claude/skills/ee-migrate/SKILL.md"
+  mkdir -p "$cp_dir/system/user/addons/cps_tools"
+  cp "$SCRIPT_DIR/projects/expressionengine/templates/cps_tools/addon.setup.php" "$cp_dir/system/user/addons/cps_tools/"
+  run "$cp_dir" --force --no-superpowers --stack="$st" >/dev/null
+  assert_true "$st deploy with the tooling gets the ee-migrate skill" test -f "$cp_dir/.claude/skills/ee-migrate/SKILL.md"
   assert_true "$st deploy gets the ee-migration-author agent" test -f "$cp_dir/.claude/agents/ee-migration-author.md"
   assert_true "$st deploy gets the runner allow rule" \
     jq -e '.permissions.allow | index("Bash(.admin-scripts/ee-migrate.sh:*)")' "$cp_dir/.claude/settings.local.json"

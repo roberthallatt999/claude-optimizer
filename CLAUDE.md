@@ -10,6 +10,7 @@ This repository provides automated Claude Code configuration deployment across *
 - A shared safety policy (deny/ask rules + a PreToolUse hook) merged into every project
 - Stack-aware protected paths (`protected-paths.conf` → deny rules, hook patterns, `.claudeignore`)
 - Content scanning: files are checked for credentials before Claude can read them
+- A global guard for sessions outside ai-config projects, and secret checks at commit time (Claude's commits and a git pre-commit hook)
 - Additive, non-destructive `--refresh` (edits are kept, backed up, and staged in `pending/`)
 - Token optimization and sensitive file protection rules
 - VSCode settings (formatters, Xdebug, tasks)
@@ -115,7 +116,7 @@ superpowers/
 ├── commands/                 # Slash commands
 └── hooks/                    # Session hooks
 
-test-*.sh                     # 20 test suites, each independently runnable
+test-*.sh                     # 21 test suites, each independently runnable
 run-tests.sh                  # Runs every test-*.sh suite, or a selected subset
 ai-config-fleet.sh            # --doctor / --refresh / --list across many projects
 .github/workflows/tests.yml   # CI: runs the suites on macOS + Ubuntu, plus shellcheck
@@ -239,6 +240,68 @@ readable text such as `(brand green: not set)` rather than a fake value.
 
 ## Recent Changes
 
+- **Hand risky steps to the developer** — a new Safety Guardrail #5 in the always-on block,
+  and a closing line on every guard deny. When a step needs a secret, production access or
+  anything blocked, Claude gives the exact command to run in the developer's own terminal (a
+  separate window: a `!` command's output comes back into the chat), or numbered dashboard
+  steps (GitHub, Cloudflare). It asks back only for a non-secret result, and never for a
+  secret pasted into the chat. noslop's Cloudflare `setup` step now says "separate terminal"
+  instead of `!`.
+- **CMS stacks for any client, not just CPS** — EE, Craft and WordPress deploy the same way
+  for side work. The `ee-migrate` skill drives CPS's migration tooling (the `cps_tools` add-on
+  and `.admin-scripts/ee-migrate.sh`), so it now deploys only where that tooling is installed;
+  the committed add-on is what a fresh clone of a CPS site has. Its wording is neutral: "the
+  developer", with the voice taken from the active profile and no list of CPS sites. "Robert"
+  in stack comments and runner output became "the developer" / "you". The add-on keeps its
+  name, because renaming it would break the CPS servers' installs. Per-project customization is
+  unchanged: edit any deployed file (kept on refresh; the new version is staged in `pending/`),
+  record removals in `[exclude]`, and set options in `ai-config.conf`.
+- **Leak guards: every session, every commit, every search** — a review on 2026-11-11 tested
+  the guard with fake secrets and found gaps; each is closed so a refresh can't reopen it.
+  Tests: `test-leak-guards.sh` (80).
+  - *Every session.* Outside an ai-config project nothing was guarded, while the user-level
+    settings allowed `Read(//Users/robert/**)`, `gh auth:*`, `gh repo:*` and `gh api:*`.
+    `scripts/install-global-guard.sh` (run by `install.sh`) links
+    `~/.claude/hooks/safety-guard.sh` to this repo and registers it in
+    `~/.claude/settings.json` with `AI_CONFIG_GUARD_SCOPE=global`. That trusted copy **always**
+    runs and also applies the project's protected paths. Project files can't switch it off: a
+    first version let a project's settings and hook do that, and a security review caught it.
+    To avoid checking twice, the *project* copy stands aside instead. It does so only for a
+    real session call (one with a `session_id`), and only when the user-owned settings register
+    an identical global copy. The installer adds the
+    shared secret-file deny rules and removes broad allows (whole-home reads, gh
+    auth/repo/api wildcards, workflow runs, repo visibility changes, `git push`). Settings
+    are backed up; there are `--check` and `--remove` options. `--doctor` warns when it's missing.
+  - *Commits.* Nothing scanned `git commit`. The guard now checks the staged files (and
+    unstaged ones with `-a`). A secret file or a credential-shaped added line is **denied**
+    with the fix; a finding only gitleaks makes **asks**. The same check runs as
+    `safety-guard.sh --pre-commit`, which ai-config installs as `.git/hooks/pre-commit` for
+    commits made outside Claude. An existing hook or `core.hooksPath` is left alone and
+    reported, `--uninstall` removes it, and `--doctor` checks it.
+  - *No `.gitignore`.* ai-config used to skip the security patterns when a project had no
+    `.gitignore`, so a new project's first `git add -A` staged `.env`. It now creates one.
+    CMS stacks that deny `*.sql` also ignore it.
+  - *Recursive searches.* `grep -r DB_PASSWORD .` and a project-wide Grep printed `.env`
+    lines. The guard finds the secret files a search would open (respecting `--include`,
+    `--exclude`, `rg -g '!…'`, rg's hidden and ignore rules, `cd`), and denies only when the
+    pattern matches a line in one. Everyday searches never prompt.
+  - *Commands that print secrets.* `gh auth token`, Keychain `-w`, `op read`,
+    `gcloud … print-access-token` and similar are denied. Passing the value on
+    (`GH_TOKEN=$(gh auth token) gh api …`) still works.
+  - *MCP.* A write whose content holds a credential is denied rather than asked; a read of a
+    secret path (`get_file_contents .env`) is denied.
+  - *Personal data.* Local `mysql`/`ddev mysql`/`wp db query`/`psql` queries ask only when
+    they select personal columns (`*`, email, name, phone…) from a people table. Counts and
+    ids pass.
+  - *Scanner.* It now catches `'password' => 'value'` and `"api_key": "value"`; a value needs
+    a digit, so validation rules and labels pass. A placeholder pattern that excused any
+    `<?php … =>` line was tightened, and `import.meta.env` is forgiven like `process.env`. A
+    bare word ("credentials") counts as a secret file only if such a file exists.
+    `ai-config.conf [scan] allow = …` exempts test fixtures from the content scan; this repo
+    uses it for `test-*.sh`. `--doctor`'s own test fixture is assembled at run time, so the
+    script holds no credential shape.
+  - *GitHub.* Secret scanning and push protection were turned on for all 14 public repos.
+    For private repos GitHub charges for these, so the commit check covers them.
 - **Profiles and per-project design skills** — the repo serves CPS, volunteer projects and
   side work, so nothing global assumes who the author is. *Profiles*
   (`profiles/example.conf`; real ones live in a private repo at `~/.config/ai-config`, never
@@ -488,6 +551,9 @@ ai-config --project=. --with-openai
 
 # Opus orchestrator + Sonnet implementer pattern (opt-in)
 ai-config --project=. --orchestrator
+
+# Guard every Claude session on this machine (install.sh runs it; --check / --remove)
+scripts/install-global-guard.sh
 
 # Front-end design skills on a CMS project (JS stacks get them by default)
 ai-config --project=. --design-skills

@@ -57,12 +57,14 @@ jobs:
           projects/common/okf/template-map.sh
           scripts/sync-noslop.sh
           scripts/vendor-skills.sh
+          scripts/install-global-guard.sh
           global-skills/noslop/scripts/profile.sh
           scripts/link-global-skills.sh
           scripts/install-noslop-prune.sh
           global-skills/noslop/scripts/cloudflare.sh
           test-global-skills.sh
           test-design-skills.sh
+          test-leak-guards.sh
 
       - name: Run test suites
         # /bin/bash: on macOS this is the stock bash 3.2 the scripts must support;

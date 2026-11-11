@@ -191,7 +191,7 @@ expected="$(printf '%s\n' 'cps:migrate-status --json' pending-hash backup schema
   'cps:schema-check --no-smoke --json --compare')"   # the status call after verify b proves nothing is left pending
 check "happy path exits 0" '[[ $RC -eq 0 ]]'
 check "happy path order exactly as spec" '[[ "$(calls)" == "$expected" ]]'
-check "success prints rollback and restore" '[[ "$OUT" == *"rollback:"* && "$OUT" == *"restore (Robert runs this):"* ]]'
+check "success prints rollback and restore" '[[ "$OUT" == *"rollback:"* && "$OUT" == *"restore (you run this):"* ]]'
 
 reset_stub
 run "$RUNNER" prod apply --expect=a
@@ -222,7 +222,7 @@ echo 1 > "$STUB_DIR/verify-exit-b"
 run "$RUNNER" prod apply --expect=a,b
 check "verify b fails -> exit 1" '[[ $RC -eq 1 && "$OUT" == *"verify for b"* ]]'
 check "verify failure prints rollback + restore" \
-  '[[ "$OUT" == *"rollback:"*"migrate:rollback --steps=1"* && "$OUT" == *"restore (Robert runs this):"* ]]'
+  '[[ "$OUT" == *"rollback:"*"migrate:rollback --steps=1"* && "$OUT" == *"restore (you run this):"* ]]'
 check "no post-check after failed verify" '! grep -q -- "--compare" "$STUB_LOG"'
 check "a ran fully before b failed" '[[ "$(calls | grep -c "migrate --core")" -eq 2 ]]'
 
@@ -230,17 +230,17 @@ reset_stub
 echo 1 > "$STUB_DIR/migrate-exit"
 run "$RUNNER" prod apply --expect=a,b
 check "migrate step fails -> exit 1, stops at first, recovery printed" \
-  '[[ $RC -eq 1 && "$(calls | grep -c "migrate --core")" -eq 1 && "$OUT" == *"restore (Robert runs this):"* && "$OUT" == *"do not run migrate:rollback"* ]] && ! grep -q "migrate:rollback --steps=1$" "$STUB_LOG"'
+  '[[ $RC -eq 1 && "$(calls | grep -c "migrate --core")" -eq 1 && "$OUT" == *"restore (you run this):"* && "$OUT" == *"do not run migrate:rollback"* ]] && ! grep -q "migrate:rollback --steps=1$" "$STUB_LOG"'
 
 reset_stub
 echo 2 > "$STUB_DIR/compare-exit"
 run "$RUNNER" prod apply --expect=a,b
-check "post-check could-not-run -> exit 1 with recovery" '[[ $RC -eq 1 && "$OUT" == *"restore (Robert runs this):"* ]]'
+check "post-check could-not-run -> exit 1 with recovery" '[[ $RC -eq 1 && "$OUT" == *"restore (you run this):"* ]]'
 reset_stub
 echo 1 > "$STUB_DIR/compare-exit"
 run "$RUNNER" prod apply --expect=a,b
 check "post-check new failures -> exit 1, rollback+restore" \
-  '[[ $RC -eq 1 && "$OUT" == *"new failures"* && "$OUT" == *"rollback:"* && "$OUT" == *"restore (Robert runs this):"* ]]'
+  '[[ $RC -eq 1 && "$OUT" == *"new failures"* && "$OUT" == *"rollback:"* && "$OUT" == *"restore (you run this):"* ]]'
 check "failed post-check does not record apply" '[[ "$(jq -r .apply "$STAMPS/prod.json")" == "null" ]]'
 reset_stub
 echo 2 > "$STUB_DIR/baseline-exit"
@@ -447,7 +447,7 @@ reset_stub
 echo 1 > "$STUB_DIR/local-verify-exit-a"
 run "$RUNNER" local test a
 check "verify failure -> FAIL with rollback+restore" \
-  '[[ $RC -eq 1 && "$OUT" == *"rollback:"* && "$OUT" == *"restore (Robert runs this):"* ]] && ! grep -q "migrate:rollback --steps=1$" "$STUB_LOG"'
+  '[[ $RC -eq 1 && "$OUT" == *"rollback:"* && "$OUT" == *"restore (you run this):"* ]] && ! grep -q "migrate:rollback --steps=1$" "$STUB_LOG"'
 
 reset_stub
 echo 1 > "$STUB_DIR/local-compare-exit"
@@ -539,7 +539,7 @@ run "$RUNNER" prod apply --expect=a,b
 check "apply: not recorded -> FAIL with message" '[[ $RC -eq 1 && "$OUT" == *"migrate reported success but a was not recorded — up() failed part-way"* ]]'
 check "apply: not recorded -> no migrate:rollback anywhere in the log" '! grep -q "migrate:rollback" "$STUB_LOG"'
 check "apply: not recorded -> restore-only recovery, says do not roll back" \
-  '[[ "$OUT" == *"restore (Robert runs this):"* && "$OUT" == *"do not run migrate:rollback"* && "$OUT" != *"  rollback:"* ]]'
+  '[[ "$OUT" == *"restore (you run this):"* && "$OUT" == *"do not run migrate:rollback"* && "$OUT" != *"  rollback:"* ]]'
 check "apply: stops before verify and next file" '[[ "$(grep -c "migrate --core" "$STUB_LOG")" -eq 1 ]] && ! grep -q "migrate-verify" "$STUB_LOG"'
 reset_stub
 touch "$STUB_DIR/migrate-fatal"
@@ -561,7 +561,7 @@ touch "$STUB_DIR/local-migrate-noop"
 run "$RUNNER" local test a
 check "local: not recorded -> FAIL message, no rollback" \
   '[[ $RC -eq 1 && "$OUT" == *"migrate reported success but a was not recorded"* ]] && ! grep -q "migrate:rollback" "$STUB_LOG"'
-check "local: not recorded -> restore-only recovery" '[[ "$OUT" == *"restore (Robert runs this)"* && "$OUT" == *"do not run migrate:rollback"* ]]'
+check "local: not recorded -> restore-only recovery" '[[ "$OUT" == *"restore (you run this)"* && "$OUT" == *"do not run migrate:rollback"* ]]'
 reset_stub
 echo "some_other_migration" > "$STUB_DIR/local-last-applied-override"
 run "$RUNNER" local test a

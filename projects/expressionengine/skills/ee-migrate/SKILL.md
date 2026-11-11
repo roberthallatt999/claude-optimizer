@@ -1,15 +1,17 @@
 ---
 name: ee-migrate
 description: >
-  Create and ship ExpressionEngine migrations safely on CPS sites — new channels, fields, Grid/Fluid
+  Create and ship ExpressionEngine migrations safely on sites with the cps_tools add-on and the
+  .admin-scripts/ee-migrate.sh runner — new channels, fields, Grid/Fluid
   columns, field groups, layouts, categories, statuses, or entry content changes. Use whenever a
-  change built in DDEV must reach staging/production, or Robert asks to add/change/reuse a field,
+  change built in DDEV must reach staging/production, or the developer asks to add/change/reuse a field,
   channel or field group, write a migration, or run migrations on staging or production.
 ---
 
 # EE Migrate
 
-Robert is the sole developer. Anything drafted for him is first person singular ("I applied", never "we").
+Anything drafted for the developer to send follows the voice of the active ai-config profile
+(`~/.claude/skills/noslop/scripts/profile.sh voice`); with none, first person singular ("I applied").
 EE migrations that run without error can still leave the database subtly wrong, so every change goes through
 the same gates. Do the steps in order; never skip one to save time.
 
@@ -73,16 +75,16 @@ never trusted. Any failure aborts before the first `migrate` call. There is no f
 
 ## Shipping
 
-- **Sites with staging (cps, cpsp, cyntc):** local gate, then staging `rehearse`, staging `apply`, push to
+- **Sites with staging (`HAS_STAGING=yes` in the runner config):** local gate, then staging `rehearse`, staging `apply`, push to
   production, then production `apply`. Production `apply` requires the staging success for the same set and
   `pending_hash`; a production rehearsal is optional.
-- **Production-only sites (cfk, diabetes, intranet-backend; `HAS_STAGING=no`):** staging modes are rejected.
+- **Production-only sites (`HAS_STAGING=no`):** staging modes are rejected.
   Local gate, then a mandatory `prod rehearse` on a fresh production copy (same set, < 24 h), then production
   `apply`.
 - **Order (two-stage):** push the code containing the migration file, then `apply`, then push the templates
   that read the new structure. Deploys ship code only; the database moves only through `apply`.
 - `cps_tools` must already be deployed to a server before the runner can talk to it ("deploy it first").
-- Pushes need Robert's explicit per-action approval, never implied. Production `apply` asks every run.
+- Pushes need the developer's explicit per-action approval, never implied. Production `apply` asks every run.
 - `apply` refuses while any unexpected file is pending, including deliberately unrun ones. Naming them in
   `--expect` is not an escape hatch; resolve them first.
 
@@ -108,9 +110,10 @@ out of date for that version. It rolls back only a migration it recorded itself.
 - Run plainly from the repo root. `local test`, `status`, `rehearse` and `staging apply` run without
   prompting; `prod apply` always asks. Any wrapped, chained, piped or absolute-path form asks.
 - Raw `eecli migrate*` on production is denied. If anything is blocked or asks unexpectedly, stop and tell
-  Robert what you needed. Never route around the guard with another command or tool.
+  the developer what you needed, with the exact command for them to run in their own terminal.
+  Never route around the guard with another command or tool.
 - Runner location: `.admin-scripts/ee-migrate.sh` (`/.admin-scripts` is gitignored on every site, so it is
-  local to Robert's machine and never deployed). Install or update it with
+  local to the developer's machine and never deployed). Install or update it with
   `ee-migrate-install.sh <repo>` from claude-config-repo; the config block is preserved. On a fresh machine
   refill the block (names and paths only) from that site's `sync.sh`. diabetes and intranet-backend (Laravel + EE, Coilpack) use
   `EE_SUBDIR="ee/"`, `REMOTE_ENV_EXPORT="yes"` (REMOTE_EECLI empty: the runner exports the release's

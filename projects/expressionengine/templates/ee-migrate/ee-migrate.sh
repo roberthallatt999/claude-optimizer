@@ -50,7 +50,7 @@ EM_REL=".admin-scripts/.ee-migrate"    # same dir as seen from the DDEV project 
 # stamp would unlock prod apply); a run on the Mac keeps them in the repo as before.
 STAMP_DIR="${EE_MIGRATE_STAMP_DIR:-$EM_DIR/stamps}"
 # Inside the Claude dev container, staging/prod commands go to the DDEV relay on the Mac, which
-# runs a copy of this script that Robert approved, with his SSH. The relay sets EE_MIGRATE_VIA_RELAY.
+# runs a copy of this script that the developer approved, with their SSH. The relay sets EE_MIGRATE_VIA_RELAY.
 RELAY_TOKEN="${EE_MIGRATE_RELAY_TOKEN:-/run/ddev-relay/token}"
 STAMP_MAX_AGE=86400
 
@@ -386,7 +386,7 @@ print_recovery() {
 }
 
 print_remote_restore() {
-  echo "  restore (Robert runs this): ssh $SSH_HOST \"mysql --defaults-extra-file='$(target_defaults)' '$(target_db)' < '${BACKUP_FILE}'\"" >&2
+  echo "  restore (you run this): ssh $SSH_HOST \"mysql --defaults-extra-file='$(target_defaults)' '$(target_db)' < '${BACKUP_FILE}'\"" >&2
 }
 
 # A migrate step that failed or was not recorded: nothing reliable to roll back, restore only.
@@ -785,7 +785,7 @@ print_local_recovery() {
   else
     echo "  rollback: undoes $LOCAL_MIGRATION ONLY if cps:migrate-status shows last_applied=$LOCAL_MIGRATION (check first): $LOCAL_EECLI migrate:rollback --steps=1" >&2
   fi
-  [[ -z "$BACKUP_FILE" ]] || echo "  restore (Robert runs this): ddev import-db --database=$LOCAL_DB --file=$BACKUP_FILE" >&2
+  [[ -z "$BACKUP_FILE" ]] || echo "  restore (you run this): ddev import-db --database=$LOCAL_DB --file=$BACKUP_FILE" >&2
 }
 
 local_fail() {

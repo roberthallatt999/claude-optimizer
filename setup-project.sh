@@ -170,6 +170,7 @@ POLICY_OPTION_VALS=()
 POLICY_REMOTE_PROD=()        # [remote] production markers, as the hook will see them
 POLICY_REMOTE_STAGE=()       # [remote] staging markers
 POLICY_REMOTE_ASSERT_DB=""   # [remote] assert-database: a staging write must prove its database
+POLICY_SCAN_ALLOW=""         # [scan] allow: test-fixture globs the guard's content scan skips
 POLICY_SKIPPED=0             # files not written this run because [exclude] covers them
 DECISION_RECORD=""           # rendered clause for the managed memory-protocol blocks
 DECISION_LOCATION=""         # rendered path for {{DECISION_LOCATION}} in shipped rules
@@ -255,6 +256,7 @@ load_project_policy() {
       '[decisions]') section=decisions; continue ;;
       '[exclude]')   section=exclude;   continue ;;
       '[remote]')    section=remote;    continue ;;
+      '[scan]')      section=scan;      continue ;;
       '['*)
         echo -e "  ${YELLOW}⚠${NC}  Unknown section '$line' in $POLICY_FILE_NAME — ignored"
         section=""
@@ -262,7 +264,7 @@ load_project_policy() {
         ;;
     esac
     case "$section" in
-      options|decisions|remote)
+      options|decisions|remote|scan)
         case "$line" in
           *=*) ;;
           *)
@@ -274,7 +276,13 @@ load_project_policy() {
         val="${line#*=}"
         key="${key%"${key##*[![:space:]]}"}"
         val="${val#"${val%%[![:space:]]*}"}"
-        if [[ "$section" == remote ]]; then
+        if [[ "$section" == scan ]]; then
+          if [[ "$key" == allow ]]; then
+            POLICY_SCAN_ALLOW="${POLICY_SCAN_ALLOW:+$POLICY_SCAN_ALLOW, }$val"
+          else
+            echo -e "  ${YELLOW}⚠${NC}  $POLICY_FILE_NAME [scan]: unknown key '$key' — ignored"
+          fi
+        elif [[ "$section" == remote ]]; then
           policy_add_remote "$key" "$val"
         elif [[ "$section" == decisions ]]; then
           if [[ "$key" == "path" ]]; then
@@ -901,6 +909,13 @@ save_project_policy() {
       echo "# production = /var/www/example.org"
       echo "# production = prod-db-name, prod-ssh-alias"
       echo "# staging = /var/www/stg.example.org"
+    fi
+    if [[ -n "$POLICY_SCAN_ALLOW" ]]; then
+      echo ""
+      echo "[scan]"
+      echo "# Test fixtures holding fake secrets on purpose: the safety hook's content scan"
+      echo "# skips these project-relative globs. Path rules (.env, keys) still apply."
+      echo "allow = $POLICY_SCAN_ALLOW"
     fi
   } > "$out"
 
@@ -3038,6 +3053,22 @@ verify_deployment() {
       hc_warn "Global skill(s) not linked to this repo: ${missing% } — run ai-config --refresh, or install.sh to repoint links"
     fi
   fi
+  _us="${AI_CONFIG_USER_SETTINGS:-$HOME/.claude/settings.json}"
+  if [[ -f "$_us" ]] && command -v jq &>/dev/null; then
+    if jq -e '[.hooks.PreToolUse[]?.hooks[]?.command | strings | contains("AI_CONFIG_GUARD_SCOPE=global")] | any' "$_us" >/dev/null 2>&1; then
+      hc_ok "Global safety guard registered (sessions outside ai-config projects are guarded too)"
+    else
+      hc_warn "No global safety guard: sessions outside ai-config projects have no secret protection — run: $SCRIPT_DIR/scripts/install-global-guard.sh"
+    fi
+  fi
+  if precommit_hook_path >/dev/null 2>&1; then
+    if grep -qs "$PRECOMMIT_MARKER\|safety-guard.sh --pre-commit" "$(precommit_hook_path)" \
+       || grep -rqs 'safety-guard.sh --pre-commit' "$PROJECT_DIR/$(git -C "$PROJECT_DIR" config --get core.hooksPath 2>/dev/null || echo .git/hooks)/pre-commit"; then
+      hc_ok "Git pre-commit secret check installed"
+    else
+      hc_warn "No git pre-commit secret check: commits made outside Claude aren't scanned — run --refresh, or add 'bash .claude/hooks/safety-guard.sh --pre-commit' to your pre-commit hook"
+    fi
+  fi
   if [[ -f "$AI_CONFIG_DIR/version" ]]; then
     deployed=$(sed -n 's/^commit=//p' "$AI_CONFIG_DIR/version")
     current=$(ai_config_commit)
@@ -3152,7 +3183,8 @@ verify_deployment() {
     local scan_probe scan_out
     scan_probe="$(mktemp "${TMPDIR:-/tmp}/ai-config-scan.XXXXXX")" || scan_probe=""
     if [[ -n "$scan_probe" ]]; then
-      printf 'log line\nconnection: mysql://forge:9fJ2kPq7Wm@10.0.0.14:3306/app\n' > "$scan_probe"
+      # Assembled at run time, so this file itself holds no credential shape (the guard scans it).
+      printf 'log line\nconnection: mysql://forge:%s@10.0.0.14:3306/app\n' "9fJ2kPq7Wm" > "$scan_probe"
       scan_out=$(printf '{"tool_name":"Read","tool_input":{"file_path":"%s"}}' "$scan_probe" \
         | (cd "$PROJECT_DIR" && CLAUDE_PROJECT_DIR="$PROJECT_DIR" bash "$guard" 2>/dev/null))
       rm -f "$scan_probe"
@@ -3553,6 +3585,9 @@ do_uninstall() {
     done < "$pp" | jq -R . | jq -s .)
   fi
 
+  # The git pre-commit hook lives in .git/, outside the manifest.
+  remove_precommit_hook
+
   # 1. Shipped files, per the manifest (last entry per path wins)
   if [[ -f "$MANIFEST_FILE" ]]; then
     while IFS=$'\t' read -r rel sha; do
@@ -3889,10 +3924,16 @@ do_clean() {
 update_gitignore() {
   local gitignore_path="$PROJECT_DIR/.gitignore"
 
+  # No .gitignore is the riskiest case, not one to skip: a new project's first `git add -A`
+  # would stage .env, database dumps and logs. Create one, then add the patterns below.
   if [[ ! -f "$gitignore_path" ]]; then
-    echo -e "${YELLOW}  No .gitignore found — skipping gitignore update${NC}"
-    echo ""
-    return
+    if [[ "$DRY_RUN" == true ]]; then
+      echo -e "  ${YELLOW}[DRY-RUN]${NC} Create .gitignore (none found) with the security patterns"
+      return
+    fi
+    printf '# Created by ai-config: keeps secrets, database dumps, logs and Claude config out of git.\n' > "$gitignore_path"
+    CREATED_THIS_RUN+="$gitignore_path"$'\n'
+    echo -e "  ${GREEN}✓${NC} Created .gitignore (the project had none)"
   fi
 
   echo ""
@@ -4004,6 +4045,82 @@ update_gitignore() {
   fi
 
   echo ""
+}
+
+# ============================================================================
+# Git pre-commit hook (secrets never reach git history)
+# ============================================================================
+
+# The safety guard checks `git commit` when Claude runs it. Commits made in a terminal or an
+# editor don't go through Claude, so the same check is installed as .git/hooks/pre-commit.
+# It runs the project's own .claude/hooks/safety-guard.sh --pre-commit (staged secret files,
+# credentials in added lines, gitleaks when installed). An existing hook, or a hooks manager
+# (core.hooksPath: Husky, Lefthook…) is left alone and reported.
+PRECOMMIT_MARKER="ai-config pre-commit"
+precommit_hook_path() {
+  local p
+  git -C "$PROJECT_DIR" rev-parse --git-dir >/dev/null 2>&1 || return 1
+  p="$(git -C "$PROJECT_DIR" rev-parse --git-path hooks/pre-commit 2>/dev/null)" || return 1
+  case "$p" in /*) ;; *) p="$PROJECT_DIR/$p" ;; esac
+  printf '%s' "$p"
+}
+
+install_precommit_hook() {
+  local hook hooks_path
+  hook="$(precommit_hook_path)" || return 0
+  hooks_path="$(git -C "$PROJECT_DIR" config --get core.hooksPath 2>/dev/null || true)"
+  if [[ -n "$hooks_path" ]]; then
+    echo -e "  ${YELLOW}○${NC} Git pre-commit secret check not installed: core.hooksPath is set ($hooks_path)."
+    echo -e "      Add this line to that pre-commit hook: bash .claude/hooks/safety-guard.sh --pre-commit"
+    return 0
+  fi
+  if [[ -f "$hook" ]] && ! grep -q "$PRECOMMIT_MARKER" "$hook" 2>/dev/null; then
+    echo -e "  ${YELLOW}○${NC} Git pre-commit secret check not installed: .git/hooks/pre-commit already exists."
+    echo -e "      Add this line to it: bash .claude/hooks/safety-guard.sh --pre-commit"
+    return 0
+  fi
+  if [[ "$DRY_RUN" == true ]]; then
+    [[ -f "$hook" ]] || echo -e "  ${YELLOW}[DRY-RUN]${NC} Install .git/hooks/pre-commit (secret check)"
+    return 0
+  fi
+  local tmp; tmp="$(mktemp)"
+  # The hook runs a TRUSTED guard: the user's global copy, or this ai-config checkout's. Never
+  # the working tree's .claude/hooks/ copy, which a repository can commit and change.
+  { cat <<'HOOK'
+#!/bin/sh
+# ai-config pre-commit: stops secret files (.env, keys, dumps) and credentials in added lines
+# from being committed. Installed by ai-config (claude-optimizer); delete this file to turn it
+# off, or skip it once with `git commit --no-verify` after checking the finding yourself.
+# Runs a trusted guard outside this repository, never one from its working tree.
+top="$(git rev-parse --show-toplevel)"
+HOOK
+    printf 'for guard in "$HOME/.claude/hooks/safety-guard.sh" %q; do\n' "$SCRIPT_DIR/projects/common/hooks/safety-guard.sh"
+    cat <<'HOOK'
+  if [ -f "$guard" ]; then
+    AI_CONFIG_GUARD_SCOPE=global CLAUDE_PROJECT_DIR="$top" exec bash "$guard" --pre-commit
+  fi
+done
+echo "ai-config pre-commit: no trusted safety guard found (install claude-optimizer); commit not checked" >&2
+exit 0
+HOOK
+  } > "$tmp"
+  if [[ -f "$hook" ]] && cmp -s "$tmp" "$hook"; then rm -f "$tmp"; return 0; fi
+  mkdir -p "$(dirname "$hook")"
+  mv "$tmp" "$hook"
+  chmod +x "$hook"
+  echo -e "  ${GREEN}✓${NC} Installed .git/hooks/pre-commit (blocks secrets from commits made outside Claude)"
+}
+
+remove_precommit_hook() {
+  local hook
+  hook="$(precommit_hook_path)" || return 0
+  [[ -f "$hook" ]] && grep -q "$PRECOMMIT_MARKER" "$hook" 2>/dev/null || return 0
+  if [[ "$DRY_RUN" == true ]]; then
+    echo -e "  ${YELLOW}[DRY-RUN]${NC} Remove .git/hooks/pre-commit (ai-config secret check)"
+    return 0
+  fi
+  rm -f "$hook"
+  echo -e "  ${GREEN}✓${NC} Removed .git/hooks/pre-commit (ai-config secret check)"
 }
 
 # ============================================================================
@@ -4545,6 +4662,7 @@ if [[ "$REFRESH" == true ]]; then
 
   # Merge .gitignore security patterns (adds missing entries, preserves existing content)
   update_gitignore
+  install_precommit_hook
 
   # Link global skills (noslop, humanizer) into ~/.claude/skills/ if any are missing
   link_global_skills_for_user
@@ -4643,6 +4761,15 @@ if [[ -d "$STACK_DIR/agents" ]]; then
   done
 fi
 
+# ee-migrate drives the cps_tools add-on and the .admin-scripts/ee-migrate.sh runner, so it is
+# deployed only where they are installed (ee-migrate-install.sh adds them). The committed add-on
+# is what a fresh clone of such a site has; the runner is gitignored.
+ee_migrate_tooling_present() {
+  [[ -f "$PROJECT_DIR/.admin-scripts/ee-migrate.sh" ]] && return 0
+  find "$PROJECT_DIR" -maxdepth 5 -path '*/system/user/addons/cps_tools/addon.setup.php' \
+    -not -path '*/node_modules/*' -not -path '*/vendor/*' 2>/dev/null | grep -q .
+}
+
 # 2a'. EE-based stacks without their own skills/ dir share the expressionengine migration tooling
 # (single source: projects/expressionengine/), so one copy of the skill and agent serves all three.
 if [[ "$STACK" == "coilpack" || "$STACK" == "ee-nextjs" ]]; then
@@ -4650,7 +4777,7 @@ if [[ "$STACK" == "coilpack" || "$STACK" == "ee-nextjs" ]]; then
   if [[ -d "$ee_src/skills/ee-migrate" || -f "$ee_src/agents/ee-migration-author.md" ]]; then
     echo ""
     echo -e "${CYAN}Copying EE migration tooling (shared with the expressionengine stack)...${NC}"
-    if [[ -d "$ee_src/skills/ee-migrate" ]]; then
+    if [[ -d "$ee_src/skills/ee-migrate" ]] && ee_migrate_tooling_present; then
       do_mkdir "$PROJECT_DIR/.claude/skills"
       do_copy "$ee_src/skills/ee-migrate" "$PROJECT_DIR/.claude/skills/"
     fi
@@ -4708,11 +4835,17 @@ if [[ -d "$STACK_DIR/skills" ]]; then
   do_mkdir "$PROJECT_DIR/.claude/skills"
 
   # Core skills - ALWAYS copy if they exist
-  for skill in ee-stash-optimizer ee-template-assistant ee-migrate; do
+  for skill in ee-stash-optimizer ee-template-assistant; do
     if [[ -d "$STACK_DIR/skills/$skill" ]]; then
       do_copy "$STACK_DIR/skills/$skill" "$PROJECT_DIR/.claude/skills/"
     fi
   done
+  # ee-migrate drives the cps_tools add-on and the .admin-scripts/ee-migrate.sh runner: only
+  # useful (and only accurate) on a site that has them. Another EE site, e.g. side work,
+  # doesn't get a skill for tooling it doesn't run; ee-migrate-install.sh adds both.
+  if [[ -d "$STACK_DIR/skills/ee-migrate" ]] && ee_migrate_tooling_present; then
+    do_copy "$STACK_DIR/skills/ee-migrate" "$PROJECT_DIR/.claude/skills/"
+  fi
 
   # Conditional: Tailwind
   if [[ -d "$STACK_DIR/skills/tailwind-utility-finder" ]]; then
@@ -5164,6 +5297,7 @@ fi
 
 # Update .gitignore automatically
 update_gitignore
+install_precommit_hook
 
 # Adopt staged versions if requested, record what this run wrote, report, and verify
 apply_pending_updates

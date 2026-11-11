@@ -168,6 +168,11 @@ if [[ -d "$SCRIPT_DIR/stacks" ]] || [[ -d "$SCRIPT_DIR/global-skills" ]] || [[ -
     link_global_skills "$SCRIPT_DIR" "$CLAUDE_DIR" false true
   fi
 
+  # Guard every Claude Code session, not only ai-config projects (backs up settings.json first)
+  if [[ -x "$SCRIPT_DIR/scripts/install-global-guard.sh" ]] && command -v jq >/dev/null 2>&1; then
+    "$SCRIPT_DIR/scripts/install-global-guard.sh" || echo -e "  ${YELLOW}○${NC} Global safety guard not installed (see the message above)"
+  fi
+
   # Install global CLAUDE.md (only if it doesn't exist)
   if [[ -f "$SCRIPT_DIR/global/CLAUDE.md" ]] && [[ ! -f "$CLAUDE_DIR/CLAUDE.md" ]]; then
     cp "$SCRIPT_DIR/global/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md"

@@ -189,6 +189,27 @@ contains a space or `|`, since it could never match.
 Edits to `ai-config.conf` itself ask for confirmation, because this section is part of the
 safety policy.
 
+### `[scan]`
+
+```ini
+[scan]
+allow = tests/fixtures/**, test-*.sh
+```
+
+The safety hook reads every file before Claude sees it. A file whose content looks like a
+real credential is denied. A test suite for login, payments or credential handling needs
+fake credentials that look real, so list its fixture files here (project-relative globs,
+comma-separated). The content scan skips them when they're read, searched or committed.
+Path rules still apply, so `.env`, keys and dumps can't be allowed this way. Like the rest of
+the file, editing `[scan]` asks first. `--save-policy` keeps it.
+
+### `design-skills` and `profile` (under `[options]`)
+
+- `design-skills = true` deploys the front-end design skills on a CMS stack. JS stacks get
+  them by default; set `false` to turn them off there.
+- `profile = <name>` makes this project use another ai-config profile, for example `cps` on a
+  personal computer. See [profiles.md](profiles.md).
+
 ## Health checks
 
 `ai-config --doctor --project=.` reports:

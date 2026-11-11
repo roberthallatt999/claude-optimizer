@@ -48,3 +48,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+
+# Database dumps: on a CMS a loose .sql file is a dump (Claude is denied reading it too).
+*.sql
+!*-schema.sql
+!*-migrations.sql

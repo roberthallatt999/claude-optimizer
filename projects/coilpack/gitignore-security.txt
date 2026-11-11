@@ -39,3 +39,8 @@ vendor/
 
 # EE migration runner state (per-machine stamps)
 .admin-scripts/.ee-migrate/
+
+# Database dumps: on a CMS a loose .sql file is a dump (Claude is denied reading it too).
+*.sql
+!*-schema.sql
+!*-migrations.sql
