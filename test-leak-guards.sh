@@ -100,6 +100,11 @@ check "bws secret get (Secrets Manager)"                deny  "$(bash_d 'bws sec
 check "bws secret list"                                 deny  "$(bash_d 'bws secret list')"
 check "bws run injecting into a dev server"             allow "$(bash_d 'bws run --project-id 1234 -- npm run dev')"
 check "bw status (no secret)"                           allow "$(bash_d 'bw status')"
+check "op document get (prints the document)"           deny  "$(bash_d 'op document get "server key"')"
+check "op document get --out-file (writes a file)"      allow "$(bash_d 'op document get "server key" --out-file key.pem.tmp')"
+check "op signin --raw (prints a session token)"        deny  "$(bash_d 'op signin --raw')"
+check "op run injecting into a dev server"              allow "$(bash_d 'op run --env-file=.env.tpl -- npm run dev')"
+check "op item list (names only)"                       allow "$(bash_d 'op item list --vault Lat45')"
 gt="gh auth ""token"
 check "commit message naming the command (heredoc)"     allow "$(bash_d "git commit -q -F - <<'EOF'
 fix: deny commands that print a secret (${gt}, op read)
