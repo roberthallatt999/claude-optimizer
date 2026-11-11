@@ -3094,11 +3094,13 @@ verify_deployment() {
     fi
   fi
   if precommit_hook_path >/dev/null 2>&1; then
-    if grep -qs "$PRECOMMIT_MARKER\|safety-guard.sh --pre-commit" "$(precommit_hook_path)" \
-       || grep -rqs 'safety-guard.sh --pre-commit' "$PROJECT_DIR/$(git -C "$PROJECT_DIR" config --get core.hooksPath 2>/dev/null || echo .git/hooks)/pre-commit"; then
+    local _hp; _hp="$(git -C "$PROJECT_DIR" config --get core.hooksPath 2>/dev/null || true)"
+    if [[ -n "$_hp" && ! -d "$_hp" && ! -d "$PROJECT_DIR/$_hp" ]]; then
+      hc_warn "core.hooksPath points at a missing folder ($_hp), so no git hooks run here — if the project moved (Husky): git config core.hooksPath .husky/_"
+    elif precommit_check_present; then
       hc_ok "Git pre-commit secret check installed"
     else
-      hc_warn "No git pre-commit secret check: commits made outside Claude aren't scanned — run --refresh, or add 'bash .claude/hooks/safety-guard.sh --pre-commit' to your pre-commit hook"
+      hc_warn "No git pre-commit secret check: commits made outside Claude aren't scanned — run --refresh, or add this line to your pre-commit hook: $PRECOMMIT_LINE"
     fi
   fi
   if [[ -f "$AI_CONFIG_DIR/version" ]]; then
@@ -4092,10 +4094,26 @@ update_gitignore() {
 
 # The safety guard checks `git commit` when Claude runs it. Commits made in a terminal or an
 # editor don't go through Claude, so the same check is installed as .git/hooks/pre-commit.
-# It runs the project's own .claude/hooks/safety-guard.sh --pre-commit (staged secret files,
-# credentials in added lines, gitleaks when installed). An existing hook, or a hooks manager
-# (core.hooksPath: Husky, Lefthook…) is left alone and reported.
+# It runs a trusted safety-guard.sh --pre-commit (the global copy, or this checkout's; never the
+# repo's own .claude/hooks copy, which a repository can commit and change): staged secret files,
+# credentials in added lines, gitleaks when installed. An existing hook, or a hooks manager
+# (core.hooksPath: Husky, Lefthook…) is left alone and reported with the line to add.
 PRECOMMIT_MARKER="ai-config pre-commit"
+# shellcheck disable=SC2016  # $HOME etc. are for the hook file, not this shell
+PRECOMMIT_LINE='[ -f "$HOME/.claude/hooks/safety-guard.sh" ] && { AI_CONFIG_GUARD_SCOPE=global CLAUDE_PROJECT_DIR="$(git rev-parse --show-toplevel)" bash "$HOME/.claude/hooks/safety-guard.sh" --pre-commit || exit 1; }'
+
+# precommit_check_present — true when some pre-commit hook git will run calls the guard:
+# .git/hooks, the core.hooksPath folder, or a Husky project's .husky/pre-commit.
+precommit_check_present() {
+  local hp f
+  hp="$(git -C "$PROJECT_DIR" config --get core.hooksPath 2>/dev/null || true)"
+  case "$hp" in "") ;; /*) ;; *) hp="$PROJECT_DIR/$hp" ;; esac
+  for f in "$(precommit_hook_path)" ${hp:+"$hp/pre-commit"} "$PROJECT_DIR/.husky/pre-commit"; do
+    [[ -n "$f" && -f "$f" ]] || continue
+    grep -qsE "$PRECOMMIT_MARKER|safety-guard\.sh\"? --pre-commit" "$f" && return 0
+  done
+  return 1
+}
 precommit_hook_path() {
   local p
   git -C "$PROJECT_DIR" rev-parse --git-dir >/dev/null 2>&1 || return 1
@@ -4109,13 +4127,22 @@ install_precommit_hook() {
   hook="$(precommit_hook_path)" || return 0
   hooks_path="$(git -C "$PROJECT_DIR" config --get core.hooksPath 2>/dev/null || true)"
   if [[ -n "$hooks_path" ]]; then
+    precommit_check_present && return 0
+    local hp_abs="$hooks_path"
+    [[ "$hp_abs" == /* ]] || hp_abs="$PROJECT_DIR/$hp_abs"
+    if [[ ! -d "$hp_abs" ]]; then
+      echo -e "  ${YELLOW}⚠${NC}  core.hooksPath points at a folder that doesn't exist ($hooks_path), so no git hooks run"
+      echo -e "      here at all. If the project moved: git -C \"$PROJECT_DIR\" config core.hooksPath .husky/_   (for Husky)"
+    fi
     echo -e "  ${YELLOW}○${NC} Git pre-commit secret check not installed: core.hooksPath is set ($hooks_path)."
-    echo -e "      Add this line to that pre-commit hook: bash .claude/hooks/safety-guard.sh --pre-commit"
+    echo -e "      Add this line to the project's pre-commit hook (Husky: .husky/pre-commit):"
+    echo -e "      $PRECOMMIT_LINE"
     return 0
   fi
   if [[ -f "$hook" ]] && ! grep -q "$PRECOMMIT_MARKER" "$hook" 2>/dev/null; then
+    precommit_check_present && return 0
     echo -e "  ${YELLOW}○${NC} Git pre-commit secret check not installed: .git/hooks/pre-commit already exists."
-    echo -e "      Add this line to it: bash .claude/hooks/safety-guard.sh --pre-commit"
+    echo -e "      Add this line to it: $PRECOMMIT_LINE"
     return 0
   fi
   if [[ "$DRY_RUN" == true ]]; then
