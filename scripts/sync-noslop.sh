@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 #
 # sync-noslop.sh
-# Build global-skills/noslop/SKILL.md from the CPS overlay and the pinned upstream copy, or pull
+# Build global-skills/noslop/SKILL.md from the profile overlay and the pinned upstream copy, or pull
 # a newer upstream first.
 #
 # The skill is the "noslop" rules from github.com/rubenhassid1/grenade (MIT). The upstream text
-# is kept verbatim in global-skills/noslop/upstream/ so an update is a reviewable diff. CPS
-# changes live in cps-overlay.md, which carries the frontmatter and goes first in SKILL.md.
+# is kept verbatim in global-skills/noslop/upstream/ so an update is a reviewable diff. Local
+# changes live in overlay.md, which carries the frontmatter and goes first in SKILL.md. Who the
+# author is (name, organization, share domain) comes from the ai-config profile at run time.
 #
 # Usage:
 #   scripts/sync-noslop.sh                 # rebuild SKILL.md (writes only on a real change)
@@ -28,7 +29,7 @@ UPSTREAM_PLUGIN="plugins/noslop/.claude-plugin/plugin.json"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SKILL_DIR="${NOSLOP_SKILL_DIR:-$ROOT/global-skills/noslop}"
-OVERLAY="$SKILL_DIR/cps-overlay.md"
+OVERLAY="$SKILL_DIR/overlay.md"
 UPSTREAM_DIR="$SKILL_DIR/upstream"
 TARGET="$SKILL_DIR/SKILL.md"
 

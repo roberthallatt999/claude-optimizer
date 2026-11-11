@@ -1,6 +1,7 @@
 ---
 paths:
   - "**/*.{tsx,jsx,vue,svelte,astro,css,scss}"
+  - "**/*.{twig,html,blade.php}"
   - "**/tailwind.config.*"
 ---
 
@@ -170,6 +171,24 @@ import { ChevronRight, X, Check } from 'lucide-react';
     }
   }
   ```
+
+## Avoiding Generic AI Design
+
+The project's own brand, tokens and DESIGN.md come first; nothing below overrides them.
+
+- **Real content from the start.** Build around the client's actual copy, images and data.
+  No lorem ipsum, stock photos or invented testimonials, statistics or logos: when content is
+  missing, leave a labelled placeholder ("[Board chair quote: to come]") and say so.
+- **Start from a reference, not a template.** For new work, ask for a site the client admires,
+  or the existing site, and derive layout and rhythm from it (Impeccable's `document` builds a
+  DESIGN.md from an existing site's code).
+- **Banned by default** unless the brand already uses them:
+  - Layout: bento grids, three equal feature cards under a centred hero, glassmorphism,
+    glowing borders, gradient text, purple-to-blue gradients, decorative blobs.
+  - Motion: fade-up on every section, scroll-jacking, animation that carries no meaning.
+  - Copy: "revolutionize", "seamless", "dynamic", "unlock", "elevate", "empower",
+    "cutting-edge", "game-changer", "in today's fast-paced world".
+- **One icon set, used sparingly.** The project's existing set; an icon must label something.
 
 ## Component Inventory Protocol
 

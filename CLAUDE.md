@@ -14,6 +14,9 @@ This repository provides automated Claude Code configuration deployment across *
 - Token optimization and sensitive file protection rules
 - VSCode settings (formatters, Xdebug, tasks)
 - 16 Superpowers workflow skills
+- Global `noslop` and `humanizer` skills, linked into `~/.claude/skills/` on install and on every run
+- Per-project design skills (Impeccable, web-design-guidelines, GSAP when detected), pinned in `vendor/skills.conf`
+- Profiles (who you are per context: work, volunteer, side work) from a private repo at `~/.config/ai-config`
 - `settings.local.json` with stack-appropriate permissions
 
 **Repository Path:** `/Users/robert/data/business/_tools/claude-optimizer`
@@ -62,6 +65,9 @@ This repository provides automated Claude Code configuration deployment across *
 - `ai-config-fleet.sh` - Run `--doctor` / `--refresh` across every project under a folder (aliased as `ai-config-fleet`)
 - `run-tests.sh` - Run every `test-*.sh` suite (CI: `.github/workflows/tests.yml`)
 - `scripts/sync-noslop.sh` - Build (or `--update`) the global `noslop` skill from its CPS overlay and pinned upstream copy
+- `scripts/vendor-skills.sh` - `--list` / `--fetch` / `--bump` the third-party skills pinned in `vendor/skills.conf` (patches in `vendor/patches/`)
+- `scripts/link-global-skills.sh` - Link `global-skills/*` and the private `~/.config/ai-config/skills/*` into `~/.claude/skills/` (used by `install.sh` and every `ai-config` run)
+- `global-skills/noslop/scripts/profile.sh` - Print the active profile (env, nearest `ai-config.conf`, machine default)
 
 ### Template Structure
 ```
@@ -94,6 +100,11 @@ projects/
 ├── astro-tina/                # Astro + Tina CMS (Git-based)
 └── custom/                    # Discovery mode base
 
+global-skills/                # Linked into ~/.claude/skills/ (noslop, humanizer)
+design-skills/                # Copied per project by ai-config (impeccable, web-design-guidelines, gsap-*)
+vendor/skills.conf            # Repo + pinned commit for every third-party skill; vendor/patches/ for edits
+profiles/example.conf         # Profile keys; real profiles live in the private ~/.config/ai-config repo
+
 superpowers/
 ├── skills/                   # 16 workflow skills
 │   ├── brainstorming/
@@ -104,7 +115,7 @@ superpowers/
 ├── commands/                 # Slash commands
 └── hooks/                    # Session hooks
 
-test-*.sh                     # 12 test suites, each independently runnable
+test-*.sh                     # 20 test suites, each independently runnable
 run-tests.sh                  # Runs every test-*.sh suite, or a selected subset
 ai-config-fleet.sh            # --doctor / --refresh / --list across many projects
 .github/workflows/tests.yml   # CI: runs the suites on macOS + Ubuntu, plus shellcheck
@@ -228,6 +239,45 @@ readable text such as `(brand green: not set)` rather than a fake value.
 
 ## Recent Changes
 
+- **Profiles and per-project design skills** — the repo serves CPS, volunteer projects and
+  side work, so nothing global assumes who the author is. *Profiles*
+  (`profiles/example.conf`; real ones live in a private repo at `~/.config/ai-config`, never
+  here, since this repo is public) give the name, organization, voice, spelling, share domain
+  and what counts as sensitive. The active profile is the first of `AI_CONFIG_PROFILE`, `profile =` in the
+  nearest `ai-config.conf`, and the machine default in `~/.config/ai-config/profile`;
+  `global-skills/noslop/scripts/profile.sh` prints it. noslop's `cps-overlay.md` became a
+  profile-driven `overlay.md`, and `cloudflare.sh` takes its default share domain from the
+  profile (no default without one). Own skills (forge-api, ee-upgrade) moved to the private
+  repo's `skills/`, which the link step also links, so a new Mac gets them back.
+  *Design skills*: three of the ten candidates vetted on 2026-11-11 were kept (reasons for the
+  rest are in `vendor/skills.conf` and `docs/guides/profiles.md`). Impeccable (+ its 4 agents),
+  web-design-guidelines (its rules pinned in `guidelines.md` instead of fetched from GitHub on every run) and
+  the official GSAP skills (patched to stop recommending GSAP; deployed only where GSAP is
+  detected, `gsap-react`/`gsap-frameworks` by framework) are copied into `.claude/skills/` on
+  JS front-end stacks, and on CMS stacks with `--design-skills` / `design-skills = true`.
+  Impeccable deploys with `IMPECCABLE_NO_TELEMETRY=1` and no hooks. The global Impeccable
+  install (3 hooks in every session, against the decision above) was removed and backed up.
+  Every third-party skill is pinned in `vendor/skills.conf` (repo + commit), edits are
+  `vendor/patches/*.patch`, and `scripts/vendor-skills.sh --bump` updates one, failing if a
+  patch no longer applies; it replaces `sync-humanizer.sh`. `design-system.md` gained an
+  "Avoiding Generic AI Design" section (real content, a reference site, a short ban list)
+  and covers Twig/HTML/Blade. The dev-container kit mounts only skills that exist on the Mac
+  (`plausible` and `webapp-testing` didn't). Tests: `test-design-skills.sh`,
+  `test-global-skills.sh`. Guide: `docs/guides/profiles.md`.
+- **Global `humanizer` skill; every run links global skills** — Siqi Chen's humanizer
+  ([blader/humanizer](https://github.com/blader/humanizer), MIT) joins `noslop` in
+  `global-skills/`, pinned verbatim at 4.0.0 (`b48c832`) with its licence and commit in
+  `upstream/`. No overlay. 4.0.0 drops the no-new-facts rule: where text is generic it may
+  add a specific detail it believes is true, and it still keeps every original claim.
+  `scripts/vendor-skills.sh --bump humanizer` pulls a newer upstream for review and never commits.
+  The links used to be made only by `install.sh`, so a skill added to the repo after the last
+  install never reached Claude (noslop was unlinked on Robert's Mac). `scripts/link-global-skills.sh`
+  now runs on every deploy and `--refresh`. A project run only creates missing or broken
+  links; it never repoints a link to another checkout (so a test run in a temporary worktree
+  can't take the links), and it never replaces a real directory. `install.sh` repoints.
+  `--doctor` warns about unlinked skills. `AI_CONFIG_CLAUDE_DIR` overrides `~/.claude`;
+  `AI_CONFIG_SKIP_GLOBAL_SKILLS=1` skips the step. Dev containers (kit 1.14.0) mount
+  humanizer read-only. Tests: `test-global-skills.sh`.
 - **Global `noslop` skill** — Ruben Hassid's "no slop" rules ([rubenhassid1/grenade](https://github.com/rubenhassid1/grenade),
   MIT) for pages someone else reads: the form picked from the reader's job (decision page,
   report, dashboard, guide, slides, tool, cheat sheet), a header line saying what it is and who
@@ -235,7 +285,7 @@ readable text such as `(brand green: not set)` rather than a fake value.
   It lives in `global-skills/noslop/` and is linked into `~/.claude/skills/` by `install.sh`
   (symlink, so a pull updates it), not deployed per project: reports aren't tied to one site,
   and a skill costs only its description until used. The upstream text is kept verbatim in
-  `upstream/` at a recorded commit, with its licence; `cps-overlay.md` carries the frontmatter
+  `upstream/` at a recorded commit, with its licence; `overlay.md` (was `cps-overlay.md`) carries the frontmatter
   and CPS overrides (first person from Robert, not for site templates, WCAG AA fixes for two
   style-kit colours that fail 4.5:1, per-action approval and no personal information for the
   GitHub/Vercel web version, Canadian spelling). `scripts/sync-noslop.sh` builds `SKILL.md`;
@@ -438,4 +488,14 @@ ai-config --project=. --with-openai
 
 # Opus orchestrator + Sonnet implementer pattern (opt-in)
 ai-config --project=. --orchestrator
+
+# Front-end design skills on a CMS project (JS stacks get them by default)
+ai-config --project=. --design-skills
+
+# Profiles (who you are per context) live in the private ~/.config/ai-config repo:
+echo personal > ~/.config/ai-config/profile                # this computer's default
+code ~/.config/ai-config/profiles/personal.conf            # your details
+~/.claude/skills/noslop/scripts/profile.sh                 # which profile is active here
+# A project uses another with "profile = cps" under [options] in ai-config.conf.
+# Full steps: docs/guides/profiles.md
 ```

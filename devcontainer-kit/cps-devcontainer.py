@@ -38,7 +38,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VERSION = "1.13.0"
+VERSION = "1.14.0"
 EE_MIGRATE_RELAY_NOTE = (
     "`.admin-scripts/ee-migrate.sh <staging|prod> status|rehearse|apply --expect=…` hands itself to the relay "
     "(as `ddev ee-migrate …`), which runs it on the Mac with your SSH, so no server credential is in here. "
@@ -706,6 +706,29 @@ def no_proxy_hosts(p: Project) -> list[str]:
     return list(dict.fromkeys(hosts))
 
 
+# The Mac's skills a container gets, read-only, with what each is for. Only skills that exist on
+# this Mac are mounted: Docker would otherwise create an empty, root-owned folder in their place.
+SHARED_SKILLS = [
+    ("plausible", "Plausible stats"),
+    ("noslop", "pages for a reader (its profile comes from ~/.config/ai-config, mounted below)"),
+    ("humanizer", "prose edits"),
+    ("webapp-testing", "browser checks (Playwright is in the image)"),
+]
+
+
+def shared_skill_mounts(user: str, home: Path | None = None) -> list[str]:
+    home = home or Path.home()
+    lines: list[str] = []
+    for name, what in SHARED_SKILLS:
+        if (home / ".claude" / "skills" / name / "SKILL.md").exists():
+            lines += [f"      # {what}: the Mac's {name} skill, read-only.",
+                      f"      - ${{HOME}}/.claude/skills/{name}:/home/{user}/.claude/skills/{name}:ro"]
+    if (home / ".config" / "ai-config" / "profiles").is_dir():
+        lines += ["      # ai-config profiles (who pages are from, the share domain), read-only.",
+                  f"      - ${{HOME}}/.config/ai-config:/home/{user}/.config/ai-config:ro"]
+    return lines
+
+
 def gen_compose(p: Project) -> str:
     _, user = base_image(p)
     vol = ["      # The project, writable.", "      - ..:/workspace:cached",
@@ -715,17 +738,14 @@ def gen_compose(p: Project) -> str:
             "      # Shell history (bash/zsh) survives rebuilds.", "      - command-history:/commandhistory",
             "      # GitHub login (gh), shared by every CPS container: sign in once, revoke on GitHub.",
             f"      - gh-config:/home/{user}/.config/gh",
-            "      # Plausible stats: the Mac's plausible skill, read-only, and its host/sites config and",
-            "      # API key, shared by every CPS container. The key can only read stats; revoke it in Plausible.",
+            "      # Plausible stats: its host/sites config and API key, shared by every CPS container.",
+            "      # The key can only read stats; revoke it in Plausible.",
             f"      - plausible-config:/home/{user}/.config/plausible",
-            f"      - ${{HOME}}/.claude/skills/plausible:/home/{user}/.claude/skills/plausible:ro",
-            "      # Pages for a reader: the Mac's noslop skill, read-only, and the Cloudflare account and",
-            "      # API token its web version deploys with, shared by every CPS container. Revoke it in Cloudflare.",
-            f"      - cloudflare-config:/home/{user}/.config/cps-cloudflare",
-            f"      - ${{HOME}}/.claude/skills/noslop:/home/{user}/.claude/skills/noslop:ro",
-            "      # Browser checks: the Mac's webapp-testing skill, read-only (Playwright is in the image).",
-            f"      - ${{HOME}}/.claude/skills/webapp-testing:/home/{user}/.claude/skills/webapp-testing:ro",
-            "      # VS Code extensions survive rebuilds (Claude Code's alone is 135 MB).",
+            "      # The Cloudflare account and API token noslop's web version deploys with, shared by",
+            "      # every CPS container. Revoke it in Cloudflare.",
+            f"      - cloudflare-config:/home/{user}/.config/cps-cloudflare"]
+    vol += shared_skill_mounts(user)
+    vol += ["      # VS Code extensions survive rebuilds (Claude Code's alone is 135 MB).",
             f"      - vscode-extensions:/home/{user}/.vscode-server/extensions"]
     if p.node_modules:
         vol += ["      # Linux node_modules, kept apart from the Mac's: native modules (sharp, esbuild) are per OS.",

@@ -1,0 +1,9 @@
+repo=https://github.com/pbakaus/impeccable
+commit=c1e0e5492fbb524f5df84d635ecfae7dc438ec45
+path=plugin/skills/impeccable
+license=LICENSE
+
+repo=https://github.com/pbakaus/impeccable
+commit=c1e0e5492fbb524f5df84d635ecfae7dc438ec45
+path=plugin/agents → agents
+license=LICENSE

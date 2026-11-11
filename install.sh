@@ -161,19 +161,11 @@ if [[ -d "$SCRIPT_DIR/stacks" ]] || [[ -d "$SCRIPT_DIR/global-skills" ]] || [[ -
 
   # Link global skills (global-skills/<name>/) into ~/.claude/skills/. Symlinks, so a git pull
   # updates them. An existing skill that isn't our link is left alone.
+  # setup-project.sh runs the same step, so a skill added later is linked on the next ai-config run.
   if [[ -d "$SCRIPT_DIR/global-skills" ]]; then
-    mkdir -p "$CLAUDE_DIR/skills"
-    for skill_dir in "$SCRIPT_DIR/global-skills"/*/; do
-      [[ -f "${skill_dir}SKILL.md" ]] || continue
-      skill_name="$(basename "$skill_dir")"
-      link="$CLAUDE_DIR/skills/$skill_name"
-      if [[ -L "$link" || ! -e "$link" ]]; then
-        ln -sfn "${skill_dir%/}" "$link"
-        echo -e "  ${GREEN}✓${NC} Linked global skill $skill_name"
-      else
-        echo -e "  ${YELLOW}○${NC} Left ~/.claude/skills/$skill_name alone: it isn't a link to this repo"
-      fi
-    done
+    # shellcheck source=scripts/link-global-skills.sh
+    source "$SCRIPT_DIR/scripts/link-global-skills.sh"
+    link_global_skills "$SCRIPT_DIR" "$CLAUDE_DIR" false true
   fi
 
   # Install global CLAUDE.md (only if it doesn't exist)

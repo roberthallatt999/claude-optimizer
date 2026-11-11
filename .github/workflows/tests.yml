@@ -56,9 +56,13 @@ jobs:
           projects/common/okf/okf-check.sh
           projects/common/okf/template-map.sh
           scripts/sync-noslop.sh
+          scripts/vendor-skills.sh
+          global-skills/noslop/scripts/profile.sh
+          scripts/link-global-skills.sh
           scripts/install-noslop-prune.sh
           global-skills/noslop/scripts/cloudflare.sh
           test-global-skills.sh
+          test-design-skills.sh
 
       - name: Run test suites
         # /bin/bash: on macOS this is the stock bash 3.2 the scripts must support;

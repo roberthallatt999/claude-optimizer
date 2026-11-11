@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # test-global-skills.sh — global-skills/: every skill has valid frontmatter, and the noslop skill
-# is built from its CPS overlay plus the verbatim upstream copy (scripts/sync-noslop.sh).
+# is built from its profile overlay plus the verbatim upstream copy (scripts/sync-noslop.sh).
 #
 # Usage: ./test-global-skills.sh
 # Exit code: 0 = all pass, 1 = one or more failures
@@ -62,15 +62,15 @@ built="$work/noslop/SKILL.md"
 assert_true  "build: recreates a missing SKILL.md" test -f "$built"
 assert_true  "build: identical to the committed file" cmp -s "$built" "$NOSLOP/SKILL.md"
 assert_true  "build: exactly one frontmatter block" test "$(frontmatter_count "$built")" -eq 1
-overrides_line="$(grep -n '^# CPS overrides' "$built" | cut -d: -f1)"
+overrides_line="$(grep -n '^# Profile overrides' "$built" | cut -d: -f1)"
 upstream_line="$(grep -n '^# No slop\.' "$built" | cut -d: -f1)"
-assert_true  "build: CPS overrides come before the upstream rules" test "${overrides_line:-0}" -gt 0 -a "${overrides_line:-0}" -lt "${upstream_line:-0}"
+assert_true  "build: profile overrides come before the upstream rules" test "${overrides_line:-0}" -gt 0 -a "${overrides_line:-0}" -lt "${upstream_line:-0}"
 assert_true  "build: upstream body carried over verbatim" cmp -s \
   <(sed -n "${upstream_line},\$p" "$built") \
   <(awk 'NR==1&&$0=="---"{f=1;next} f&&$0=="---"{f=0;s=1;next} f{next} s&&$0==""{next} {s=0;print}' "$NOSLOP/upstream/noslop.md")
 
 # --check reports drift without writing.
-echo "drift" >> "$work/noslop/cps-overlay.md"
+echo "drift" >> "$work/noslop/overlay.md"
 assert_false "check: fails when the overlay changed" env NOSLOP_SKILL_DIR="$work/noslop" "$SYNC" --check
 assert_false "check: leaves SKILL.md untouched" grep -qx drift "$built"
 NOSLOP_SKILL_DIR="$work/noslop" "$SYNC" >/dev/null
@@ -85,6 +85,30 @@ CF="$NOSLOP/scripts/cloudflare.sh"
 cfdir=$(tmp_dir)
 export CLOUDFLARE_CONFIG="$cfdir/config" CLOUDFLARE_TOKEN_FILE="$cfdir/api-token"
 export CLOUDFLARE_KEYCHAIN_SERVICE="noslop-test-$$-absent"
+
+# profile.sh: the active profile comes from AI_CONFIG_PROFILE, then the nearest ai-config.conf,
+# then the machine default. cloudflare.sh takes its share domain from it.
+PROFILE="$NOSLOP/scripts/profile.sh"
+cfg_home=$(tmp_dir)
+export AI_CONFIG_HOME="$cfg_home"
+mkdir -p "$cfg_home/profiles"
+assert_true  "profile: none configured says so" grep -qx 'profile=none' <<< "$(cd "$(tmp_dir)" && "$PROFILE")"
+assert_false "cloudflare: no profile, no share domain" "$CF" url some-page-0a1b2c3d
+printf 'name = Robert Hallatt\norganization = Canadian Paediatric Society\nshare_domain = share.cps.ca   # work\n' > "$cfg_home/profiles/work.conf"
+printf 'name = Robert Hallatt\norganization =\nshare_domain = share.example.org\n' > "$cfg_home/profiles/home.conf"
+echo work > "$cfg_home/profile"
+proj_dir=$(tmp_dir)
+assert_true  "profile: machine default applies" grep -qx 'profile=work' <<< "$(cd "$proj_dir" && "$PROFILE")"
+assert_true  "profile: value lookup strips comments" test "$(cd "$proj_dir" && "$PROFILE" share_domain)" = share.cps.ca
+assert_true  "profile: empty value kept as empty" grep -qx 'organization=' <<< "$(AI_CONFIG_PROFILE=home "$PROFILE")"
+mkdir -p "$proj_dir/sub"
+printf '[options]\nstack = custom\nprofile = home  # side work\n' > "$proj_dir/ai-config.conf"
+assert_true  "profile: nearest ai-config.conf wins over the machine default" \
+  test "$(cd "$proj_dir/sub" && "$PROFILE" share_domain)" = share.example.org
+assert_true  "profile: AI_CONFIG_PROFILE wins over ai-config.conf" \
+  test "$(cd "$proj_dir" && AI_CONFIG_PROFILE=work "$PROFILE" share_domain)" = share.cps.ca
+assert_true  "profile: unknown name reports the missing file" grep -q '^missing=' <<< "$(AI_CONFIG_PROFILE=nope "$PROFILE")"
+assert_false "profile: a path in the name is refused" grep -q '^share_domain=' <<< "$(AI_CONFIG_PROFILE=../profiles/work "$PROFILE")"
 site=$(tmp_dir)
 assert_true  "cloudflare: new scaffolds the gate" "$CF" new "$site" "Q3 Member Centre traffic!"
 name=$(sed -n 's/^  "name": "\([^"]*\)".*/\1/p' "$site/wrangler.jsonc")
@@ -138,6 +162,59 @@ if command -v node >/dev/null 2>&1; then
   assert_true "cloudflare: worker.js parses" node --check "$cfdir/worker.mjs"
 fi
 assert_true  "cloudflare: worker fails closed without PASSCODE" grep -q 'if (!env.PASSCODE)' "$NOSLOP/templates/cloudflare/worker.js"
+
+# humanizer: pinned through vendor/skills.conf (commit and SOURCE checked in test-design-skills.sh).
+HUMANIZER="$SCRIPT_DIR/global-skills/humanizer"
+assert_true  "humanizer: upstream licence kept (MIT notice)" grep -q 'Copyright (c) 2025 Siqi Chen' "$HUMANIZER/upstream/LICENSE"
+assert_false "humanizer: no nested SKILL.md" test -e "$HUMANIZER/upstream/SKILL.md"
+
+# link-global-skills.sh: links missing skills, never repoints for a project run, never
+# replaces a real directory, and install mode repoints a link to another checkout.
+# shellcheck source=scripts/link-global-skills.sh
+source "$SCRIPT_DIR/scripts/link-global-skills.sh"
+home=$(tmp_dir)
+other_checkout=$(tmp_dir)
+mkdir -p "$home/skills" "$other_checkout/humanizer" "$home/skills/noslop"
+echo mine > "$home/skills/noslop/SKILL.md"
+ln -s "$other_checkout/humanizer" "$home/skills/humanizer"
+dry=$(tmp_dir)
+link_global_skills "$SCRIPT_DIR" "$dry" true >/dev/null
+assert_false "link: dry run writes nothing" test -e "$dry/skills"
+out=$(link_global_skills "$SCRIPT_DIR" "$home")
+assert_true  "link: a real directory is left alone" grep -qx mine "$home/skills/noslop/SKILL.md"
+assert_true  "link: says why it left the directory" grep -q "Left ~/.claude/skills/noslop alone" <<< "$out"
+assert_true  "link: project run doesn't repoint another checkout's link" _gs_links_to "$home/skills/humanizer" "$other_checkout/humanizer"
+assert_true  "link: unlinked skills are listed" test "$(global_skills_unlinked "$SCRIPT_DIR" "$home" | tr '\n' ' ')" = "humanizer noslop "
+link_global_skills "$SCRIPT_DIR" "$home" false true >/dev/null
+assert_true  "link: install mode repoints the link" _gs_links_to "$home/skills/humanizer" "$HUMANIZER"
+rm -rf "$home/skills/noslop"
+ln -s "$home/gone" "$home/skills/noslop"
+link_global_skills "$SCRIPT_DIR" "$home" >/dev/null
+assert_true  "link: a broken link is replaced" _gs_links_to "$home/skills/noslop" "$NOSLOP"
+assert_true  "link: silent when current" test -z "$(link_global_skills "$SCRIPT_DIR" "$home")"
+assert_true  "link: nothing left unlinked" test -z "$(global_skills_unlinked "$SCRIPT_DIR" "$home")"
+mkdir -p "$cfg_home/skills/mine" "$cfg_home/skills/noslop"
+printf -- '---\nname: mine\ndescription: Private.\n---\n' > "$cfg_home/skills/mine/SKILL.md"
+printf -- '---\nname: noslop\ndescription: Shadow.\n---\n' > "$cfg_home/skills/noslop/SKILL.md"
+assert_true  "link: private skills are listed as unlinked" grep -qx mine <<< "$(global_skills_unlinked "$SCRIPT_DIR" "$home")"
+link_global_skills "$SCRIPT_DIR" "$home" >/dev/null
+assert_true  "link: a private skill is linked from the profiles repo" _gs_links_to "$home/skills/mine" "$cfg_home/skills/mine"
+assert_true  "link: the repo's skill wins a name clash" _gs_links_to "$home/skills/noslop" "$NOSLOP"
+rm -rf "$cfg_home/skills"
+
+# setup-project.sh links them on a run, and AI_CONFIG_SKIP_GLOBAL_SKILLS=1 opts out.
+proj=$(tmp_dir)
+home2=$(tmp_dir)
+AI_CONFIG_USER_SETTINGS=/nonexistent AI_CONFIG_CLAUDE_DIR="$home2" \
+  "$SCRIPT_DIR/setup-project.sh" --stack=custom --project="$proj" --force --no-superpowers --skip-vscode >/dev/null 2>&1
+assert_true  "setup: deploy links humanizer" _gs_links_to "$home2/skills/humanizer" "$HUMANIZER"
+assert_true  "setup: deploy links noslop" _gs_links_to "$home2/skills/noslop" "$NOSLOP"
+home3=$(tmp_dir)
+AI_CONFIG_SKIP_GLOBAL_SKILLS=1 AI_CONFIG_USER_SETTINGS=/nonexistent AI_CONFIG_CLAUDE_DIR="$home3" \
+  "$SCRIPT_DIR/setup-project.sh" --stack=custom --refresh --project="$proj" --force --no-superpowers --skip-vscode >/dev/null 2>&1
+assert_false "setup: opt-out links nothing" test -e "$home3/skills/humanizer"
+out=$(AI_CONFIG_USER_SETTINGS=/nonexistent AI_CONFIG_CLAUDE_DIR="$home3" "$SCRIPT_DIR/setup-project.sh" --stack=custom --doctor --project="$proj" 2>&1)
+assert_true  "doctor: warns about unlinked global skills" grep -q "Global skill(s) not linked to this repo: humanizer noslop" <<< "$out"
 
 echo
 echo "Passed: $PASS  Failed: $FAIL"

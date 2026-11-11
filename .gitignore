@@ -178,6 +178,8 @@ yarn-error.log*
 
 node_modules/
 vendor/
+# ...except this repo's own: the pinned third-party skill list and its patches.
+!/vendor/
 .cache/
 dist/
 build/

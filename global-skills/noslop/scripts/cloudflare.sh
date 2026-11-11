@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
-# Cloudflare helper for the noslop skill's web version: runs wrangler with the CPS API token, and
+# Cloudflare helper for the noslop skill's web version: runs wrangler with your Cloudflare API token, and
 # scaffolds a passcode-gated Worker for a page at its own path of the share domain, e.g.
-# https://share.cps.ca/q3-traffic-7f3a9c2e/. The random hash keeps every page's route unique.
+# https://share.example.org/q3-traffic-7f3a9c2e/. The random hash keeps every page's route unique.
 #
 # On the Mac the API token lives only in the macOS Keychain. The dev containers have no Keychain,
-# so there it's in TOKEN_FILE (mode 600) on the cps-cloudflare-config volume every CPS container
-# shares. Either way it's read at call time and passed to wrangler in its environment only, never
+# so there it's in TOKEN_FILE (mode 600) on the cloudflare config volume the dev containers
+# share. Either way it's read at call time and passed to wrangler in its environment only, never
 # in argv, stdout or shell history. Nothing in this script prints it.
 #
 # Usage:
-#   cloudflare.sh setup                 # interactive: account, share domain, token (Robert runs it)
+#   cloudflare.sh setup                 # interactive: account, share domain, token (you run it)
 #   cloudflare.sh config                # account, share domain, whether a token is stored
 #   cloudflare.sh check                 # verify the token
-#   cloudflare.sh domain <host>         # set the share domain (default share.cps.ca)
+#   cloudflare.sh domain <host>         # set the share domain (default: share_domain in the
+#                                       # ai-config profile, see profile.sh)
 #   cloudflare.sh new <dir> <topic> [days]  # name a page <topic>-<hash> that expires in [days]
 #                                       # (default 30), copy the gate into <dir>; a <dir> that
 #                                       # already has a page keeps its name
@@ -29,7 +30,7 @@
 #
 # Cloudflare never returns a secret, so each page's passcode is recorded when this script sets
 # it, with the page's address, topic and folder, in PAGES_DIR/<name>.json (mode 600). Records
-# live on the machine that made them: the Mac, or the volume all CPS containers share.
+# live on the machine that made them: the Mac, or the volume the dev containers share.
 
 set -euo pipefail
 
@@ -38,7 +39,8 @@ CONFIG_FILE="${CLOUDFLARE_CONFIG:-$HOME/.config/cps-cloudflare/config}"
 TOKEN_FILE="${CLOUDFLARE_TOKEN_FILE:-$(dirname "$CONFIG_FILE")/api-token}"
 PAGES_DIR="${CLOUDFLARE_PAGES_DIR:-$(dirname "$CONFIG_FILE")/pages}"
 API="https://api.cloudflare.com/client/v4"
-DEFAULT_SHARE_DOMAIN="share.cps.ca"
+# The ai-config profile names this context's share domain (work, volunteer, side work).
+DEFAULT_SHARE_DOMAIN="${CLOUDFLARE_DEFAULT_SHARE_DOMAIN:-$("$(dirname "${BASH_SOURCE[0]}")/profile.sh" share_domain 2>/dev/null || true)}"
 DEFAULT_DAYS=30
 TEMPLATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../templates/cloudflare" && pwd)"
 
@@ -77,6 +79,11 @@ load_config() {
     . "$CONFIG_FILE"
   fi
   CLOUDFLARE_SHARE_DOMAIN=${CLOUDFLARE_SHARE_DOMAIN:-$DEFAULT_SHARE_DOMAIN}
+  case "${CF_CMD:-}" in
+    setup|config|domain|wrangler|'') ;;
+    *) [ -n "$CLOUDFLARE_SHARE_DOMAIN" ] \
+         || die "no share domain: set share_domain in your ai-config profile, or run: cloudflare.sh domain <host>" ;;
+  esac
   # The Cloudflare zone the routes live in: the last two labels unless the config says otherwise.
   CLOUDFLARE_SHARE_ZONE=${CLOUDFLARE_SHARE_ZONE:-$(printf '%s' "$CLOUDFLARE_SHARE_DOMAIN" | awk -F. '{print $(NF-1)"."$NF}')}
 }
@@ -207,7 +214,7 @@ cmd_config() {
   printf 'account:   %s\n' "${CLOUDFLARE_ACCOUNT_ID:-(not set - run setup)}"
   printf 'pages:     https://%s/<name>/ (zone %s)\n' "$CLOUDFLARE_SHARE_DOMAIN" "$CLOUDFLARE_SHARE_ZONE"
   if token_present; then printf 'token:     stored in %s\n' "$(token_store)"
-  else printf 'token:     missing - Robert runs: %s setup\n' "$0"; fi
+  else printf 'token:     missing - run: %s setup\n' "$0"; fi
   printf 'wrangler:  %s\n' "$(command -v wrangler || echo 'not installed - runs through npx')"
 }
 
@@ -453,10 +460,11 @@ cmd_wrangler() {
     # No stored token on the Mac: fall back to wrangler's own browser login.
     "${runner[@]}" "$@"
   else
-    die "no API token in $(token_store) - Robert runs: $0 setup"
+    die "no API token in $(token_store) - run: $0 setup"
   fi
 }
 
+CF_CMD="${1:-}"
 case "${1:-}" in
   setup) cmd_setup ;;
   config) cmd_config ;;

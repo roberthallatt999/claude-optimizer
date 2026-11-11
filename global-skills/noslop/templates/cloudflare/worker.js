@@ -3,7 +3,7 @@
 // forgotten `secret put` never leaves the page open. Every response says noindex.
 //
 // BASE_PATH ("/q3-traffic-7f3a9c2e") puts the page under its own path of the shared host
-// (share.cps.ca/q3-traffic-7f3a9c2e/), so many pages share one host name. Empty serves the root.
+// (share.example.org/q3-traffic-7f3a9c2e/), so many pages share one host name. Empty serves the root.
 
 const COOKIE = 'noslop_gate';
 const MAX_AGE = 60 * 60 * 24 * 30;
