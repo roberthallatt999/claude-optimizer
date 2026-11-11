@@ -127,7 +127,13 @@ if [[ -n "${CLAUDE_PROJECT_DIR:-}" && -f "$CLAUDE_PROJECT_DIR/ai-config.conf" ]]
       # "*.php" or "t*" would switch the scan off far beyond a fixture folder: ignored.
       [[ -n "$_g" && "$_g" != /* && "$_g" != *..* ]] || continue
       _lit="${_g%%[*?[]*}"
-      if [[ "$_lit" == "$_g" || "$_lit" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*/$ \
+      # Every folder segment needs a letter or digit: "./**" or ".../**" must not pass as a folder.
+      # (An empty literal is no prefix at all, and an empty array under set -u kills bash 3.2.)
+      [[ -n "${_lit%/}" ]] || continue
+      _seg_ok=1
+      IFS=/ read -ra _segs <<< "${_lit%/}"
+      for _s in "${_segs[@]}"; do [[ "$_s" =~ [A-Za-z0-9] ]] || _seg_ok=0; done
+      if [[ $_seg_ok == 1 ]] && [[ "$_lit" == "$_g" || "$_lit" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*/$ \
             || "$_lit" =~ ^([A-Za-z0-9_.-]+/)*[A-Za-z0-9_.]{3,}[-_.]$ ]]; then
         SCAN_ALLOW+=("$_g")
       fi
@@ -160,8 +166,12 @@ glob_to_re() {
 scan_allowed() {
   local rel="$1" g re
   [[ ${#SCAN_ALLOW[@]} -gt 0 ]] || return 1
-  rel="${rel#"${CLAUDE_PROJECT_DIR:-}"/}"; rel="${rel#./}"
-  [[ "$rel" == /* ]] && return 1
+  rel="${rel#"${CLAUDE_PROJECT_DIR:-}"/}"
+  # Normalise before matching: no "./" or "//" segments, and a ".." anywhere is refused.
+  while [[ "$rel" == ./* ]]; do rel="${rel#./}"; done
+  while [[ "$rel" == *//* ]]; do rel="${rel//\/\//\/}"; done
+  while [[ "$rel" == */./* ]]; do rel="${rel//\/.\//\/}"; done
+  [[ "$rel" == /* || "/$rel/" == */../* ]] && return 1
   for g in "${SCAN_ALLOW[@]}"; do
     re="$(glob_to_re "$g")"
     [[ "$rel" =~ $re ]] && return 0
@@ -218,13 +228,14 @@ is_secret_path() {
   esac
   case "$p" in
     .ssh/*|*/.ssh/*|.aws/*|*/.aws/credentials|*/.aws/config|.azure/*|*/.azure/*) return 0 ;;
-    *system/user/config/config.php|*.ddev/db_snapshots/*|*.ddev/import-db/*) return 0 ;;
+    user/config/config.php|*/user/config/config.php|*.ddev/db_snapshots/*|*.ddev/import-db/*) return 0 ;;
   esac
   matches_protected "$p"
 }
 
-# EE's system/user/config/config.php is a secret path but tracked (see git_stage_only).
-TRACKED_CONFIG_RE='(^|/)system/user/config/config\.php$'
+# EE's <system folder>/user/config/config.php (system/, or renamed: plbmin/, lcmin/…) is a
+# secret path but tracked (see git_stage_only).
+TRACKED_CONFIG_RE='(^|/)user/config/config\.php$'
 
 SECRET_REASON="may contain secrets (Safety Guardrail #1: never read secrets). Ask the developer for the specific non-secret value you need, or use the .env.example template."
 PUBLISH="Safety Guardrail #2: publishing needs the developer's explicit approval for this specific action."
@@ -351,10 +362,12 @@ secret_files_under() {
       -o -name 'wp-config*.php' -o -name 'wp-salt.php' -o -name '.npmrc' -o -name '.netrc' -o -name '.pgpass' \
       -o -name '.my*.cnf' -o -name '.mysql*.cnf' -o -name '*.sql' -o -name 'database.y*ml' -o -name 'config.php' \
       -o -name '*.secret*' -o -name '*.token' -o -name '.git-credentials' -o -name '.htpasswd' -o -name 'vault.y*ml' \) \
-    -print 2>/dev/null | head -50 | while IFS= read -r f; do
+    -print 2>/dev/null | while IFS= read -r f; do
       rel="${f#"$root"/}"
       is_secret_path "$(lower "$rel")" && printf '%s\n' "$f"
-    done
+    done | head -51
+  # Filtered first, capped after: decoy names can't push a real secret past the cap. A 51st
+  # secret file means "too many to check" — search_leak fails closed on it.
   return 0
 }
 
@@ -395,9 +408,13 @@ search_leak() {
     [[ "$pats" == *\\* ]] && npats=0   # rg syntax grep may read differently: fail closed below
     engine="grep"
   fi
+  local nfiles rel_dir comp
   for root in "$@"; do
+    nfiles=0
     while IFS= read -r f; do
       [[ -n "$f" ]] || continue
+      nfiles=$((nfiles + 1))
+      if [[ $nfiles -gt 50 ]]; then printf '%s' "${root}/ (more than 50 secret files)"; return 0; fi
       base="${f##*/}"
       if [[ "$hidden" == 0 && "$base" == .* ]]; then continue; fi
       if [[ "$noignore" == 0 ]] && git -C "$(dirname "$f")" check-ignore -q "$f" 2>/dev/null; then continue; fi
@@ -407,10 +424,17 @@ search_leak() {
         [[ $ok == 1 ]] || continue
       fi
       ok=1
+      # Excludes match the file name, or a folder BELOW the search root (as grep's
+      # --exclude-dir and rg's globs do), never a folder above it in the absolute path.
+      rel_dir="${f#"$root"/}"; rel_dir="${rel_dir%/*}"; [[ "$rel_dir" == "${f#"$root"/}" ]] && rel_dir=""
       while IFS= read -r -d $'\x1f' g; do
         [[ -n "$g" ]] || continue
         glob_hit "$base" "$g" && ok=0
-        [[ "$f" == *"/${g%/}/"* ]] && ok=0
+        if [[ -n "$rel_dir" && "${g%/}" != */* ]]; then
+          local IFS=/
+          for comp in $rel_dir; do glob_hit "$comp" "${g%/}" && ok=0; done
+          unset IFS
+        fi
       done <<< "$excs"$'\x1f'
       [[ $ok == 1 ]] || continue
       if [[ $npats -gt 0 && "$engine" == rg ]]; then
@@ -454,18 +478,21 @@ staged_leaks() {
       # Templates and the tracked EE config are skipped here, in one pass: a shell loop per
       # added line costs a process per line and takes minutes on a large first commit.
       /^\+\+\+ / { f = substr($0, 5); sub(/^b\//, "", f); lf = tolower(f)
-                    skip = (lf ~ /\.(example|sample|template|dist|defaults|tpl)(\.[^\/]*)?$/ || lf ~ /(^|\/)system\/user\/config\/config\.php$/)
+                    skip = (lf ~ /\.(example|sample|template|dist|defaults|tpl)(\.[^\/]*)?$/ || lf ~ /(^|\/)user\/config\/config\.php$/)
                     next }
       /^@@/ { split($3, a, ","); n = substr(a[1], 2) - 1; next }
       /^\+/ { n++; if (!skip && tolower($0) ~ re) print f ":" n ":" substr($0, 2) }')"
   # Both patterns over the same added lines (a here-string each: one stdin can't feed two greps).
   hit="$( { LC_ALL=C grep -E -e "$SECRET_CONTENT_RE" <<< "$hit"; LC_ALL=C grep -iE -e "$SECRET_ASSIGN_RE" <<< "$hit"; } 2>/dev/null \
-    | LC_ALL=C grep -viE -e "$SECRET_PLACEHOLDER_RE" | head -50 | cut -d: -f1,2)"
+    | head -500)"
   # A hit in a [scan] allow fixture isn't waved through at commit time, where the content
-  # reaches git history: it asks. Any other hit denies.
-  local _h _fixture=""
-  while IFS= read -r _h; do
-    [[ -n "$_h" ]] || continue
+  # reaches git history: it asks. Any other hit denies. The placeholder test looks at the
+  # line's CONTENT only: a path like examples/ or sample.txt must not excuse a real secret.
+  local _h _line _fixture=""
+  while IFS= read -r _line; do
+    [[ -n "$_line" ]] || continue
+    LC_ALL=C grep -qiE -e "$SECRET_PLACEHOLDER_RE" <<< "${_line#*:*:}" && continue
+    _h="$(cut -d: -f1,2 <<< "$_line")"
     if scan_allowed "${_h%%:*}"; then [[ -n "$_fixture" ]] || _fixture="$_h"
     else printf 'content\t%s' "$_h"; return 0; fi
   done <<< "$hit"
@@ -730,13 +757,39 @@ git_stage_only() {
 STAGE_ONLY_TOKS=" "
 
 # --- Secrets referenced from the shell --------------------------------------
+# bare_word_exists <name> — a file by that name in the session's folder, the hook's own
+# folder, or any folder the command cds into (relative to the session folder).
+_bw_cwd="$(json_field .cwd)"
+_bw_dirs=("$PWD" "${_bw_cwd:-$PWD}")
+_bw_rest="$cmd"
+_bw_re='(^|[;&|(])[[:space:]]*cd[[:space:]]+([^;&|()[:space:]]+)'
+while [[ "$_bw_rest" =~ $_bw_re ]]; do
+  _d="${BASH_REMATCH[2]//[\"\']/}"
+  case "$_d" in "~"*) _d="$HOME${_d#\~}" ;; esac
+  case "$_d" in /*) _bw_dirs+=("$_d") ;; *) _bw_dirs+=("${_bw_cwd:-$PWD}/$_d") ;; esac
+  _bw_rest="${_bw_rest#*"${BASH_REMATCH[0]}"}"
+done
+bare_word_exists() {
+  local d
+  for d in "${_bw_dirs[@]}"; do [[ -e "$d/$1" ]] && return 0; done
+  # Case-insensitive filesystems: tokens are lowercased, the file may not be.
+  local f found=1
+  shopt -s nocasematch
+  for d in "${_bw_dirs[@]}"; do
+    for f in "$d"/*; do [[ "${f##*/}" == "$1" ]] && { found=0; break 2; }; done
+  done
+  shopt -u nocasematch
+  return $found
+}
+
 secret=""
 while IFS= read -r tok; do
   [[ -n "$tok" ]] || continue
   if is_secret_path "$tok"; then
     # A bare word ("credentials", "secrets") is prose in an echo or a commit message far more
     # often than a file name: only an existing file by that name counts. Key names still do.
-    if [[ "$tok" != */* && "$tok" != *.* && ! -e "$tok" ]] && [[ ! "$tok" =~ ^id_(rsa|dsa|ecdsa|ed25519)(\.pub)?$ ]]; then
+    if [[ "$tok" != */* && "$tok" != *.* ]] && ! bare_word_exists "$tok" \
+       && [[ ! "$tok" =~ ^id_(rsa|dsa|ecdsa|ed25519)(\.pub)?$ ]]; then
       continue
     fi
     if git_stage_only "$tok"; then
@@ -859,9 +912,10 @@ if m "$PRINTS_SECRET_RE"; then
       {
         print
         # Only when git commit -F - is the line'"'"'s first command (optionally after cd … &&),
-        # the heredoc marker ends the line, and it is the line'"'"'s only "<<".
+        # the heredoc marker ends the line, and it is the line'"'"'s only "<<". A "<<-" heredoc
+        # (tab-indented terminator) gets no exemption: its end can differ from ours.
         tmp = $0
-        if (gsub(/<</, "&", tmp) == 1 && match($0, /^[ \t]*(cd[ \t]+[^;&|<]*&&[ \t]*)?git([ \t]+-c[ \t]+[^ \t;&|<]+)*[ \t]+commit[ \t][^;&|<]*(-f|--file)[ \t]*=?[ \t]*-[ \t]*<<-?[ \t]*["\047]?[a-z_][a-z0-9_]*["\047]?[ \t]*$/)) {
+        if (gsub(/<</, "&", tmp) == 1 && match($0, /^[ \t]*(cd[ \t]+[^;&|<]*&&[ \t]*)?git([ \t]+-c[ \t]+[^ \t;&|<]+)*[ \t]+commit[ \t][^;&|<]*(-f|--file)[ \t]*=?[ \t]*-[ \t]*<<[ \t]*["\047]?[a-z_][a-z0-9_]*["\047]?[ \t]*$/)) {
           pre = $0
           sub(/<<.*/, "", pre)
           if (quotes_balanced(pre)) {

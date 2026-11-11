@@ -62,6 +62,10 @@ check "rg DB_PASSWORD (rg skips hidden files)"          allow "$(bash_d 'rg DB_P
 check "rg -uu DB_PASSWORD"                              deny  "$(bash_d 'rg -uu DB_PASSWORD')"
 check "rg -i 'jane doe' (matches the dump)"             deny  "$(bash_d "rg -i 'jane doe'")"
 check "rg -g '!*.sql' -i 'jane doe'"                    allow "$(bash_d "rg -g '!*.sql' -i 'jane doe'")"
+check "--exclude-dir naming a folder ABOVE the root"    deny  "$(bash_d "grep -r --exclude-dir=$(basename "$(dirname "$P")") DB_PASSWORD .")"
+mkdir -p "$P/decoys"; for i in $(seq 1 60); do touch "$P/decoys/credentials-$i.json"; done
+check "more than 50 secret files fails closed"          deny  "$(bash_d 'grep -r zzzz-no-such-text .')"
+rm -rf "$P/decoys"
 check "git grep (tracked files only)"                   allow "$(bash_d 'git grep DB_PASSWORD')"
 check "Grep tool over the project"                      deny  "$(decision Grep '{"pattern":"DB_PASSWORD"}')"
 check "Grep tool glob *.php"                            allow "$(decision Grep '{"pattern":"DB_PASSWORD","glob":"*.php"}')"
@@ -105,6 +109,11 @@ EOF")"
 check "unterminated commit heredoc fails closed"        deny  "$(bash_d "git commit -F - <<'EOF'
 ${gt}")"
 check "commit heredoc not the line's first command"     deny  "$(bash_d "echo x; git commit -F - <<'EOF'
+${gt}
+EOF")"
+check "<<- heredoc gets no exemption (tab terminator)"  deny  "$(bash_d "git commit -F - <<-EOF
+msg
+	EOF
 ${gt}
 EOF")"
 check "two heredocs on the commit line fail closed"     deny  "$(bash_d "git commit -F - <<'EOF' && bash <<'X'
@@ -155,7 +164,11 @@ printf '[scan]\nallow = tests/fixtures/**\n' > "$P/ai-config.conf"
 check "[scan] allow skips the content scan"             allow "$(decision Read "$(jq -n --arg f "$P/tests/fixtures/sample.txt" '{file_path:$f}')")"
 printf '[scan]\nallow = .env*, tests/fixtures/**\n' > "$P/ai-config.conf"
 check "[scan] allow can't open a secret path"           deny  "$(decision Read "$(jq -n --arg f "$P/.env" '{file_path:$f}')")"
-for g in '**' '*' '*/**' '*.txt' 't*' 'tests*' 'te-*'; do
+printf '[scan]\nallow = tests/fixtures/**\n' > "$P/ai-config.conf"
+printf 'DB_%s=%s\n' PASSWORD 'outside-fixture-9876' > "$P/app/outside.txt"
+check "[scan] allow: '..' can't climb out of the folder" deny "$(decision Read "$(jq -n --arg f "$P/tests/fixtures/../../app/outside.txt" '{file_path:$f}')")"
+rm -f "$P/app/outside.txt"
+for g in '**' '*' '*/**' '*.txt' 't*' 'tests*' 'te-*' './**' '.../**' 'tests/./**'; do
   printf '[scan]\nallow = %s\n' "$g" > "$P/ai-config.conf"
   check "[scan] allow = $g is ignored (no literal prefix)" deny "$(decision Read "$(jq -n --arg f "$P/tests/fixtures/sample.txt" '{file_path:$f}')")"
 done
@@ -170,6 +183,9 @@ check "echo about credentials (no such file)"           allow "$(bash_d 'echo up
 touch "$P/credentials"
 check "cat credentials (the file exists)"               deny  "$(bash_d 'cat credentials')"
 rm -f "$P/credentials"
+mkdir -p "$P/sub"; touch "$P/sub/credentials"
+check "cd sub && cat credentials (found via cd)"        deny  "$(bash_d 'cd sub && cat credentials')"
+rm -rf "$P/sub"
 
 # --- Commits ------------------------------------------------------------------------
 commit_d() { bash_d 'git commit -m wip'; }
@@ -227,6 +243,21 @@ printf '#!/bin/sh\necho mine\n' > "$H/.git/hooks/pre-commit"
 check "setup: an existing pre-commit hook is left alone" yes "$(grep -q mine "$H/.git/hooks/pre-commit" && echo yes || echo no)"
 "$SETUP" --stack=coilpack --project="$N" --uninstall --force >/dev/null 2>&1
 check "uninstall: removes our pre-commit hook"          no  "$([[ -f "$N/.git/hooks/pre-commit" ]] && echo yes || echo no)"
+
+# --- Stack detection that refresh relies on ---------------------------------------
+E=$(tmp_dir); git -C "$E" init -q
+mkdir -p "$E/plbmin/ee" "$E/plbmin/user/config"
+printf "<?php\n\t\$system_path = './plbmin';\n" > "$E/admin.php"
+"$SETUP" --project="$E" --force --no-superpowers --skip-vscode >/dev/null 2>&1
+check "EE with a renamed system folder is detected"     expressionengine "$(sed -n 's/^stack=//p' "$E/.claude/ai-config/version" 2>/dev/null)"
+check "renamed EE config is a protected path"           deny "$(jq -n --arg f "$E/plbmin/user/config/config.php" '{tool_name:"Read",tool_input:{file_path:$f}}' \
+  | CLAUDE_PROJECT_DIR="$E" bash "$GUARD" | jq -r .hookSpecificOutput.permissionDecision)"
+printf '# Rewritten by hand\nNo stack marker here.\n' > "$E/CLAUDE.md"
+rm -f "$E/admin.php"
+out="$("$SETUP" --project="$E" --refresh --no-superpowers --skip-vscode 2>&1)"
+check "refresh falls back to the recorded stack"        yes "$(grep -q 'from the last ai-config run: .*expressionengine' <<< "$out" && echo yes || echo no)"
+out="$("$SETUP" --project="$E" --doctor 2>&1)"
+check "doctor: shipped rules mentioning ssh aren't 'remote use'" no "$(grep -q 'Remote servers are used here' <<< "$out" && echo yes || echo no)"
 
 # --- Global guard installer --------------------------------------------------------
 C=$(tmp_dir)

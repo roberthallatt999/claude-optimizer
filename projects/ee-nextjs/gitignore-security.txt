@@ -2,6 +2,8 @@
 # ExpressionEngine Configuration (contains database credentials & encryption keys)
 # =============================================================================
 system/user/config/config.php
+# EE system folder renamed for security (plbmin/, lcmin/…)
+**/user/config/config.php
 system/expressionengine/config/config.php
 user/config/config.php
 .env.php

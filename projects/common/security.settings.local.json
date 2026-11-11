@@ -81,6 +81,7 @@
       "Read(**/secrets.yaml)",
       "Read(**/secrets.yml)",
       "Read(**/system/user/config/config.php)",
+      "Read(**/user/config/config.php)",
       "Read(**/vault.yaml)",
       "Read(**/vault.yml)",
       "Read(**/wp-config-local.php)",

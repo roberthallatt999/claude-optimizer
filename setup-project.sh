@@ -657,10 +657,29 @@ if [[ -z "$STACK" ]]; then
     fi
   fi
 
+  # Then: the stack the last run recorded. A CLAUDE.md rewritten by hand (or by
+  # /project-discover) loses the @~/.claude/stacks/ marker, but this stamp survives.
+  if [[ -z "$STACK" && -f "$PROJECT_DIR/.claude/ai-config/version" ]]; then
+    DETECTED_STACK=$(sed -n 's/^stack=\([a-z0-9-]*\)$/\1/p' "$PROJECT_DIR/.claude/ai-config/version" | head -1)
+    if [[ -n "$DETECTED_STACK" && -d "$SCRIPT_DIR/projects/$DETECTED_STACK" ]]; then
+      STACK="$DETECTED_STACK"
+      echo -e "${CYAN}Auto-detected stack from the last ai-config run: ${GREEN}$STACK${NC}"
+    fi
+  fi
+
+  # EE's system folder is often renamed for security (admin.php / index.php set
+  # $system_path = './plbmin'); the default is ./system.
+  EE_SYSTEM_DIR="system"
+  for _ee_front in admin.php index.php; do
+    [[ -f "$PROJECT_DIR/$_ee_front" ]] || continue
+    _ee_sys=$(sed -n "s/^[[:space:]]*\$system_path[[:space:]]*=[[:space:]]*['\"]\.\/\([A-Za-z0-9_.-]*\)\/\{0,1\}['\"].*/\1/p" "$PROJECT_DIR/$_ee_front" | head -1)
+    if [[ -n "$_ee_sys" && -d "$PROJECT_DIR/$_ee_sys/ee" ]]; then EE_SYSTEM_DIR="$_ee_sys"; break; fi
+  done
+
   # Second try: Detect from project files
   if [[ -z "$STACK" ]]; then
     # ExpressionEngine (check for headless Coilpack + Next.js first)
-    if [[ -d "$PROJECT_DIR/system/ee" ]] || [[ -f "$PROJECT_DIR/system/user/config/config.php" ]]; then
+    if [[ -d "$PROJECT_DIR/$EE_SYSTEM_DIR/ee" ]] || [[ -f "$PROJECT_DIR/$EE_SYSTEM_DIR/user/config/config.php" ]]; then
       if [[ -f "$PROJECT_DIR/composer.json" ]] && grep -q "laravel/framework" "$PROJECT_DIR/composer.json" 2>/dev/null; then
         if [[ -f "$PROJECT_DIR/frontend/next.config.js" ]] || [[ -f "$PROJECT_DIR/frontend/next.config.mjs" ]] || [[ -f "$PROJECT_DIR/frontend/next.config.ts" ]]; then
           STACK="ee-nextjs"
@@ -3219,12 +3238,19 @@ verify_deployment() {
       hc_warn "safety-guard.sh did not deny a test production write naming ${unproven% } — run --refresh to update the hook, or check the marker in $POLICY_FILE_NAME [remote]"
     fi
   else
+    # Only the project's own words count: a file ai-config shipped and nobody edited (the
+    # safety rules mention ssh as an example) says nothing about this project's servers.
+    local _rf _rel
     for f in "$claude_md" "$PROJECT_DIR/MEMORY.md" "$PROJECT_DIR/.claude/rules" "$PROJECT_DIR/.claude/commands" \
              "$PROJECT_DIR/.claude/skills" "$PROJECT_DIR/.okf"; do
       [[ -e "$f" ]] || continue
-      if grep -rqiE '(^|[^a-z0-9_-])(ssh|rsync|scp)[[:space:]]+[^[:space:]]*[a-z0-9]' "$f" 2>/dev/null; then
+      while IFS= read -r _rf; do
+        [[ -n "$_rf" ]] || continue
+        _rel="$(rel_path "$_rf")"
+        [[ -n "$(manifest_get "$_rel")" && "$(manifest_get "$_rel")" == "$(file_sha "$_rf")" ]] && continue
         remote_refs+="${f#"$PROJECT_DIR"/} "
-      fi
+        break
+      done < <(grep -rliE '(^|[^a-z0-9_-])(ssh|rsync|scp)[[:space:]]+[^[:space:]]*[a-z0-9]' "$f" 2>/dev/null)
     done
     if [[ -n "$remote_refs" ]]; then
       hc_warn "Remote servers are used here (${remote_refs% }) but $POLICY_FILE_NAME declares no production target — production writes over SSH prompt instead of being blocked. Add production = <path, SSH alias or database> under [remote]"
