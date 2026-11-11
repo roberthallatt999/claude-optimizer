@@ -240,6 +240,23 @@ readable text such as `(brand green: not set)` rather than a fake value.
 
 ## Recent Changes
 
+- **Profiles by folder; Cloudflare per profile** — every project uses exactly one profile
+  (on Robert's Macs: cps on the work Mac; personal, lat45designs and digitaldesigns on the
+  personal one). `~/.config/ai-config/folders` maps folders to profiles (longest match
+  wins). `profile.sh` checks `AI_CONFIG_PROFILE`, then the nearest `ai-config.conf` that
+  *names* a profile (one holding only `[remote]` no longer stops the search), then the folder
+  map, then the machine default. `--doctor` shows the project's profile, and warns when a
+  machine with profiles resolves none. `cloudflare.sh` keeps each profile's account, token and
+  page records apart (`~/.config/ai-config-cloudflare/<profile>/`, Keychain
+  `cloudflare-api-<profile>`; cps keeps its original location). A profile can share another's
+  setup with `cloudflare = <profile>` when its share domain is in that account.
+  Tests: `test-global-skills.sh`.
+- **Moved repo, renamed EE system folders, rollout to 30 projects** — the repo now lives at
+  `~/data/lat45designs/_tools/claude-optimizer`. A move breaks the global guard and skill
+  links: rerun `scripts/install-global-guard.sh` and `scripts/link-global-skills.sh`, which
+  repoint them, and update `AI_CONFIG_REPO` in the shell config. Refresh falls back to the
+  stack in `.claude/ai-config/version`. EE detection follows a renamed system folder
+  (`$system_path` in admin.php), and its `user/config/config.php` is protected.
 - **Hand risky steps to the developer** — a new Safety Guardrail #5 in the always-on block,
   and a closing line on every guard deny. When a step needs a secret, production access or
   anything blocked, Claude gives the exact command to run in the developer's own terminal (a

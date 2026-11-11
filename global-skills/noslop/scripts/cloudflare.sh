@@ -34,8 +34,21 @@
 
 set -euo pipefail
 
-KEYCHAIN_SERVICE="${CLOUDFLARE_KEYCHAIN_SERVICE:-cloudflare-api}"
-CONFIG_FILE="${CLOUDFLARE_CONFIG:-$HOME/.config/cps-cloudflare/config}"
+# Each ai-config profile has its own Cloudflare account, token and page records, so a page
+# for one client never publishes under another's account. The cps profile (and no profile)
+# keeps the original locations, which the CPS dev containers mount.
+_PROFILE="$("$(dirname "${BASH_SOURCE[0]}")/profile.sh" 2>/dev/null | sed -n 's/^profile=//p' | head -1)"
+# A profile can share another's Cloudflare setup ("cloudflare = lat45designs"), when its
+# share domain lives in that account.
+_CF_NAME="$("$(dirname "${BASH_SOURCE[0]}")/profile.sh" cloudflare 2>/dev/null)"
+_CF_NAME="${_CF_NAME:-$_PROFILE}"
+if [[ -n "$_CF_NAME" && "$_CF_NAME" != none && "$_CF_NAME" != cps && "$_CF_NAME" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  _CF_DIR="$HOME/.config/ai-config-cloudflare/$_CF_NAME"; _CF_SERVICE="cloudflare-api-$_CF_NAME"
+else
+  _CF_DIR="$HOME/.config/cps-cloudflare"; _CF_SERVICE="cloudflare-api"
+fi
+KEYCHAIN_SERVICE="${CLOUDFLARE_KEYCHAIN_SERVICE:-$_CF_SERVICE}"
+CONFIG_FILE="${CLOUDFLARE_CONFIG:-$_CF_DIR/config}"
 TOKEN_FILE="${CLOUDFLARE_TOKEN_FILE:-$(dirname "$CONFIG_FILE")/api-token}"
 PAGES_DIR="${CLOUDFLARE_PAGES_DIR:-$(dirname "$CONFIG_FILE")/pages}"
 API="https://api.cloudflare.com/client/v4"
@@ -211,6 +224,7 @@ cmd_setup() {
 
 cmd_config() {
   load_config
+  printf 'profile:   %s (config %s)\n' "${_PROFILE:-none}" "$CONFIG_FILE"
   printf 'account:   %s\n' "${CLOUDFLARE_ACCOUNT_ID:-(not set - run setup)}"
   printf 'pages:     https://%s/<name>/ (zone %s)\n' "$CLOUDFLARE_SHARE_DOMAIN" "$CLOUDFLARE_SHARE_ZONE"
   if token_present; then printf 'token:     stored in %s\n' "$(token_store)"

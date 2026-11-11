@@ -71,20 +71,46 @@ See `profiles/example.conf`.
 ```
 ~/.config/ai-config/            ← a private git repo, not this one
 ├── profile                     ← this machine's default, e.g. "cps" or "personal"
+├── folders                     ← which profile applies under which folder
 ├── profiles/
-│   ├── cps.conf
-│   └── personal.conf
+│   ├── cps.conf                ← CPS (work Mac)
+│   ├── personal.conf           ← own account and home lab
+│   ├── lat45designs.conf       ← the Lat45 Designs studio
+│   └── digitaldesigns.conf     ← the Digital Designs side gig
 └── skills/                     ← your own skills (linked into ~/.claude/skills/)
 ```
 
-The active profile is the first of these:
+Every project uses exactly one profile, the first of these:
 
 1. `AI_CONFIG_PROFILE`
-2. `profile = <name>` under `[options]` in the project's `ai-config.conf`
-3. The machine default in `~/.config/ai-config/profile`
+2. `profile = <name>` under `[options]` in an `ai-config.conf`: the nearest one that names a
+   profile, from the project folder upward. One that holds only `[remote]` is passed over.
+3. The `folders` map, where the longest matching folder wins:
+   ```
+   ~/data/lat45designs                  = lat45designs
+   ~/data/lat45designs/robshomelab.net  = personal
+   ~/data/digital-designs               = digitaldesigns
+   ```
+4. The machine default in `~/.config/ai-config/profile`
 
-`global-skills/noslop/scripts/profile.sh` prints it. Dev containers mount
-`profiles/` and `profile` read-only, and nothing else from the private repo.
+`global-skills/noslop/scripts/profile.sh` prints it, and `ai-config --doctor` shows each
+project's profile. On a machine with profiles, `--doctor` warns about a project with none.
+Dev containers mount `profiles/` and `profile` read-only, and nothing else from the private repo.
+
+### Cloudflare per profile
+
+Each profile has its own Cloudflare account, token and page records, so a page for one client
+never publishes under another's account. `~/.config/ai-config-cloudflare/<profile>/` holds the
+config, and the Keychain entry is `cloudflare-api-<profile>`. The `cps` profile keeps the
+original `~/.config/cps-cloudflare/` and `cloudflare-api`, which the CPS dev containers use.
+
+When two profiles publish to a domain in the same Cloudflare account, one borrows the other's
+setup with `cloudflare = <profile>` in its `.conf` (digitaldesigns uses lat45designs'). To set
+up a profile, run setup once from a project that uses it:
+
+```bash
+cd ~/data/lat45designs/ottawa-icetimes.com && ~/.claude/skills/noslop/scripts/cloudflare.sh setup
+```
 
 ### Setting up and editing your profiles
 

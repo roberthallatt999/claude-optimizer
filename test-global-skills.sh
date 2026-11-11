@@ -109,6 +109,36 @@ assert_true  "profile: AI_CONFIG_PROFILE wins over ai-config.conf" \
   test "$(cd "$proj_dir" && AI_CONFIG_PROFILE=work "$PROFILE" share_domain)" = share.cps.ca
 assert_true  "profile: unknown name reports the missing file" grep -q '^missing=' <<< "$(AI_CONFIG_PROFILE=nope "$PROFILE")"
 assert_false "profile: a path in the name is refused" grep -q '^share_domain=' <<< "$(AI_CONFIG_PROFILE=../profiles/work "$PROFILE")"
+
+# The folders map: everything under a folder uses its profile, the longest match wins, and a
+# project's ai-config.conf that names no profile (only [remote], say) doesn't stop the search.
+tree=$(tmp_dir)
+mkdir -p "$tree/studio/client-a/site" "$tree/studio/homelab" "$tree/gig/forge/site-b"
+printf 'name = R\nshare_domain = share.studio.example\n' > "$cfg_home/profiles/studio.conf"
+printf 'name = R\nshare_domain = share.gig.example\n' > "$cfg_home/profiles/gig.conf"
+printf '%s = studio\n%s = home   # nested: longest wins\n%s = gig\n' "$tree/studio" "$tree/studio/homelab" "$tree/gig" > "$cfg_home/folders"
+printf '[remote]\nproduction = site-b-prod\n' > "$tree/gig/forge/site-b/ai-config.conf"
+assert_true  "folders: a project under a mapped folder uses its profile" \
+  test "$(cd "$tree/studio/client-a/site" && "$PROFILE" share_domain)" = share.studio.example
+assert_true  "folders: the longest matching folder wins" \
+  test "$(cd "$tree/studio/homelab" && "$PROFILE" share_domain)" = share.example.org
+assert_true  "folders: an ai-config.conf without a profile doesn't stop the search" \
+  test "$(cd "$tree/gig/forge/site-b" && "$PROFILE" share_domain)" = share.gig.example
+assert_true  "folders: an unmapped folder falls back to the machine default" \
+  grep -qx 'profile=work' <<< "$(cd "$(tmp_dir)" && "$PROFILE")"
+printf '[options]\nprofile = work\n' > "$tree/gig/forge/site-b/ai-config.conf"
+assert_true  "folders: a project's own profile beats the folder" \
+  test "$(cd "$tree/gig/forge/site-b" && "$PROFILE" share_domain)" = share.cps.ca
+CFCMD="$NOSLOP/scripts/cloudflare.sh"
+assert_true  "cloudflare: each profile has its own config and Keychain entry" \
+  grep -q "ai-config-cloudflare/gig/config" <<< "$(cd "$tree/gig/forge" && env -u CLOUDFLARE_CONFIG -u CLOUDFLARE_TOKEN_FILE -u CLOUDFLARE_KEYCHAIN_SERVICE "$CFCMD" config 2>&1)"
+printf 'name = R\n' > "$cfg_home/profiles/cps.conf"
+assert_true  "cloudflare: the cps profile keeps the original location" \
+  grep -q "cps-cloudflare/config" <<< "$(cd "$(tmp_dir)" && AI_CONFIG_PROFILE=cps env -u CLOUDFLARE_CONFIG -u CLOUDFLARE_TOKEN_FILE -u CLOUDFLARE_KEYCHAIN_SERVICE "$CFCMD" config 2>&1)"
+printf 'name = R\ncloudflare = studio\n' > "$cfg_home/profiles/gig.conf"
+assert_true  "cloudflare: a profile can share another's Cloudflare setup" \
+  grep -q "ai-config-cloudflare/studio/config" <<< "$(cd "$tree/gig" && env -u CLOUDFLARE_CONFIG -u CLOUDFLARE_TOKEN_FILE -u CLOUDFLARE_KEYCHAIN_SERVICE "$CFCMD" config 2>&1)"
+rm -f "$cfg_home/folders"
 site=$(tmp_dir)
 assert_true  "cloudflare: new scaffolds the gate" "$CF" new "$site" "Q3 Member Centre traffic!"
 name=$(sed -n 's/^  "name": "\([^"]*\)".*/\1/p' "$site/wrangler.jsonc")

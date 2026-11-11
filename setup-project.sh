@@ -3080,6 +3080,19 @@ verify_deployment() {
       hc_warn "No global safety guard: sessions outside ai-config projects have no secret protection — run: $SCRIPT_DIR/scripts/install-global-guard.sh"
     fi
   fi
+  # The project's ai-config profile (who pages are from, which Cloudflare account). Checked
+  # only on a machine that has profiles: there, every project should resolve to one.
+  if [[ -d "${AI_CONFIG_HOME:-$HOME/.config/ai-config}/profiles" ]]; then
+    local _prof _from
+    _prof="$(cd "$PROJECT_DIR" && "$SCRIPT_DIR/global-skills/noslop/scripts/profile.sh" 2>/dev/null)"
+    _from="$(sed -n 's/^from=//p' <<< "$_prof")"
+    _prof="$(sed -n 's/^profile=//p' <<< "$_prof")"
+    if [[ -n "$_prof" && "$_prof" != none ]]; then
+      hc_ok "Profile: $_prof (from ${_from/#$HOME/\~})"
+    else
+      hc_warn "No ai-config profile applies here: add this folder to ~/.config/ai-config/folders, or set profile = <name> under [options] in $POLICY_FILE_NAME"
+    fi
+  fi
   if precommit_hook_path >/dev/null 2>&1; then
     if grep -qs "$PRECOMMIT_MARKER\|safety-guard.sh --pre-commit" "$(precommit_hook_path)" \
        || grep -rqs 'safety-guard.sh --pre-commit' "$PROJECT_DIR/$(git -C "$PROJECT_DIR" config --get core.hooksPath 2>/dev/null || echo .git/hooks)/pre-commit"; then
