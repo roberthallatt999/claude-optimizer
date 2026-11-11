@@ -63,6 +63,10 @@ check "rg -uu DB_PASSWORD"                              deny  "$(bash_d 'rg -uu 
 check "rg -i 'jane doe' (matches the dump)"             deny  "$(bash_d "rg -i 'jane doe'")"
 check "rg -g '!*.sql' -i 'jane doe'"                    allow "$(bash_d "rg -g '!*.sql' -i 'jane doe'")"
 check "--exclude-dir naming a folder ABOVE the root"    deny  "$(bash_d "grep -r --exclude-dir=$(basename "$(dirname "$P")") DB_PASSWORD .")"
+mkdir -p "$P/vault"; printf 'DB_%s=%s\n' PASSWORD 'in-a-folder-4321' > "$P/vault/.env.local"
+check "--exclude=<folder name> doesn't skip that folder" deny "$(bash_d "grep -r --exclude=vault --exclude='.env' in-a-folder .")"
+check "--exclude-dir=<folder> does skip it"             allow "$(bash_d "grep -r --exclude-dir=vault --exclude='.env' in-a-folder .")"
+rm -rf "$P/vault"
 mkdir -p "$P/decoys"; for i in $(seq 1 60); do touch "$P/decoys/credentials-$i.json"; done
 check "more than 50 secret files fails closed"          deny  "$(bash_d 'grep -r zzzz-no-such-text .')"
 rm -rf "$P/decoys"
@@ -205,6 +209,16 @@ printf 'DB_%s=%s\n' PASSWORD 'not-real-but-long-1' > "$P/app/.env.example"
 git -C "$P" add -f app/.env.example
 check "commit: .env.example template"                   allow "$(commit_d)"
 git -C "$P" rm -q --cached app/.env.example
+mkdir -p "$P/system/user/config" "$P/other/user/config"
+printf "<?php \$config['%s'] = '%s';\n" db_password 'tracked-ee-config-77' > "$P/system/user/config/config.php"
+cp "$P/system/user/config/config.php" "$P/other/user/config/config.php"
+git -C "$P" add -f system/user/config/config.php
+check "commit: the tracked EE config is exempt"         allow "$(commit_d)"
+git -C "$P" rm -q --cached system/user/config/config.php
+git -C "$P" add -f other/user/config/config.php
+check "commit: any other user/config/config.php is not" deny  "$(commit_d)"
+git -C "$P" rm -q --cached other/user/config/config.php
+rm -rf "$P/system" "$P/other"
 git -C "$P" -c user.name=t -c user.email=t@t commit -qm base
 printf 'k = "%s"\n' "$aws" >> "$P/app/clean.php"
 check "commit -a: unstaged credential counts"           deny  "$(bash_d 'git commit -am wip')"

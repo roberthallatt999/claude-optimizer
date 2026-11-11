@@ -235,7 +235,15 @@ is_secret_path() {
 
 # EE's <system folder>/user/config/config.php (system/, or renamed: plbmin/, lcmin/…) is a
 # secret path but tracked (see git_stage_only).
-TRACKED_CONFIG_RE='(^|/)user/config/config\.php$'
+_ee_sys="system"
+for _ee_front in admin.php index.php; do
+  [[ -n "${CLAUDE_PROJECT_DIR:-}" && -f "$CLAUDE_PROJECT_DIR/$_ee_front" ]] || continue
+  _d=$(sed -n "s/^[[:space:]]*\$system_path[[:space:]]*=[[:space:]]*['\"]\.\/\([A-Za-z0-9_-]*\)\/\{0,1\}['\"].*/\1/p" "$CLAUDE_PROJECT_DIR/$_ee_front" | head -1)
+  [[ -n "$_d" ]] && { _ee_sys="$_d"; break; }
+done
+_ee_sys_lc="$(printf '%s' "$_ee_sys" | tr '[:upper:]' '[:lower:]')"
+# Only system/ or the folder this site's admin.php/index.php names: not any user/config/config.php.
+TRACKED_CONFIG_RE="(^|/)(system|${_ee_sys_lc})/user/config/config\\.php\$"
 
 SECRET_REASON="may contain secrets (Safety Guardrail #1: never read secrets). Ask the developer for the specific non-secret value you need, or use the .env.example template."
 PUBLISH="Safety Guardrail #2: publishing needs the developer's explicit approval for this specific action."
@@ -430,12 +438,14 @@ search_leak() {
       while IFS= read -r -d $'\x1f' g; do
         [[ -n "$g" ]] || continue
         glob_hit "$base" "$g" && ok=0
-        if [[ -n "$rel_dir" && "${g%/}" != */* ]]; then
-          local IFS=/
-          for comp in $rel_dir; do glob_hit "$comp" "${g%/}" && ok=0; done
-          unset IFS
-        fi
       done <<< "$excs"$'\x1f'
+      # Folder excludes (--exclude-dir, rg's negated globs) match folders below the root only.
+      while IFS= read -r -d $'\x1f' g; do
+        [[ -n "$g" && -n "$rel_dir" && "${g%/}" != */* ]] || continue
+        local IFS=/
+        for comp in $rel_dir; do glob_hit "$comp" "${g%/}" && ok=0; done
+        unset IFS
+      done <<< "${EXCLUDE_DIRS:-}"$'\x1f'
       [[ $ok == 1 ]] || continue
       if [[ $npats -gt 0 && "$engine" == rg ]]; then
         LC_ALL=C rg "${rargs[@]}" -- "$f" >/dev/null 2>&1; rc=$?
@@ -473,18 +483,23 @@ staged_leaks() {
   done <<< "$names"
   hit="$( { git -C "$dir" diff --cached -U0 --no-color --no-ext-diff --diff-filter=ACMR 2>/dev/null
             [[ "$all" == 1 ]] && git -C "$dir" diff -U0 --no-color --no-ext-diff --diff-filter=ACMR 2>/dev/null
-          } | head -c 8000000 | SECRET_ANCHORS_RE="$SECRET_ANCHORS_RE" LC_ALL=C awk '
-      BEGIN { re = ENVIRON["SECRET_ANCHORS_RE"] }
+          } | head -c 8000000 | SECRET_ANCHORS_RE="$SECRET_ANCHORS_RE" TRACKED_RE="$TRACKED_CONFIG_RE" LC_ALL=C awk '
+      BEGIN { re = ENVIRON["SECRET_ANCHORS_RE"]; tracked_re = ENVIRON["TRACKED_RE"] }
       # Templates and the tracked EE config are skipped here, in one pass: a shell loop per
       # added line costs a process per line and takes minutes on a large first commit.
       /^\+\+\+ / { f = substr($0, 5); sub(/^b\//, "", f); lf = tolower(f)
-                    skip = (lf ~ /\.(example|sample|template|dist|defaults|tpl)(\.[^\/]*)?$/ || lf ~ /(^|\/)user\/config\/config\.php$/)
+                    skip = (lf ~ /\.(example|sample|template|dist|defaults|tpl)(\.[^\/]*)?$/ || lf ~ tracked_re)
                     next }
       /^@@/ { split($3, a, ","); n = substr(a[1], 2) - 1; next }
       /^\+/ { n++; if (!skip && tolower($0) ~ re) print f ":" n ":" substr($0, 2) }')"
   # Both patterns over the same added lines (a here-string each: one stdin can't feed two greps).
   hit="$( { LC_ALL=C grep -E -e "$SECRET_CONTENT_RE" <<< "$hit"; LC_ALL=C grep -iE -e "$SECRET_ASSIGN_RE" <<< "$hit"; } 2>/dev/null \
-    | head -500)"
+    | head -501)"
+  # More candidate lines than can be checked one by one: fail closed rather than truncate.
+  if [[ $(grep -c . <<< "$hit") -gt 500 ]]; then
+    printf 'content\t%s' "the staged changes (more than 500 credential-shaped lines; commit in smaller parts)"
+    return 0
+  fi
   # A hit in a [scan] allow fixture isn't waved through at commit time, where the content
   # reaches git history: it asks. Any other hit denies. The placeholder test looks at the
   # line's CONTENT only: a path like examples/ or sample.txt must not excuse a real secret.
@@ -769,6 +784,20 @@ while [[ "$_bw_rest" =~ $_bw_re ]]; do
   case "$_d" in /*) _bw_dirs+=("$_d") ;; *) _bw_dirs+=("${_bw_cwd:-$PWD}/$_d") ;; esac
   _bw_rest="${_bw_rest#*"${BASH_REMATCH[0]}"}"
 done
+
+# excluded_only <token> <command text> — true when every mention of the token is the value
+# of a search exclusion (grep --exclude=/--exclude-dir=, rg -g/--glob/--iglob '!…'): the
+# command never opens that file, so neither the name check nor the content scan applies.
+excluded_only() {
+  local tok="$1" rest="$2" flag q
+  for flag in "--exclude=" "--exclude " "--exclude-dir=" "--exclude-dir " "-g !" "--glob=!" "--glob !" "--iglob=!" "--iglob !"; do
+    for q in "" "'" '"'; do rest="${rest//"$flag$q$tok"/ }"; done
+    rest="${rest//"$flag'!$tok"/ }"; rest="${rest//"$flag\"!$tok"/ }"
+  done
+  for q in "'" '"'; do rest="${rest//"-g $q!$tok"/ }"; rest="${rest//"--glob=$q!$tok"/ }"; rest="${rest//"--glob $q!$tok"/ }"; done
+  [[ "$rest" != *"$tok"* ]]
+}
+
 bare_word_exists() {
   local d
   for d in "${_bw_dirs[@]}"; do [[ -e "$d/$1" ]] && return 0; done
@@ -797,13 +826,7 @@ while IFS= read -r tok; do
       continue
     fi
     # A search that EXCLUDES the file (grep --exclude='.env*', rg -g '!*.sql') never opens it.
-    _rest="$lc"
-    for _flag in "--exclude=" "--exclude " "--exclude-dir=" "--exclude-dir " "-g !" "--glob=!" "--glob !" "--iglob=!" "--iglob !"; do
-      for _q in "" "'" '"'; do _rest="${_rest//"$_flag$_q$tok"/ }"; done
-      _rest="${_rest//"$_flag'!$tok"/ }"; _rest="${_rest//"$_flag\"!$tok"/ }"
-    done
-    for _q in "'" '"'; do _rest="${_rest//"-g $_q!$tok"/ }"; _rest="${_rest//"--glob=$_q!$tok"/ }"; _rest="${_rest//"--glob $_q!$tok"/ }"; done
-    [[ "$_rest" != *"$tok"* ]] && continue
+    excluded_only "$tok" "$lc" && continue
     # `ssh -i ~/.ssh/key` and `mysql --defaults-extra-file=~/.mysql-site.cnf` use a credential
     # file without printing it; only that exact argument is exempt.
     if [[ "$lc" =~ ${S}(ssh|scp|sftp)[[:space:]] && "$lc" == *"-i $tok"* ]]; then
@@ -875,6 +898,7 @@ if m "$READ_VERBS"; then
   while IFS= read -r tok; do
     [[ -n "$tok" ]] || continue
     [[ "$STAGE_ONLY_TOKS" == *" $(lower "$tok") "* ]] && continue
+    excluded_only "$tok" "$cmd" && continue
     _cands=("$tok")
     if [[ "$tok" != /* ]]; then
       for _d in ${CD_DIRS[@]+"${CD_DIRS[@]}"}; do _cands+=("$_d/$tok"); done
@@ -982,7 +1006,7 @@ for s in segs:
     icase = False
     hidden = c == 'ack' or grepish
     noignore = c == 'ack' or grepish
-    pats, pos, inc, exc, patfile, u = [], [], [], [], False, 0
+    pats, pos, inc, exc, excdir, patfile, u = [], [], [], [], [], False, 0
     args, i = s[1:], 0
     endopts = False
     while i < len(args):
@@ -1001,9 +1025,11 @@ for s in segs:
             elif name == '--regexp': pats.append(val)
             elif name == '--file': patfile = True
             elif name == '--include': inc.append(val)
-            elif name in ('--exclude', '--exclude-dir'): exc.append(val)
+            elif name == '--exclude': exc.append(val)
+            elif name == '--exclude-dir': excdir.append(val)
             elif name in ('--glob', '--iglob'):
-                (exc if val.startswith('!') else inc).append(val.lstrip('!'))
+                if val.startswith('!'): exc.append(val[1:]); excdir.append(val[1:])
+                else: inc.append(val)
             elif name in ('--hidden',): hidden = True
             elif name in ('--no-ignore', '--no-ignore-vcs', '--skip-vcs-ignores'): noignore = True
             elif name in ('--unrestricted',): hidden = noignore = True
@@ -1018,7 +1044,9 @@ for s in segs:
                 j = len(a)
                 if ch == 'e': pats.append(val)
                 elif ch == 'f': patfile = True
-                elif ch == 'g' and not grepish: (exc if val.startswith('!') else inc).append(val.lstrip('!'))
+                elif ch == 'g' and not grepish:
+                    if val.startswith('!'): exc.append(val[1:]); excdir.append(val[1:])
+                    else: inc.append(val)
                 elif ch == 'd' and grepish and val == 'recurse': rec = True
                 continue
             if grepish and ch in 'rR': rec = True
@@ -1038,17 +1066,17 @@ for s in segs:
         pats = []
     roots = [os.path.normpath(os.path.join(d, os.path.expanduser(p))) for p in pos] or [d]
     print('\x1e'.join([US.join(pats), '1' if fixed else '0', '1' if icase else '0', US.join(inc),
-                     US.join(exc), '1' if hidden else '0', '1' if noignore else '0',
+                     US.join(exc), US.join(excdir), '1' if hidden else '0', '1' if noignore else '0',
                      'grep' if grepish else 'rg', US.join(roots)]))
 PY
 if m "${S}(grep|egrep|fgrep|zgrep|rg|ag|ack)([[:space:]]|$)" && command -v python3 >/dev/null 2>&1; then
   _cwd="$(json_field .cwd)"; _cwd="${_cwd:-${CLAUDE_PROJECT_DIR:-$PWD}}"
   # \x1e, not a tab: bash collapses runs of whitespace IFS, which would drop empty fields.
-  while IFS=$'\x1e' read -r _pats _fx _ci _inc _exc _hid _noign _eng _roots; do
+  while IFS=$'\x1e' read -r _pats _fx _ci _inc _exc _excdir _hid _noign _eng _roots; do
     [[ -n "$_roots" ]] || continue
     _rootv=()
     while IFS= read -r -d $'\x1f' _r; do [[ -n "$_r" ]] && _rootv+=("$_r"); done <<< "$_roots"$'\x1f'
-    if _hit="$(SEARCH_ENGINE="$_eng" search_leak "$_pats" "$_fx" "$_ci" "$_inc" "$_exc" "$_hid" "$_noign" "${_rootv[@]}")"; then
+    if _hit="$(SEARCH_ENGINE="$_eng" EXCLUDE_DIRS="$_excdir" search_leak "$_pats" "$_fx" "$_ci" "$_inc" "$_exc" "$_hid" "$_noign" "${_rootv[@]}")"; then
       decide deny "Blocked by ai-config safety guard: this search would print lines from '${_hit}', which $SECRET_REASON $SEARCH_TAIL"
     fi
   done < <(python3 -I -c "$SEARCH_PY" "$cmd" "$_cwd" 2>/dev/null)
