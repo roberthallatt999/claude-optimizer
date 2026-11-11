@@ -1036,8 +1036,26 @@ detect_ddev_config() {
   return 1
 }
 
+# ee_user_dir — the EE user/ folder. Sites often rename system/ for security (ermin/, plbmin/),
+# so when system/user is missing, take the top-level folder that holds EE core (ee/ExpressionEngine).
+ee_user_dir() {
+  local candidate
+  if [[ -d "$PROJECT_DIR/system/user" ]]; then
+    echo "$PROJECT_DIR/system/user"
+    return 0
+  fi
+  for candidate in "$PROJECT_DIR"/*/user; do
+    if [[ -d "$candidate" && -d "${candidate%/user}/ee/ExpressionEngine" ]]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  echo "$PROJECT_DIR/system/user"
+}
+
 detect_template_group() {
-  local templates_dir="$PROJECT_DIR/system/user/templates"
+  local templates_dir
+  templates_dir="$(ee_user_dir)/templates"
   if [[ -d "$templates_dir" ]]; then
     # Find the first non-underscore directory (the main template group); skip files like .DS_Store
     TEMPLATE_GROUP=$(find "$templates_dir" -mindepth 1 -maxdepth 1 -type d ! -name '_*' ! -name '.*' -exec basename {} \; 2>/dev/null | LC_ALL=C sort | head -1 || true)
@@ -1135,7 +1153,7 @@ detect_frontend_tools() {
   if frontend_has mui; then HAS_MUI=true; fi
 
   # Check for bilingual content patterns (EE user_language, Twig lang, Blade @lang)
-  if grep -rq --include="*.html" "user_language" "$PROJECT_DIR/system/user/templates" 2>/dev/null; then
+  if grep -rq --include="*.html" "user_language" "$(ee_user_dir)/templates" 2>/dev/null; then
     HAS_BILINGUAL=true
   elif grep -rq --include="*.twig" --include="*.blade.php" '{%.*lang\|@lang\|__(' "$PROJECT_DIR" 2>/dev/null; then
     HAS_BILINGUAL=true
@@ -1189,7 +1207,8 @@ detect_frontend_tools() {
 }
 
 detect_addons() {
-  local addons_dir="$PROJECT_DIR/system/user/addons"
+  local addons_dir
+  addons_dir="$(ee_user_dir)/addons"
   if [[ -d "$addons_dir" ]]; then
     [[ -d "$addons_dir/stash" ]] && HAS_STASH=true
     [[ -d "$addons_dir/structure" ]] && HAS_STRUCTURE=true

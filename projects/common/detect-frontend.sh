@@ -39,6 +39,7 @@ project_find() {
       -o -name .next -o -name .nuxt -o -name .output -o -name .svelte-kit -o -name .astro -o -name .cache \
       -o -name .claude -o -name .okf \
       -o \( -name build ! -exec sh -c 'test -f "$1/package.json"' sh {} \; \) \
+      -o \( -name ee -exec sh -c 'test -d "$1/ExpressionEngine"' sh {} \; \) \
       -o -name cache -o -name dist -o -name coverage -o -name storage -o -name uploads \
       -o -name cpresources -o -name wp-admin -o -name wp-includes -o -name plugins -o -name mu-plugins \
       -o -name addons -o -name tmp -o -name logs -o -path '*/system/ee' -o -path '*/themes/ee' \
@@ -93,7 +94,7 @@ fi
 catalog() {
   cat <<'CATALOG'
 tailwind%%Tailwind CSS%%css%%^tailwindcss$%%^tailwind\.config\.(js|cjs|mjs|ts)$%%cdn\.tailwindcss\.com|/tailwindcss(@[0-9][^/]*)?/%%
-bootstrap%%Bootstrap%%css%%^bootstrap$%%^bootstrap([.-][0-9][0-9.]*)?(\.bundle)?(\.min)?\.(css|js)$%%bootstrapcdn|/bootstrap(@[0-9][^/]*)?/|bootstrap(\.bundle)?(\.min)?\.(css|js)%%
+bootstrap%%Bootstrap%%css%%^bootstrap$%%^bootstrap([.-][0-9][0-9.]*)?(\.bundle)?(\.min)?\.(css|js)$%%/bootstrap(@[0-9][^/]*)?/|bootstrap(\.bundle)?(\.min)?\.(css|js)%%
 foundation%%Foundation%%css%%^foundation-sites$%%^foundation(\.min)?\.(css|js)$%%foundation-sites|foundation(\.min)?\.(css|js)%%
 bulma%%Bulma%%css%%^bulma$%%^bulma(\.min)?\.css$%%/bulma(@[0-9][^/]*)?/|bulma(\.min)?\.css%%
 uikit%%UIkit%%css%%^uikit$%%^uikit(-icons)?(\.min)?\.(css|js)$%%/uikit(@[0-9][^/]*)?/|uikit(-icons)?(\.min)?\.(css|js)%%

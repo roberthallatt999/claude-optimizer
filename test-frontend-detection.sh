@@ -276,6 +276,22 @@ assert_true "template group is the folder, not .DS_Store" grep -qF 'templates/cf
 assert_false "no .DS_Store template group" grep -qF '.DS_Store' "$ee/CLAUDE.md"
 assert_true "DDEV database version read from the second line" grep -qF 'MariaDB/10.6' "$ee/CLAUDE.md"
 
+# Renamed EE system folder (ermin/): core JS is not first-party, the template group is still
+# found, and Font Awesome served from bootstrapcdn is not Bootstrap.
+d=$(tmp_dir)
+mkdir -p "$d/ermin/ee/ExpressionEngine/Addons/structure/javascript" "$d/ermin/user/templates/default_site/site.group" "$d/js"
+echo 'x();' > "$d/ermin/ee/ExpressionEngine/Addons/structure/javascript/structure-actions.js"
+echo 'y();' > "$d/js/site.js"
+echo '<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css">' \
+  > "$d/ermin/user/templates/default_site/site.group/index.html"
+out=$(bash "$DETECT" "$d")
+assert_eq "renamed EE core JS is skipped" "1|js" "$(custom "$out" js)"
+assert_eq "Font Awesome on bootstrapcdn is not Bootstrap" "" "$(lib "$out" bootstrap)"
+echo '<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.6.2/css/bootstrap.min.css">' \
+  >> "$d/ermin/user/templates/default_site/site.group/index.html"
+assert_true "Bootstrap on bootstrapcdn is still found" test -n "$(lib "$(bash "$DETECT" "$d")" bootstrap)"
+assert_true "template group found under renamed system folder" contains "$(run "$d" --stack=expressionengine --force --dry-run)" "Found template group: default_site"
+
 # ============================================================================
 echo ""
 echo -e "${CYAN}================================${NC}"
