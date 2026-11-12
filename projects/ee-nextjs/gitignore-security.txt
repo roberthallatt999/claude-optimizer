@@ -1,31 +1,38 @@
+# Every rule is anchored to where Laravel, EE and Next.js put the file. {{EE_SYSTEM_DIR}} is
+# the detected EE system folder; the Next.js app lives in frontend/. Laravel's storage/ and
+# bootstrap/cache/ folders must exist on a fresh clone, so only their contents are ignored.
+
 # =============================================================================
 # ExpressionEngine Configuration (contains database credentials & encryption keys)
 # =============================================================================
-system/user/config/config.php
-# EE system folder renamed for security (plbmin/, lcmin/…)
-**/user/config/config.php
-system/expressionengine/config/config.php
-user/config/config.php
+# "?secret" rules are added only while the file holds a literal credential (or doesn't exist
+# yet). A config.php that reads its secrets from the environment must be committed.
+?secret /{{EE_SYSTEM_DIR}}/user/config/config.php
+# Per-machine overrides with the database login (each server and DDEV has its own)
+/{{EE_SYSTEM_DIR}}/user/config/config.local.php
+/{{EE_SYSTEM_DIR}}/user/config/local.config.php
+?secret /system/expressionengine/config/config.php
 .env.php
 ee.env
+# EE's licence file (signed, not a credential; the common rules ignore *.key)
+!/{{EE_SYSTEM_DIR}}/user/config/license.key
 
 # =============================================================================
-# Laravel Storage (logs, sessions, framework cache)
+# Laravel Storage (keys, logs, sessions) and cached config (holds resolved secrets)
 # =============================================================================
-storage/app/
-storage/framework/
-storage/logs/
+/storage/*.key
+/storage/logs/*.log
+/storage/framework/sessions/*
+!/storage/framework/sessions/.gitignore
+/bootstrap/cache/*.php
 
 # =============================================================================
-# Laravel Bootstrap Cache
+# ExpressionEngine Cache (contents only: EE needs the folder itself)
 # =============================================================================
-bootstrap/cache/
-
-# =============================================================================
-# ExpressionEngine Cache
-# =============================================================================
-system/user/cache/
-system/expressionengine/cache/
+/{{EE_SYSTEM_DIR}}/user/cache/*
+!/{{EE_SYSTEM_DIR}}/user/cache/index.html
+!/{{EE_SYSTEM_DIR}}/user/cache/.htaccess
+/system/expressionengine/cache/
 
 # =============================================================================
 # DDEV Local Development (contains local DB snapshots)
@@ -35,15 +42,16 @@ system/expressionengine/cache/
 .ddev/.gitignore-additions
 
 # =============================================================================
-# PHP Dependencies (never commit -- use composer install)
+# Composer dependencies at the project root (add-ons keep their own vendor/)
 # =============================================================================
-vendor/
+/vendor/
 
 # =============================================================================
 # Next.js Build Output
 # =============================================================================
 .next/
-out/
+/out/
+/frontend/out/
 
 # =============================================================================
 # Vercel Deployment
@@ -62,3 +70,5 @@ node_modules/
 *.sql
 !*-schema.sql
 !*-migrations.sql
+# Add-ons ship their install SQL
+!/{{EE_SYSTEM_DIR}}/user/addons/**/*.sql

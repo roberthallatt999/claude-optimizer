@@ -1,7 +1,13 @@
+# Every rule is anchored to where WordPress puts the file, or matches a name only WordPress
+# config uses. A bare vendor/ would hide the vendor/ folders inside committed plugins and
+# themes, and a bare *.sql would hide the SQL some plugins ship.
+
 # =============================================================================
 # WordPress Configuration (contains database credentials & auth keys)
 # =============================================================================
-wp-config.php
+# "?secret": ignored only while it holds literal credentials or salts (or doesn't exist yet).
+# A wp-config.php that reads them from the environment must be committed.
+?secret /wp-config.php
 !wp-config-sample.php
 wp-config-local.php
 wp-config-production.php
@@ -12,9 +18,9 @@ local-config.php
 # =============================================================================
 # WordPress Cache (may contain rendered page content with data)
 # =============================================================================
-wp-content/cache/
-wp-content/wflogs/
-wp-content/w3tc-config/
+/wp-content/cache/
+/wp-content/wflogs/
+/wp-content/w3tc-config/
 
 # =============================================================================
 # WordPress Database Exports
@@ -22,8 +28,10 @@ wp-content/w3tc-config/
 *.sql
 !*-schema.sql
 !*-migrations.sql
-wp-content/database-backups/
-wp-content/ai1wm-backups/
+!/wp-content/plugins/**/*.sql
+!/wp-content/themes/**/*.sql
+/wp-content/database-backups/
+/wp-content/ai1wm-backups/
 
 # =============================================================================
 # DDEV Local Development (contains local DB snapshots)
@@ -33,6 +41,6 @@ wp-content/ai1wm-backups/
 .ddev/.gitignore-additions
 
 # =============================================================================
-# PHP Dependencies (never commit — use composer install)
+# Composer dependencies at the project root (plugins keep their own vendor/)
 # =============================================================================
-vendor/
+/vendor/

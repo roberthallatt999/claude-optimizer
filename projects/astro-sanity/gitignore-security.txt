@@ -12,7 +12,10 @@
 # Astro Build Output (contains bundled app code, may embed env vars)
 # =============================================================================
 .astro/
-dist/
+# Anchored: a bare dist/ also hides vendored libraries' dist/ folders
+/dist/
+/frontend/dist/
+/studio/dist/
 
 # =============================================================================
 # Sanity Studio (deployed separately via `npx sanity deploy`)

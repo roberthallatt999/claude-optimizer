@@ -1,0 +1,19 @@
+# From SvelteKit's official template (sv create). .env.test stays committable (the common
+# rules re-include it, as the template does).
+
+# =============================================================================
+# Build Output (may embed env vars in bundled code)
+# =============================================================================
+/.svelte-kit/
+/build/
+.output/
+.vercel/
+.netlify/
+.wrangler/
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# =============================================================================
+# Node Dependencies (never commit — use npm install)
+# =============================================================================
+node_modules/

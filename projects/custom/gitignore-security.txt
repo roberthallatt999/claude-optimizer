@@ -1,18 +1,22 @@
+# Discovery mode doesn't know the layout, so every folder rule is anchored to the project
+# root. A bare logs/, log/ or vendor/ would hide application code (EE's Controller/Logs/,
+# a control panel's JavaScript vendor/ folder) as well as the thing it was meant for.
+
 # =============================================================================
 # Database Configuration (may contain credentials)
 # =============================================================================
-database.yml
-database.yaml
-database.json
-db-config.*
+/database.yml
+/database.yaml
+/database.json
+/db-config.*
 *database-credentials*
 
 # =============================================================================
 # Logs (may contain sensitive runtime data and request details)
 # =============================================================================
 *.log
-logs/
-log/
+/logs/
+/log/
 npm-debug.log*
 yarn-debug.log*
 
@@ -20,4 +24,4 @@ yarn-debug.log*
 # Common Dependencies (never commit — install from lock file)
 # =============================================================================
 node_modules/
-vendor/
+/vendor/

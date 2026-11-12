@@ -46,7 +46,7 @@ Modes (pick one; default: --doctor):
 
 Options:
   --root=DIR    Folder to search (default: current directory)
-  --depth=N     Directory levels below the root to search (default: 3)
+  --depth=N     Directory levels below the root to search (default: 5)
   --dry-run     With --refresh, also pass --dry-run so nothing is written
                 (--doctor is already read-only; ignored with --list)
   -- ARGS...    Everything after -- is appended to every setup-project.sh run
@@ -98,7 +98,7 @@ die_usage() {
 # ============================================================================
 
 ROOT="."
-DEPTH=3
+DEPTH=5
 MODE=""
 DRY_RUN=false
 EXTRA_ARGS=()
@@ -152,11 +152,17 @@ is_project() {
 }
 
 PROJECTS=()
-scan() {  # scan <dir> <level> — the root is level 0
-  local dir="$1" level="$2" child
+# scan <dir> <level> [inside] — the root is level 0. A folder of sites can itself be an
+# ai-config project (a workspace with its own CLAUDE.md), so the search goes on inside a
+# project. There, only a separate git repository counts: a monorepo package shares its
+# parent's repo and config, and is refreshed with it.
+scan() {
+  local dir="$1" level="$2" inside="${3:-}" child
   if is_project "$dir"; then
-    PROJECTS+=("$dir")
-    return 0
+    if [[ -z "$inside" ]] || [[ -e "$dir/.git" ]]; then
+      PROJECTS+=("$dir")
+    fi
+    inside=1
   fi
   [[ "$level" -lt "$DEPTH" ]] || return 0
   # */ matches directories only; hidden directories are not matched by the glob
@@ -166,7 +172,7 @@ scan() {  # scan <dir> <level> — the root is level 0
     case "${child##*/}" in
       node_modules|vendor|.git) continue ;;
     esac
-    scan "$child" $((level + 1))
+    scan "$child" $((level + 1)) "$inside"
   done
 }
 

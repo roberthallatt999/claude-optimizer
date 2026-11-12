@@ -157,6 +157,10 @@ GIT_INTEGRATION_BRANCH=""
 #   [remote]     production = / staging = markers (paths, host aliases, database names,
 #                WP-CLI @aliases). Read directly by .claude/hooks/safety-guard.sh on every
 #                Bash call: a remote command that changes a production target is denied.
+#   [gitignore]  skip = <pattern>, … — ai-config .gitignore rules this codebase must not get
+#                (they'd hide files it needs). Never added, and removed from ai-config's part
+#                of .gitignore. Rules the project needs on top go in .gitignore itself, above
+#                ai-config's header, where ai-config never writes.
 #
 # --save-policy writes the file from a project's current state, so a tuned project can be
 # captured and committed in one run.
@@ -171,6 +175,7 @@ POLICY_REMOTE_PROD=()        # [remote] production markers, as the hook will see
 POLICY_REMOTE_STAGE=()       # [remote] staging markers
 POLICY_REMOTE_ASSERT_DB=""   # [remote] assert-database: a staging write must prove its database
 POLICY_SCAN_ALLOW=""         # [scan] allow: test-fixture globs the guard's content scan skips
+POLICY_GITIGNORE_SKIP=()     # [gitignore] skip: ai-config .gitignore rules this project must not get
 POLICY_SKIPPED=0             # files not written this run because [exclude] covers them
 DECISION_RECORD=""           # rendered clause for the managed memory-protocol blocks
 DECISION_LOCATION=""         # rendered path for {{DECISION_LOCATION}} in shipped rules
@@ -239,6 +244,7 @@ load_project_policy() {
   POLICY_REMOTE_PROD=()
   POLICY_REMOTE_STAGE=()
   POLICY_REMOTE_ASSERT_DB=""
+  POLICY_GITIGNORE_SKIP=()
   [[ -f "$POLICY_PATH" ]] || return 0
   POLICY_PRESENT=true
 
@@ -257,6 +263,7 @@ load_project_policy() {
       '[exclude]')   section=exclude;   continue ;;
       '[remote]')    section=remote;    continue ;;
       '[scan]')      section=scan;      continue ;;
+      '[gitignore]') section=gitignore; continue ;;
       '['*)
         echo -e "  ${YELLOW}⚠${NC}  Unknown section '$line' in $POLICY_FILE_NAME — ignored"
         section=""
@@ -264,7 +271,7 @@ load_project_policy() {
         ;;
     esac
     case "$section" in
-      options|decisions|remote|scan)
+      options|decisions|remote|scan|gitignore)
         case "$line" in
           *=*) ;;
           *)
@@ -276,7 +283,19 @@ load_project_policy() {
         val="${line#*=}"
         key="${key%"${key##*[![:space:]]}"}"
         val="${val#"${val%%[![:space:]]*}"}"
-        if [[ "$section" == scan ]]; then
+        if [[ "$section" == gitignore ]]; then
+          if [[ "$key" == skip ]]; then
+            local _gs _gv
+            IFS=',' read -r -a _gs <<< "$val"
+            for _gv in ${_gs[@]+"${_gs[@]}"}; do
+              _gv="${_gv#"${_gv%%[![:space:]]*}"}"
+              _gv="${_gv%"${_gv##*[![:space:]]}"}"
+              [[ -n "$_gv" ]] && POLICY_GITIGNORE_SKIP+=("$_gv")
+            done
+          else
+            echo -e "  ${YELLOW}⚠${NC}  $POLICY_FILE_NAME [gitignore]: unknown key '$key' — use skip"
+          fi
+        elif [[ "$section" == scan ]]; then
           if [[ "$key" == allow ]]; then
             POLICY_SCAN_ALLOW="${POLICY_SCAN_ALLOW:+$POLICY_SCAN_ALLOW, }$val"
           else
@@ -646,6 +665,21 @@ if [[ "$POLICY_PRESENT" == true ]]; then
   echo -e "${CYAN}Project policy: ${GREEN}$POLICY_FILE_NAME${NC} (${#POLICY_OPTION_KEYS[@]} option(s), ${#POLICY_EXCLUDE[@]} exclusion(s))"
 fi
 
+# EE's system folder is often renamed for security (admin.php / index.php set
+# $system_path = './plbmin'); the default is ./system. Found on every run, not only during
+# detection: the .gitignore rules are rendered with it even when the stack is given.
+EE_SYSTEM_DIR="system"
+for _ee_front in admin.php index.php; do
+  [[ -f "$PROJECT_DIR/$_ee_front" ]] || continue
+  _ee_sys=$(sed -n "s/^[[:space:]]*\$system_path[[:space:]]*=[[:space:]]*['\"]\.\/\([A-Za-z0-9_.-]*\)\/\{0,1\}['\"].*/\1/p" "$PROJECT_DIR/$_ee_front" | head -1)
+  if [[ -n "$_ee_sys" && -d "$PROJECT_DIR/$_ee_sys/ee" ]]; then EE_SYSTEM_DIR="$_ee_sys"; break; fi
+done
+# Coilpack installs EE inside the Laravel project, in ee/system/ (its front controller is
+# Laravel's public/index.php, so there's no $system_path to read).
+if [[ "$EE_SYSTEM_DIR" == system && ! -d "$PROJECT_DIR/system/ee" && -d "$PROJECT_DIR/ee/system/ee" ]]; then
+  EE_SYSTEM_DIR="ee/system"
+fi
+
 # Auto-detect stack if not specified
 if [[ -z "$STACK" ]]; then
   # First try: Check existing CLAUDE.md (for --refresh)
@@ -666,15 +700,6 @@ if [[ -z "$STACK" ]]; then
       echo -e "${CYAN}Auto-detected stack from the last ai-config run: ${GREEN}$STACK${NC}"
     fi
   fi
-
-  # EE's system folder is often renamed for security (admin.php / index.php set
-  # $system_path = './plbmin'); the default is ./system.
-  EE_SYSTEM_DIR="system"
-  for _ee_front in admin.php index.php; do
-    [[ -f "$PROJECT_DIR/$_ee_front" ]] || continue
-    _ee_sys=$(sed -n "s/^[[:space:]]*\$system_path[[:space:]]*=[[:space:]]*['\"]\.\/\([A-Za-z0-9_.-]*\)\/\{0,1\}['\"].*/\1/p" "$PROJECT_DIR/$_ee_front" | head -1)
-    if [[ -n "$_ee_sys" && -d "$PROJECT_DIR/$_ee_sys/ee" ]]; then EE_SYSTEM_DIR="$_ee_sys"; break; fi
-  done
 
   # Second try: Detect from project files
   if [[ -z "$STACK" ]]; then
@@ -935,6 +960,14 @@ save_project_policy() {
       echo "# Test fixtures holding fake secrets on purpose: the safety hook's content scan"
       echo "# skips these project-relative globs. Path rules (.env, keys) still apply."
       echo "allow = $POLICY_SCAN_ALLOW"
+    fi
+    if [[ ${#POLICY_GITIGNORE_SKIP[@]} -gt 0 ]]; then
+      echo ""
+      echo "[gitignore]"
+      echo "# ai-config .gitignore rules this codebase must not get: they'd hide files it needs."
+      echo "# Add the project's own rules to .gitignore above ai-config's header instead."
+      local gs
+      for gs in "${POLICY_GITIGNORE_SKIP[@]}"; do echo "skip = $gs"; done
     fi
   } > "$out"
 
@@ -3425,6 +3458,47 @@ verify_deployment() {
     hc_warn ".claude/ai-config/ isn't gitignored — backups could be committed (run --refresh)"
   fi
 
+  # An ai-config .gitignore rule that matches tracked files is one that would leave files
+  # like them out of the next commit — a CMS upgrade or new add-on then deploys without them.
+  if [[ -f "$PROJECT_DIR/.gitignore" ]] && git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
+    local gi_ours gi_hits
+    gi_ours=$(mktemp)
+    { gitignore_template_lines "$SCRIPT_DIR/projects/common/gitignore-security.txt"
+      gitignore_template_lines "$STACK_DIR/gitignore-security.txt"
+      printf '%s\n' "${GITIGNORE_RETIRED[@]}"; } | grep -v '^!' | sort -u > "$gi_ours"
+    # Only rules in ai-config's part of the file (below its first header); the project's own
+    # rules above it are its business, and a refresh never touches them.
+    local gi_from
+    gi_from=$(grep -n '(Added by ai-config' "$PROJECT_DIR/.gitignore" 2>/dev/null | head -1 | cut -d: -f1)
+    gi_hits=$(cd "$PROJECT_DIR" && git ls-files -ci --exclude-standard -z 2>/dev/null \
+      | xargs -0 git check-ignore -v --no-index 2>/dev/null \
+      | awk -F'\t' -v ofile="$gi_ours" -v from="${gi_from:-999999999}" '
+          BEGIN { while ((getline o < ofile) > 0) ours[o] = 1 }
+          { src = $1; if (src !~ /^\.gitignore:/) next
+            ln = src; sub(/^\.gitignore:/, "", ln); sub(/:.*/, "", ln)
+            if (ln + 0 < from + 0) next
+            sub(/^\.gitignore:[0-9]+:/, "", src); if (src in ours) n[src]++ }
+          END { for (p in n) printf "%s (%d)\n", p, n[p] }' | sort)
+    rm -f "$gi_ours"
+    # A config file ignored only while it holds literal credentials, but committed anyway
+    local gi_line gi_rule gi_keys
+    while IFS= read -r gi_line; do
+      [[ "$gi_line" == '?secret '* ]] || continue
+      gi_rule="${gi_line#\?secret }"
+      gi_rule="${gi_rule//\{\{EE_SYSTEM_DIR\}\}/${EE_SYSTEM_DIR:-system}}"
+      [[ -n "$(git -C "$PROJECT_DIR" ls-files -- "${gi_rule#/}" 2>/dev/null)" ]] || continue
+      if php_config_has_literal_secret "$PROJECT_DIR/${gi_rule#/}"; then
+        hc_warn "${gi_rule#/} holds a literal password and is committed to git — move it to an uncommitted file (config.local.php, .env.php), or git rm --cached it"
+      else
+        gi_keys=$(php_config_literal_names "$PROJECT_DIR/${gi_rule#/}" "$PHP_APP_KEY_NAMES" | tr '\n' ' ' | sed 's/ $//')
+        [[ -n "$gi_keys" ]] && hc_info "${gi_rule#/} is committed with app keys written in it ($gi_keys); database credentials aren't in it. Anyone with repo access could forge sessions with these; moving them to config.local.php keeps them off git."
+      fi
+    done < <(cat "$SCRIPT_DIR/projects/common/gitignore-security.txt" "$STACK_DIR/gitignore-security.txt" 2>/dev/null)
+    if [[ -n "$gi_hits" ]]; then
+      hc_warn ".gitignore rules from ai-config match files this repo tracks, so git would leave out new files like them: $(printf '%s\n' "$gi_hits" | head -6 | tr '\n' ' ')— run --refresh (old rules are removed); if the site needs such files add a !-exception, if they hold secrets take them out of git"
+    fi
+  fi
+
   if [[ $HC_FAILURES -gt 0 ]]; then
     echo -e "  ${RED}Health check: ${HC_FAILURES} failure(s), ${HC_WARNINGS} warning(s)${NC}"
     return 1
@@ -3863,15 +3937,163 @@ inject_detected_library_imports() {
   return 0
 }
 
+# Rules older versions of ai-config added that hide files an app needs: bare names that also
+# match CMS core, add-on, plugin and front-end vendor files (cache/, logs/, vendor/, dist/;
+# on macOS git matches case-insensitively, so database.php hides EE's Database.php), config a
+# framework commits (Craft's config/general.php, Bedrock's config/application.php), folders
+# Laravel needs to exist, and loose globs that hit source files (*apikey* → ApiKey.php).
+# Rules a wrongly detected stack left behind (Custom's logs/ on an EE site) are among them.
+GITIGNORE_RETIRED=(
+  'cache/' 'database.php' 'logs/' 'log/' 'vendor/' 'backups/' 'dist/' 'out/' 'build/'
+  'config/db.php' 'config/general.php' 'web/wp-config.php' 'config/application.php'
+  'storage/app/' 'storage/framework/' 'storage/logs/' 'storage/runtime/' 'storage/backups/'
+  'bootstrap/cache/' 'system/user/cache/' 'system/user/logs/'
+  'backend/database/' 'backend/public/uploads/'
+  'database.yml' 'database.yaml' 'database.json' 'db-config.*'
+  '.npmrc' '.yarnrc' 'auth.json'
+  '*apikey*' '*api-key*' '*api_key*' '*_token.*' '*-token.*' '*_secret.*' '*_credentials.*'
+  # Unconditional config-file rules, now "?secret" rules (see below)
+  '**/user/config/config.php' 'system/user/config/config.php' 'user/config/config.php'
+  'system/expressionengine/config/config.php' 'wp-config.php'
+)
+
+# php_config_literal_names <file> <names-regex> — print the setting names (never the values)
+# that a PHP config file writes as a quoted value ('password' => 'x', $config['encryption_key']
+# = 'x', define('DB_PASSWORD', 'x')) rather than reading from getenv()/$_ENV/env() or an
+# included file. An empty '' (local dev) doesn't count. One name per line, lowercase.
+php_config_literal_names() {
+  [[ -f "$1" ]] || return 0
+  grep -Eio "['\"]($2)['\"][[:space:]]*(\][[:space:]]*=|=>|,)[[:space:]]*['\"][^'\"]+['\"]" "$1" 2>/dev/null \
+    | sed -E "s/^['\"]([A-Za-z_]+)['\"].*/\1/" | tr '[:upper:]' '[:lower:]' | sort -u
+}
+PHP_DB_SECRET_NAMES='password|db_password|smtp_password'
+PHP_APP_KEY_NAMES='encryption_key|session_crypt_key|(secure_)?auth_(key|salt)|logged_in_(key|salt)|nonce_(key|salt)'
+
+# php_config_has_literal_secret <file> — true when the file holds a literal password.
+# That decides whether a config file is ignored. App keys alone (EE's encryption_key, WordPress
+# salts) don't: many sites commit config.php with them and keep database credentials in an
+# uncommitted config.local.php; --doctor notes them instead.
+php_config_has_literal_secret() {
+  [[ -n "$(php_config_literal_names "$1" "$PHP_DB_SECRET_NAMES")" ]]
+}
+
+# gitignore_resolve_line <template line> — print the rule as it applies to this project, or
+# nothing. {{EE_SYSTEM_DIR}} becomes the detected system folder. "?secret /path" is the rule
+# "/path" while that file holds a literal credential or doesn't exist yet (an installer writes
+# one), and no rule when it reads its secrets from the environment: then the app needs it
+# committed. Returns 1 for a "?secret" rule that is off.
+gitignore_resolve_line() {
+  local line="$1" sysdir="${EE_SYSTEM_DIR:-system}"
+  line="${line//\{\{EE_SYSTEM_DIR\}\}/$sysdir}"
+  if [[ "$line" == '?secret '* ]]; then
+    line="${line#\?secret }"
+    local path="$PROJECT_DIR/${line#/}"
+    if [[ -f "$path" ]] && ! php_config_has_literal_secret "$path"; then
+      printf '%s\n' "$line"
+      return 1
+    fi
+  fi
+  printf '%s\n' "$line"
+}
+
+# Print a .gitignore template's pattern lines as they'd be written for this project
+# ("?secret" rules that are off are left out).
+gitignore_template_lines() {
+  local file="$1" line out
+  [[ -f "$file" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    out=$(gitignore_resolve_line "$line") && printf '%s\n' "$out"
+  done < "$file"
+}
+
+# Print a template's "?secret" rules that are off for this project (the file reads its
+# secrets from the environment), so an earlier run's copy can be removed.
+gitignore_secret_rules_off() {
+  local file="$1" line out
+  [[ -f "$file" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" == '?secret '* ]] || continue
+    out=$(gitignore_resolve_line "$line") || printf '%s\n' "$out"
+  done < "$file"
+}
+
+# retire_gitignore_patterns — remove GITIGNORE_RETIRED lines from the part of .gitignore that
+# ai-config wrote (below its first "Added by ai-config" header), unless this stack's current
+# rules still ship that exact line. Lines the project wrote above that header are never
+# touched. Backed up first.
+retire_gitignore_patterns() {
+  local gitignore_path="$1" stack_template="$2"
+  [[ -f "$gitignore_path" ]] || return 0
+  grep -q '(Added by ai-config' "$gitignore_path" 2>/dev/null || return 0
+
+  local current retired
+  current=$( { gitignore_template_lines "$SCRIPT_DIR/projects/common/gitignore-security.txt"
+               gitignore_template_lines "$stack_template"; } )
+  retired=$( { printf '%s\n' "${GITIGNORE_RETIRED[@]}" | grep -vxF -f <(printf '%s\n' "$current")
+               # The project's own [gitignore] skip list goes even when a template still ships it
+               printf '%s\n' ${POLICY_GITIGNORE_SKIP[@]+"${POLICY_GITIGNORE_SKIP[@]}"}
+               # A config file that now reads its secrets from the environment must be committable
+               gitignore_secret_rules_off "$SCRIPT_DIR/projects/common/gitignore-security.txt"
+               gitignore_secret_rules_off "$stack_template"; } | grep -v '^$' || true)
+  [[ -n "$retired" ]] || return 0
+
+  local tmp rlist removed
+  tmp=$(mktemp)
+  rlist=$(mktemp)
+  printf '%s\n' "$retired" > "$rlist"
+  removed=$(awk -v rfile="$rlist" -v out="$tmp" '
+    BEGIN { while ((getline r < rfile) > 0) retired[r] = 1 }
+    /\(Added by ai-config/ { managed = 1 }
+    { line = $0; sub(/[ \t]+$/, "", line)
+      if (managed && (line in retired)) { print line; next }
+      print $0 > out }
+  ' "$gitignore_path")
+  rm -f "$rlist"
+  if [[ -z "$removed" ]]; then rm -f "$tmp"; return 0; fi
+
+  local n; n=$(printf '%s\n' "$removed" | wc -l | tr -d ' ')
+  if [[ "$DRY_RUN" == true ]]; then
+    echo -e "  ${YELLOW}[DRY-RUN]${NC} Would remove ${n} old ai-config rule(s) that hide app files: $(printf '%s\n' "$removed" | tr '\n' ' ')"
+    rm -f "$tmp"
+    return 0
+  fi
+  backup_file "$gitignore_path"
+  cat "$tmp" > "$gitignore_path"
+  rm -f "$tmp"
+  echo -e "  ${GREEN}✓${NC}  Removed ${n} old ai-config rule(s) that hide app files: $(printf '%s\n' "$removed" | tr '\n' ' ')"
+  if git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
+    echo -e "     Files they hid now show in ${CYAN}git status${NC}; commit the ones the site needs."
+  fi
+}
+
+# Tracked files that a single .gitignore pattern would match, with the template's own
+# !-exceptions applied. Prints up to three paths.
+gitignore_pattern_tracked_hits() {
+  local pattern="$1" negations="$2" tmp hits
+  git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree &>/dev/null || return 0
+  tmp=$(mktemp)
+  { printf '%s\n' "$pattern"; [[ -n "$negations" ]] && printf '%s\n' "$negations"; } > "$tmp"
+  hits=$(git -C "$PROJECT_DIR" ls-files -ci --exclude-from="$tmp" 2>/dev/null | head -3)
+  rm -f "$tmp"
+  printf '%s' "$hits"
+}
+
 merge_gitignore_template() {
   local template_file="$1"
   local gitignore_path="$2"
   local label="$3"
+  # "stack": a rule that matches files the repo tracks is skipped (it would hide new files
+  # like them, e.g. after a CMS upgrade). "common": secret-file rules are added anyway, with a
+  # warning, because skipping one would leave every other such file unprotected.
+  local kind="${4:-stack}"
 
   local total_added=0
   local block_header_written=false
   local -a pending_section_lines=()
   local section_header_written=false
+  local negations hits
+  negations=$(gitignore_template_lines "$template_file" | grep '^!' || true)
 
   while IFS= read -r line || [[ -n "$line" ]]; do
     # Any comment line — accumulate into the current section header block
@@ -3887,9 +4109,37 @@ merge_gitignore_template() {
       continue
     fi
 
+    local secret_rule=false
+    [[ "$line" == '?secret '* ]] && secret_rule=true
+    if ! line=$(gitignore_resolve_line "$line"); then
+      echo -e "  ${GREEN}✓${NC}  ${line#/} reads its secrets from the environment — not ignored, so it can be committed"
+      continue
+    fi
+
+    # The project said no to this rule in ai-config.conf [gitignore] skip
+    if [[ ${#POLICY_GITIGNORE_SKIP[@]} -gt 0 ]] \
+      && printf '%s\n' "${POLICY_GITIGNORE_SKIP[@]}" | grep -qxF -- "$line"; then
+      continue
+    fi
+
     # Pattern line — skip if already present (exact match)
     if grep -qxF "$line" "$gitignore_path" 2>/dev/null; then
       continue
+    fi
+
+    if [[ "$line" != !* ]]; then
+      hits=$(gitignore_pattern_tracked_hits "$line" "$negations")
+      if [[ -n "$hits" ]]; then
+        if [[ "$secret_rule" == true ]]; then
+          echo -e "  ${YELLOW}⚠${NC}  ${line#/} holds a literal password ($(php_config_literal_names "$PROJECT_DIR/${line#/}" "$PHP_DB_SECRET_NAMES" | tr '\n' ' ' | sed 's/ $//')) and is committed to git. Move it to an uncommitted file (config.local.php, .env.php), or take the file out of git with: git rm --cached ${line#/}"
+          continue
+        fi
+        if [[ "$kind" == stack ]]; then
+          echo -e "  ${YELLOW}⚠${NC}  Not adding '${line}': it matches files this repo tracks ($(printf '%s\n' "$hits" | tr '\n' ' '))"
+          continue
+        fi
+        echo -e "  ${YELLOW}⚠${NC}  '${line}' matches tracked files ($(printf '%s\n' "$hits" | tr '\n' ' ')); new files like them won't be added by git — add a !-exception if the site needs them"
+      fi
     fi
 
     # New pattern found — write to file (or count for dry-run)
@@ -4068,13 +4318,16 @@ update_gitignore() {
     echo -e "  ${GREEN}✓${NC} Not ignored, tracked in git on purpose: ${claude_tracked[*]}"
   fi
 
-  # --- 2. Common security patterns (all stacks) ---
+  # --- 2. Drop old ai-config rules that hide app files, before adding today's ---
+  retire_gitignore_patterns "$gitignore_path" "$STACK_DIR/gitignore-security.txt"
+
+  # --- 3. Common security patterns (all stacks) ---
   local common_security="$SCRIPT_DIR/projects/common/gitignore-security.txt"
   if [[ -f "$common_security" ]]; then
-    merge_gitignore_template "$common_security" "$gitignore_path" "Common"
+    merge_gitignore_template "$common_security" "$gitignore_path" "Common" common
   fi
 
-  # --- 3. Stack-specific security patterns ---
+  # --- 4. Stack-specific security patterns ---
   local stack_label
   case "$STACK" in
     expressionengine) stack_label="ExpressionEngine" ;;
@@ -4101,7 +4354,7 @@ update_gitignore() {
 
   local stack_security="$STACK_DIR/gitignore-security.txt"
   if [[ -f "$stack_security" ]]; then
-    merge_gitignore_template "$stack_security" "$gitignore_path" "$stack_label"
+    merge_gitignore_template "$stack_security" "$gitignore_path" "$stack_label" stack
   fi
 
   echo ""
@@ -5221,7 +5474,17 @@ For each detected technology, research:
 - Performance optimization techniques
 - Testing strategies
 
-### 3. Generate Configuration
+### 3. Decide What Git Should Ignore
+
+Nothing the app needs may be ignored; nothing secret or generated may be committed. Check each
+technology's official starter \`.gitignore\` and version-control docs, then test the rules with
+\`git ls-files -ci --exclude-standard\` (tracked files a rule matches) and
+\`git check-ignore -v --no-index <path>\`. Turn off an ai-config rule that's wrong here with
+\`skip = <pattern>\` under \`[gitignore]\` in \`ai-config.conf\`; add the project's own rules
+above ai-config's header in \`.gitignore\`, anchored with a leading \`/\`. Never un-ignore or
+open a secret file. Full steps: \`/project-discover\`, Step 3.
+
+### 4. Generate Configuration
 
 Create or update:
 

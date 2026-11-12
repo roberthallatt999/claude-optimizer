@@ -1,0 +1,13 @@
+# From the official React Router v7 and Remix v2 templates. Anchored to the project root.
+
+# =============================================================================
+# Build Output (may embed env vars in bundled code)
+# =============================================================================
+/build/
+/.react-router/
+/.cache/
+
+# =============================================================================
+# Node Dependencies (never commit — use npm install)
+# =============================================================================
+node_modules/

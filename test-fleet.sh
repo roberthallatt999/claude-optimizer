@@ -94,8 +94,8 @@ printf '# Plain project\n' > "$root/clients/plain/CLAUDE.md"
 manifest "$root/tools/node_modules/decoy-npm"                   # never descend into node_modules
 manifest "$root/tools/vendor/decoy-composer"                    # ... or vendor
 manifest "$root/.git/decoy-git"                                 # ... or .git
-manifest "$root/clients/acme/packages/inner"                    # ... or a detected project
-manifest "$root/deep/a/b/too-deep"                              # level 4 > default depth 3
+manifest "$root/clients/acme/packages/inner"                    # monorepo package: shares acme's repo
+manifest "$root/deep/a/b/c/d/too-deep"                          # level 6 > default depth 5
 
 # ============================================================================
 echo -e "\n${CYAN}=== Discovery (--list) ===${NC}\n"
@@ -109,7 +109,7 @@ assert_false "folder without manifest or marker not detected" contains "$out" "c
 assert_false "decoy inside node_modules skipped" contains "$out" "decoy-npm"
 assert_false "decoy inside vendor skipped" contains "$out" "decoy-composer"
 assert_false "decoy inside .git skipped" contains "$out" "decoy-git"
-assert_false "project nested in a detected project skipped" contains "$out" "packages/inner"
+assert_false "monorepo package nested in a project skipped" contains "$out" "packages/inner"
 assert_false "project deeper than the default depth skipped" contains "$out" "too-deep"
 assert_true "version file → stack, short commit and date" \
   grep -qE '^  clients/acme +nextjs +abc1234 \(2026-09-13\)$' <<< "$out"
@@ -118,9 +118,20 @@ assert_true "no version file → unknown stack and version" \
 assert_true "--list reports the count" contains "$out" "3 project(s) found"
 assert_false "--list runs nothing" test -e "$FAKE_ARGS_LOG"
 
-out=$(fleet --root="$root" --list --depth=4)
-assert_eq "--depth=4 reaches the deeper project" \
-  "clients/acme clients/legacy deep/a/b/too-deep sites/broken" "$(projects_in "$out")"
+out=$(fleet --root="$root" --list --depth=6)
+assert_eq "--depth=6 reaches the deeper project" \
+  "clients/acme clients/legacy deep/a/b/c/d/too-deep sites/broken" "$(projects_in "$out")"
+
+# A folder of sites that is itself an ai-config project (a workspace CLAUDE.md): each site
+# inside it is its own git repository and must be found too.
+ws=$(tmp_dir); ws=$(cd "$ws" && pwd)
+manifest "$ws/digital-designs"
+manifest "$ws/digital-designs/forge/ubuntu-24/site-a"
+mkdir -p "$ws/digital-designs/forge/ubuntu-24/site-a/.git"
+manifest "$ws/digital-designs/forge/ubuntu-24/site-a/packages/inner"   # shares site-a's repo
+out=$(fleet --root="$ws" --list)
+assert_eq "separate git repos inside a workspace project are found" \
+  "digital-designs digital-designs/forge/ubuntu-24/site-a" "$(projects_in "$out")"
 
 out=$(fleet --root="$root" --list --depth=1); status=$?
 assert_eq "--depth=1 finds nothing two levels down" "" "$(projects_in "$out")"
@@ -196,9 +207,9 @@ assert_eq "--refresh --dry-run passes --dry-run, then the -- args" \
 assert_true "header names the dry-run" contains "$out" "--refresh --dry-run on 3 project(s)"
 
 rm -f "$FAKE_ARGS_LOG"
-out=$(fleet --root="$root" --depth=4 --refresh -- --skip-superpowers-update)
+out=$(fleet --root="$root" --depth=6 --refresh -- --skip-superpowers-update)
 assert_true "--depth applies to runs too" \
-  logged "$FAKE_ARGS_LOG" "--refresh --project=$root/deep/a/b/too-deep --skip-vscode --skip-superpowers-update"
+  logged "$FAKE_ARGS_LOG" "--refresh --project=$root/deep/a/b/c/d/too-deep --skip-vscode --skip-superpowers-update"
 assert_eq "runs never touch decoys" "0" "$(grep -c 'decoy\|inner\|plain' "$FAKE_ARGS_LOG")"
 
 rm -f "$FAKE_ARGS_LOG"

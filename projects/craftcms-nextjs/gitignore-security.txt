@@ -1,21 +1,23 @@
-# =============================================================================
-# Craft CMS Configuration (may expose database credentials)
-# =============================================================================
-config/db.php
-config/general.php
+# Every rule is anchored to where Craft (project root) and Next.js (frontend/) put the file.
+# config/general.php and config/db.php are not here: Craft projects commit them (secrets come
+# from .env through App::env()), and ignoring them leaves a fresh clone without its config.
 
 # =============================================================================
 # Craft CMS Storage — Backups (contain full database exports)
 # =============================================================================
-storage/backups/
-backups/
+/storage/backups/
+/storage/composer-backups/
+/storage/config-backups/
 *.craftbackup
+
+# Craft reads its licence from config/license.key (the common rules ignore *.key)
+!/config/license.key
 
 # =============================================================================
 # Craft CMS Storage — Runtime & Logs (may contain sensitive request data)
 # =============================================================================
-storage/runtime/
-storage/logs/
+/storage/runtime/
+/storage/logs/
 
 # =============================================================================
 # DDEV Local Development (contains local DB snapshots)
@@ -25,15 +27,16 @@ storage/logs/
 .ddev/.gitignore-additions
 
 # =============================================================================
-# PHP Dependencies (never commit — use composer install)
+# Composer dependencies at the project root (front-end vendor/ folders stay)
 # =============================================================================
-vendor/
+/vendor/
 
 # =============================================================================
 # Next.js Build Output (contains bundled app code, may embed env vars)
 # =============================================================================
 .next/
-out/
+/out/
+/frontend/out/
 .vercel/
 
 # =============================================================================

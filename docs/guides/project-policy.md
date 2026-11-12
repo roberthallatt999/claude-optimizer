@@ -203,6 +203,25 @@ comma-separated). The content scan skips them when they're read, searched or com
 Path rules still apply, so `.env`, keys and dumps can't be allowed this way. Like the rest of
 the file, editing `[scan]` asks first. `--save-policy` keeps it.
 
+### `[gitignore]`
+
+```ini
+[gitignore]
+skip = /vendor/, *.sql
+```
+
+ai-config adds `.gitignore` rules for the stack, anchored to where that stack keeps each file.
+When a codebase differs (a WordPress site that commits a root `vendor/`, an add-on that ships
+loose `.sql` files), list the rules it must not get here. They are never added, and every run
+removes them from the part of `.gitignore` below ai-config's `(Added by ai-config …)` header.
+Deleting the line by hand doesn't last; a refresh adds it back.
+
+Rules the project needs on top go in `.gitignore` itself, above ai-config's header, where
+ai-config never writes. A stack rule that matches files the repo tracks is skipped
+automatically, and `--doctor` warns about any ai-config rule that matches tracked files.
+`/project-discover` works out both lists from the framework's official starter `.gitignore`.
+`--save-policy` keeps the section.
+
 ### `design-skills` and `profile` (under `[options]`)
 
 - `design-skills = true` deploys the front-end design skills on a CMS stack. JS stacks get

@@ -1,0 +1,21 @@
+# From Astro's official template (create-astro, examples/basics). Build output is anchored to
+# the project root so a vendored library's dist/ folder stays committable.
+
+# =============================================================================
+# Astro Build Output (may embed env vars in bundled code)
+# =============================================================================
+.astro/
+/dist/
+
+# =============================================================================
+# Node Dependencies (never commit — use npm install)
+# =============================================================================
+node_modules/
+
+# =============================================================================
+# Debug Logs
+# =============================================================================
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

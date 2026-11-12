@@ -1,3 +1,8 @@
+# Rules for every stack. Each must match only secret-shaped files, never a file an app
+# needs: on macOS git matches case-insensitively, so a loose glob like *apikey* also hides
+# ApiKey.php. Secrets in ordinary files are caught at commit time by the content scan
+# (safety-guard.sh --pre-commit), not by file name here.
+
 # =============================================================================
 # Environment Variables
 # Contains database credentials, API keys, and secrets
@@ -8,6 +13,10 @@
 !.env.*.example
 !.env.template
 !.env.*.template
+# Test defaults: committed per the Next.js docs and SvelteKit's template
+!.env.test
+# Laravel's encrypted env file is meant to be committed (php artisan env:encrypt)
+!.env.encrypted
 
 # =============================================================================
 # Private Keys & Certificates
@@ -23,6 +32,12 @@
 *.jks
 *.keystore
 *.priv
+# CA bundles shipped inside CMS cores, plugins and libraries (public, and needed for HTTPS)
+!cacert.pem
+!cacert.crt
+!ca-bundle.pem
+!ca-bundle.crt
+!ca-certificates.crt
 
 # =============================================================================
 # SSH Keys
@@ -45,10 +60,9 @@ known_hosts
 .pypirc
 .gitconfig
 
-# Package manager auth tokens (contain registry credentials)
-auth.json
-.npmrc
-.yarnrc
+# Composer auth (registry credentials) lives at the project root. Not .npmrc/.yarnrc:
+# projects commit them for build settings, and the commit scan catches tokens in them.
+/auth.json
 .pip/pip.conf
 
 # =============================================================================
@@ -70,9 +84,11 @@ credentials.json
 # Azure
 .azure/
 
-# Generic patterns
-*_credentials.*
-*_secret.*
+# Generic patterns (data files only: *_secret.* would also match source files)
+*_credentials.json
+*_credentials.txt
+*_secret.json
+*_secret.txt
 
 # =============================================================================
 # API Keys & Tokens
@@ -80,11 +96,12 @@ credentials.json
 apikeys.*
 api-keys.*
 api_keys.*
-*apikey*
-*api-key*
-*api_key*
-*_token.*
-*-token.*
+*apikey*.json
+*apikey*.txt
+*api[-_]key*.json
+*api[-_]key*.txt
+*[-_]token.json
+*[-_]token.txt
 
 # =============================================================================
 # Secret & Vault Files

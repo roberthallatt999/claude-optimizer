@@ -11,7 +11,8 @@
 # Next.js Build Output (contains bundled app code, may embed env vars)
 # =============================================================================
 .next/
-out/
+# Anchored: a bare out/ also hides any source folder named out/
+/out/
 
 # =============================================================================
 # Vercel Configuration (may contain project tokens)

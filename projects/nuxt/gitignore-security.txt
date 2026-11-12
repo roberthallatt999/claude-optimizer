@@ -1,0 +1,17 @@
+# From Nuxt's official starter (nuxt/starter). .data/ is local dev storage (unstorage/NuxtHub)
+# and can hold real records. Folders are anchored to the project root.
+
+# =============================================================================
+# Nuxt Build Output and local data
+# =============================================================================
+.nuxt/
+.output/
+.nitro/
+/.data/
+/.cache/
+/dist/
+
+# =============================================================================
+# Node Dependencies (never commit — use npm install)
+# =============================================================================
+node_modules/

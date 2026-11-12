@@ -1,26 +1,39 @@
+# Every rule is anchored to where EE puts the file. {{EE_SYSTEM_DIR}} is the detected system
+# folder (system/, or a renamed one like plbmin/). A bare name (cache/, logs/, vendor/,
+# database.php) would also hide EE core, add-on and control panel files, and on macOS git
+# matches case-insensitively, so database.php hides EE's Database.php too.
+
 # =============================================================================
 # ExpressionEngine Configuration (contains database credentials & encryption keys)
 # =============================================================================
-system/user/config/config.php
-# EE system folder renamed for security (plbmin/, lcmin/…)
-**/user/config/config.php
-system/expressionengine/config/config.php
-user/config/config.php
+# "?secret" rules are added only while the file holds a literal credential (or doesn't exist
+# yet). A config.php that reads its secrets from .env.php / getenv() must be committed: EE
+# can't run without it.
+?secret /{{EE_SYSTEM_DIR}}/user/config/config.php
+# Per-machine overrides with the database login (each server and DDEV has its own)
+/{{EE_SYSTEM_DIR}}/user/config/config.local.php
+/{{EE_SYSTEM_DIR}}/user/config/local.config.php
+?secret /system/expressionengine/config/config.php
+?secret /system/expressionengine/config/database.php
 .env.php
 ee.env
+# EE's licence file (signed, not a credential; the common rules ignore *.key)
+!/{{EE_SYSTEM_DIR}}/user/config/license.key
 
 # =============================================================================
-# ExpressionEngine Cache & Session Data
+# ExpressionEngine Cache (contents only: EE needs the folder itself)
 # =============================================================================
-system/user/cache/
-system/expressionengine/cache/
-cache/
+/{{EE_SYSTEM_DIR}}/user/cache/*
+!/{{EE_SYSTEM_DIR}}/user/cache/index.html
+!/{{EE_SYSTEM_DIR}}/user/cache/.htaccess
+/system/expressionengine/cache/
 
 # =============================================================================
 # ExpressionEngine Logs (may contain request data and errors)
 # =============================================================================
-system/user/logs/
-system/expressionengine/logs/
+/{{EE_SYSTEM_DIR}}/user/logs/*
+!/{{EE_SYSTEM_DIR}}/user/logs/index.html
+/system/expressionengine/logs/
 
 # =============================================================================
 # DDEV Local Development (contains local DB snapshots)
@@ -30,17 +43,23 @@ system/expressionengine/logs/
 .ddev/.gitignore-additions
 
 # =============================================================================
+# Composer dependencies at the project root (add-ons keep their own vendor/)
+# =============================================================================
+/vendor/
+
+# =============================================================================
 # Database Credentials & Dumps
 # =============================================================================
-database.php
-database.yml
-database.yaml
-database.json
-db-config.*
+/database.yml
+/database.yaml
+/database.json
+/db-config.*
 *database-credentials*
 *.sql
 !*-schema.sql
 !*-migrations.sql
+# Add-ons ship their install SQL (db.freeform_next.sql, db.calendar.sql)
+!/{{EE_SYSTEM_DIR}}/user/addons/**/*.sql
 
 # EE migration runner state (per-machine stamps)
 .admin-scripts/.ee-migrate/

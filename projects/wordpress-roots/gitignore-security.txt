@@ -1,16 +1,13 @@
-# =============================================================================
-# Bedrock WordPress Configuration (credentials managed via .env — already covered)
-# Additional config files that may be generated with credentials
-# =============================================================================
-web/wp-config.php
-config/application.php
+# Every rule is anchored to where Bedrock puts the file. config/application.php and
+# web/wp-config.php are not here: Bedrock commits both (credentials come from .env, which the
+# common rules cover), and ignoring them leaves a fresh clone unable to boot.
 
 # =============================================================================
 # WordPress Cache (may contain rendered content with sensitive data)
 # =============================================================================
-web/wp-content/cache/
-web/app/cache/
-web/wp-content/wflogs/
+/web/wp-content/cache/
+/web/app/cache/
+/web/wp-content/wflogs/
 
 # =============================================================================
 # WordPress Database Exports
@@ -18,8 +15,10 @@ web/wp-content/wflogs/
 *.sql
 !*-schema.sql
 !*-migrations.sql
-web/app/database-backups/
-web/wp-content/ai1wm-backups/
+!/web/app/plugins/**/*.sql
+!/web/app/themes/**/*.sql
+/web/app/database-backups/
+/web/wp-content/ai1wm-backups/
 
 # =============================================================================
 # DDEV Local Development (contains local DB snapshots)
@@ -29,7 +28,7 @@ web/wp-content/ai1wm-backups/
 .ddev/.gitignore-additions
 
 # =============================================================================
-# PHP Dependencies (never commit — use composer install)
+# Composer dependencies (installed by composer install)
 # =============================================================================
-vendor/
-web/wp/
+/vendor/
+/web/wp/

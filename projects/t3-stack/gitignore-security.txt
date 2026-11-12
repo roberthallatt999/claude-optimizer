@@ -1,0 +1,23 @@
+# From create-t3-app's template. prisma/schema.prisma and prisma/migrations/ must stay
+# committed; only the local SQLite database (real data) and generated client are ignored.
+
+# =============================================================================
+# Local database (SQLite dev database holds real records)
+# =============================================================================
+/prisma/db.sqlite
+/prisma/db.sqlite-journal
+db.sqlite
+
+# =============================================================================
+# Generated Prisma client and Next.js build output
+# =============================================================================
+/generated/
+.next/
+/out/
+/build/
+.vercel/
+
+# =============================================================================
+# Node Dependencies (never commit — use npm install)
+# =============================================================================
+node_modules/

@@ -1,0 +1,27 @@
+# From Astro's official template and what `tinacms init` adds. tina/tina-lock.json, tina/config.*
+# and content files must stay committed: TinaCloud indexes the repo from the lock file. Tina
+# writes its own .gitignore inside the admin build folder (public/admin/), so it isn't here.
+
+# =============================================================================
+# Astro Build Output (may embed env vars in bundled code)
+# =============================================================================
+.astro/
+/dist/
+
+# =============================================================================
+# Tina generated client and types (rebuilt by tinacms dev / tinacms build)
+# =============================================================================
+/tina/__generated__/
+
+# =============================================================================
+# Node Dependencies (never commit — use npm install)
+# =============================================================================
+node_modules/
+
+# =============================================================================
+# Debug Logs
+# =============================================================================
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

@@ -200,7 +200,13 @@ Files changed in place are backed up once per run and written only when the cont
 changes:
 
 - `settings.local.json` — entries are only added; nothing is removed or reordered
-- `.gitignore` — append-only
+- `.gitignore` — new rules are appended. The one removal: rules older ai-config versions
+  added that hid files a site needs (bare `cache/`, `logs/`, `vendor/`, `database.php`,
+  Craft's `config/general.php`, …) are taken out of the part below ai-config's
+  `(Added by ai-config …)` header. Lines you wrote above that header are never touched. A
+  stack rule that matches files the repo tracks is not added, and `--doctor` reports one
+  that is there. Every rule is anchored to where the stack keeps the file; EE rules follow
+  the detected system folder (`ermin/`, `plbmin/`).
 - `CLAUDE.md` / `AGENTS.md` managed blocks — only the text between the
   `<!-- BEGIN … -->` / `<!-- END … -->` markers
 - `MEMORY.md` — never modified
@@ -266,8 +272,10 @@ ai-config-fleet --root=~/sites --refresh -- --skip-superpowers-update
 ```
 
 Each project's full output goes to a log folder (printed once). The table shows ✓ ok, ⚠ N warnings,
-or ✗ failed per project, and the run exits 1 if any project failed. `--depth=N` (default 3) limits
-the search; `node_modules`, `vendor`, and hidden folders are skipped. Every deploy or refresh records
+or ✗ failed per project, and the run exits 1 if any project failed. `--depth=N` (default 5) limits
+the search; `node_modules`, `vendor`, and hidden folders are skipped. The search continues inside a
+project, so a folder of sites that has its own ai-config setup still has every site found. Inside a
+project, only a separate git repository counts: a monorepo package shares its parent's config. Every deploy or refresh records
 the ai-config commit in `.claude/ai-config/version`, and `--doctor` notes when ai-config has changed
 since.
 

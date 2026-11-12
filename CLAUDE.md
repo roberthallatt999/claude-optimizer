@@ -116,7 +116,7 @@ superpowers/
 ├── commands/                 # Slash commands
 └── hooks/                    # Session hooks
 
-test-*.sh                     # 21 test suites, each independently runnable
+test-*.sh                     # 22 test suites, each independently runnable
 run-tests.sh                  # Runs every test-*.sh suite, or a selected subset
 ai-config-fleet.sh            # --doctor / --refresh / --list across many projects
 .github/workflows/tests.yml   # CI: runs the suites on macOS + Ubuntu, plus shellcheck
@@ -240,6 +240,43 @@ readable text such as `(brand green: not set)` rather than a fake value.
 
 ## Recent Changes
 
+- **`.gitignore` rules that never hide files a site needs** — the rules ai-config added hid
+  files on 15 sites. On EE, a bare `cache/` hid Freeform's vendor code and EE core caches;
+  `database.php` hid EE's `Database.php`, because git on macOS matches case-insensitively;
+  `*.sql` hid add-on install files; `*.key` hid `license.key`. Leftovers from an earlier
+  `custom` detection (`logs/`, `log/`, `vendor/`) hid `Controller/Logs/` and the control
+  panel's CodeMirror. On Craft, `config/general.php` was ignored. The sites still ran only
+  because those files were committed before the rules existed. Every template was checked
+  against the stack's official starter `.gitignore` and docs (EE core repo, craftcms/craft,
+  roots/bedrock, laravel/laravel, create-next-app, create-t3-app, nuxt/starter, create-astro,
+  sv create, react-router-templates, create-docusaurus, create-strapi-app, Sanity, tinacms
+  init) and rewritten. Rules are anchored to where the stack keeps the file. EE rules follow
+  the detected system folder (`{{EE_SYSTEM_DIR}}`, now found on every run; Coilpack's
+  `ee/system/` is detected). A folder the app needs keeps its placeholder (`cache/*` plus
+  `!index.html`). Files a framework commits stay addable: Craft's and EE's `license.key`,
+  Bedrock's `config/application.php` and `web/wp-config.php`, Laravel's `storage/` and
+  `bootstrap/cache/` skeleton, Strapi's `database/migrations`, `tina/tina-lock.json`, CA
+  bundles, `.env.test`, `.env.encrypted`. `.npmrc`/`.yarnrc` and the loose `*apikey*` /
+  `*_token.*` globs were dropped, and `auth.json` is anchored to the root; the commit-time
+  secret scan covers what they caught. EE's `config.php` and WordPress's `wp-config.php` are
+  `?secret` rules. The script (never Claude) checks whether the file writes a password
+  (database or SMTP) as a quoted value; reading one from `getenv()`/`$_ENV`/`env()` or an
+  included file doesn't count. The file is ignored while it holds one, or before it exists,
+  and stays committable otherwise, because the app can't run without it. App keys alone
+  (`encryption_key`, `session_crypt_key`, WordPress salts) don't make it secret: many sites
+  commit `config.php` with them and keep the database login in an uncommitted
+  `config.local.php` (now ignored), and `--doctor` notes the keys as info. A committed file
+  with a password is reported on each run and by `--doctor`. Messages name settings, never
+  values. Astro, Tina, Nuxt, SvelteKit, Remix and T3 got rules
+  for the first time. On every run, `GITIGNORE_RETIRED` lines are removed from the part of
+  `.gitignore` below ai-config's header (backed up; lines above it are never touched). A stack
+  rule that matches tracked files isn't added, `--doctor` warns about any ai-config rule that
+  matches tracked files, and `ai-config.conf [gitignore] skip = …` turns a rule off for one
+  codebase. `/project-discover` gained a step that works out the project's `.gitignore` from
+  official sources. `ai-config-fleet` used to stop at the first project it found, so
+  `~/data/digital-designs` (itself a project) hid the 15 sites inside it. It now keeps
+  searching inside a project and counts a nested one when it's a separate git repository; the
+  default depth went from 3 to 5. Tests: `test-gitignore-safety.sh`, `test-fleet.sh`.
 - **Profiles by folder; Cloudflare per profile** — every project uses exactly one profile
   (on Robert's Macs: cps on the work Mac; personal, lat45designs and digitaldesigns on the
   personal one). `~/.config/ai-config/folders` maps folders to profiles (longest match

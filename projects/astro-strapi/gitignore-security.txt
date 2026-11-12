@@ -1,3 +1,7 @@
+# Every rule is anchored to where Astro (root or frontend/) and Strapi (backend/) put the
+# file. backend/database/ is not here: it holds Strapi's migrations, which are source code
+# (the SQLite data file lives in backend/.tmp/).
+
 # =============================================================================
 # Environment Files (contain API keys, tokens, and secrets)
 # These hold Strapi admin secrets, API tokens, and database credentials
@@ -15,16 +19,22 @@
 # Astro Build Output (may embed env vars in bundled code)
 # =============================================================================
 .astro/
-dist/
+/dist/
+/frontend/dist/
 
 # =============================================================================
-# Strapi Build & Runtime (contains compiled admin, cache, database)
+# Strapi Build & Runtime (contains compiled admin, cache, local database)
 # =============================================================================
-backend/build/
-backend/.cache/
-backend/.tmp/
-backend/database/
-backend/public/uploads/
+/backend/build/
+/backend/dist/
+/backend/.strapi/
+/backend/.cache/
+/backend/.tmp/
+/backend/license.txt
+*.sqlite
+*.sqlite3
+/backend/public/uploads/*
+!/backend/public/uploads/.gitkeep
 
 # =============================================================================
 # Node Dependencies (never commit — use npm install)
