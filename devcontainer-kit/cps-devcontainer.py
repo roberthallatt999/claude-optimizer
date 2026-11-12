@@ -154,6 +154,8 @@ CLOUDFLARE_HOSTS = ["api.cloudflare.com", "share.cps.ca"]
 # scripts). Python package and Chromium are baked into the image at build time, which runs on
 # the Mac outside the firewall. The npm package of the same version uses the same browser build.
 PLAYWRIGHT_VERSION = "1.64.1"
+# gitleaks release baked into the image for the safety guard's commit scan.
+GITLEAKS_VERSION = "8.30.1"
 # .ddev subfolders mounted writable inside the read-only .ddev mount. Only DDEV's own containers
 # read them; no exec-host hook or host command lives there. php/, mysql/ and apache/ are equally
 # container-only if a project ever needs them. Never config*.yaml, commands/, providers/,
@@ -622,7 +624,7 @@ def gen_dockerfile(p: Project) -> str:
         lines += ["# DDEV's MariaDB has no TLS; newer MariaDB clients require it by default.",
                   "RUN mkdir -p /etc/mysql/mariadb.conf.d \\",
                   "    && printf '[client]\\nskip-ssl\\n' > /etc/mysql/mariadb.conf.d/99-ddev-no-ssl.cnf", ""]
-    lines += node_and_claude_lines(p, image, user) + wrangler_lines() + playwright_lines(user) + [
+    lines += node_and_claude_lines(p, image, user) + wrangler_lines() + playwright_lines(user) + gitleaks_lines() + [
         "# Root-owned, baked into the image: nothing inside the container can edit these.",
         "# (A non-standard path: a dev container feature once replaced /usr/local/bin/init-firewall.sh.)",
         "# allowed-domains.txt isn't copied: the firewall reads it from the read-only .devcontainer",
@@ -654,6 +656,25 @@ def gen_dockerfile(p: Project) -> str:
         "",
     ] + history_lines(user) + github_lines(user)
     return "\n".join(lines)
+
+
+def gitleaks_lines() -> list[str]:
+    """gitleaks, the safety guard's optional second secret scan at commit time.
+
+    A pinned release binary, checked against the release's checksum file. Downloaded at build
+    time, which runs on the Mac outside the firewall, so github.com needs no allowlist entry.
+    """
+    v = GITLEAKS_VERSION
+    base = f"https://github.com/gitleaks/gitleaks/releases/download/v{v}"
+    return [f"# gitleaks {v}: the safety guard's second secret scan when Claude commits (its own pattern",
+            "# check runs without it). Checksum-verified release binary; bump the version in the kit to update.",
+            "RUN arch=\"$(dpkg --print-architecture)\" && case \"$arch\" in amd64) arch=x64 ;; esac \\",
+            f"    && tarball=\"gitleaks_{v}_linux_${{arch}}.tar.gz\" && cd /tmp \\",
+            f"    && curl -fsSLO \"{base}/${{tarball}}\" \\",
+            f"    && curl -fsSL \"{base}/gitleaks_{v}_checksums.txt\" | grep \" ${{tarball}}$\" | sha256sum -c - \\",
+            "    && tar -xzf \"$tarball\" -C /usr/local/bin gitleaks \\",
+            "    && chmod 755 /usr/local/bin/gitleaks && rm -f \"$tarball\"",
+            ""]
 
 
 def wrangler_lines() -> list[str]:
