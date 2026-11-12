@@ -273,7 +273,13 @@ readable text such as `(brand green: not set)` rather than a fake value.
   rule that matches tracked files isn't added, `--doctor` warns about any ai-config rule that
   matches tracked files, and `ai-config.conf [gitignore] skip = …` turns a rule off for one
   codebase. `/project-discover` gained a step that works out the project's `.gitignore` from
-  official sources. `ai-config-fleet` used to stop at the first project it found, so
+  official sources. A rule is added only when the file doesn't already do what it does, in
+  any spelling: git is asked, in a scratch repo so this machine's global excludes don't
+  count, whether the rule's sample paths are already ignored (the site's `vendor` covers
+  `/vendor/`). Earlier copies in ai-config's part of the file are removed, and a folder with
+  its own tracked `.gitignore` (Craft's `storage/*-backups/`) is left to it. `?junk` rules
+  (EE's leftover `ee/installer_*/`) are added even when such files are tracked, with the
+  `git rm --cached` to run. `ai-config-fleet` used to stop at the first project it found, so
   `~/data/digital-designs` (itself a project) hid the 15 sites inside it. It now keeps
   searching inside a project and counts a nested one when it's a separate git repository; the
   default depth went from 3 to 5. Tests: `test-gitignore-safety.sh`, `test-fleet.sh`.
