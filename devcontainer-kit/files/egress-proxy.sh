@@ -11,11 +11,31 @@ set -eu
 SRC=/etc/sandbox/allowed-domains.txt
 LIST=/etc/squid/sandbox-allowed.txt
 
+drop_covered() {
+  # In squid, ".example.org" already matches example.org and every subdomain, and squid 5
+  # refuses to start when a dstdomain list also names one of those ("is a subdomain of").
+  # The firewall needs the apex listed on its own, so allowed-domains.txt keeps both forms;
+  # drop the covered names here instead. Squid allows exactly the same hosts either way.
+  awk '
+    { names[NR] = $0; if (substr($0, 1, 1) == ".") wild[$0] = 1 }
+    END {
+      for (i = 1; i <= NR; i++) {
+        n = names[i]; rest = (substr(n, 1, 1) == ".") ? substr(n, 2) : n; covered = 0
+        if (substr(n, 1, 1) != "." && (("." n) in wild)) covered = 1
+        while (!covered && (p = index(rest, ".")) > 0) {
+          rest = substr(rest, p + 1)
+          if (("." rest) in wild) covered = 1
+        }
+        if (!covered) print n
+      }
+    }'
+}
+
 build_list() {
   # One host per line, comments and blanks dropped. An empty list would make squid refuse
   # to start, so it always holds one name that never resolves.
   { sed -e 's/#.*//' -e 's/[[:space:]]//g' "$SRC" 2>/dev/null | grep -v '^$' || true
-    echo 'allowlist-missing.invalid'; } | sort -u > "$LIST.new"
+    echo 'allowlist-missing.invalid'; } | sort -u | drop_covered > "$LIST.new"
   mv "$LIST.new" "$LIST"
 }
 

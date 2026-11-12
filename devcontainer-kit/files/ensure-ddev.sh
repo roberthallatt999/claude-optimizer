@@ -35,6 +35,8 @@ ddev_name() {
 # Prints "project container" pairs a workspace's dev container needs. Links to
 # ddev-<project>-db/web name the project directly; a router link (ddev-router:intranet-api.test)
 # names it as the hostname's first label. ddev-router and ddev-ssh-agent are global.
+# A router link to a site's other-language name (soinsdenosenfants.cps.test) has a first label
+# that is no project, so router labels count only when DDEV knows a project by that name.
 needed_for() {
   local workspace="$1" compose="$1/.devcontainer/docker-compose.yml" own
   own=$(ddev_name "$workspace")
@@ -43,8 +45,18 @@ needed_for() {
     grep -oE 'ddev-[a-z0-9-]+-(db|web)' "$compose" 2>/dev/null \
       | sed -E 's/^ddev-(.+)-(db|web)$/\1 &/' || true
     grep -oE 'ddev-router:[a-z0-9-]+' "$compose" 2>/dev/null \
-      | sed -E 's/^ddev-router:(.+)$/\1 ddev-\1-web/' || true
+      | sed -E 's/^ddev-router:(.+)$/\1/' \
+      | while read -r label; do
+          is_ddev_project "$label" && echo "$label ddev-$label-web"
+        done || true
   } | sort -u
+}
+
+# Without DDEV's project list (fresh Mac) every label is kept, as before.
+is_ddev_project() {
+  local list="$HOME/.ddev/project_list.yaml"
+  [ -f "$list" ] || return 0
+  grep -qx "$1:" "$list"
 }
 
 # VS Code labels every dev container with the Mac folder it was opened from.

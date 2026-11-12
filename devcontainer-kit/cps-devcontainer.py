@@ -62,12 +62,59 @@ PYTHON_HOSTS = ["pypi.org", "files.pythonhosted.org"]
 CRAFT_HOSTS = ["composer.craftcms.com", "api.craftcms.com"]
 CONTEXT7_HOSTS = ["context7.com", "mcp.context7.com"]
 # CleanShot Cloud share links (share.) and the media they embed (CloudFront behind media.cleanshot.cloud).
-CLEANSHOT_HOSTS = ["cleanshot.com", "www.cleanshot.com", "share.cleanshot.com", "cleanshot.cloud",
+CLEANSHOT_HOSTS = ["cleanshot.com", "share.cleanshot.com", "cleanshot.cloud",
                    "media.cleanshot.cloud", "brief.cleanshot.cloud"]
 # Every domain CPS owns, subdomains included (a leading dot: squid's dstdomain matches the name
 # and everything under it), so Plausible's API, the live sites and staging are all reachable.
 CPS_HOSTS = [".cps.ca", ".healthygenerations.ca", ".generationsensante.ca", ".diabetesatschool.ca",
              ".diabetealecole.ca", ".kidsnewtocanada.ca", ".enfantsneocanadiens.ca"]
+# Every CPS site's production and staging host names, English and French, by exact name. The
+# wildcards above work only through the proxy (the firewall strips the dot and allows just the
+# apex), so anything that ignores HTTPS_PROXY could reach cps.ca but not stg.cps.ca or
+# soinsdenosenfants.cps.ca. Each site's CLAUDE.md "Site Domains" table lists its own; keep both
+# in step when a site gains a domain. No www. names: every CPS site redirects www. to the bare name.
+# Checked against DNS 2026-11-04 (cfk has no staging;
+# Caring for Kids is only on cps.ca subdomains: CPS doesn't own caringforkids.ca or soinsdenosenfants.ca).
+CPS_SITE_HOSTS = [
+    # cps
+    "cps.ca", "stg.cps.ca",
+    # cfk (Caring for Kids / Soins de nos enfants)
+    "caringforkids.cps.ca", "soinsdenosenfants.cps.ca",
+    # cpsp
+    "cpsp.cps.ca", "pcsp.cps.ca", "stg.cpsp.cps.ca", "stg.pcsp.cps.ca",
+    # cyntc (Caring for Kids New to Canada)
+    "kidsnewtocanada.ca", "enfantsneocanadiens.ca",
+    "stg.kidsnewtocanada.ca", "stg.enfantsneocanadiens.ca",
+    # diabetes
+    "diabetesatschool.ca", "diabetealecole.ca",
+    "stg.diabetesatschool.ca", "stg.diabetealecole.ca",
+    # healthy-screen-use
+    "healthyscreenuse.cps.ca", "saineutilisationdesecrans.cps.ca",
+    "stg.healthyscreenuse.cps.ca", "stg.saineutilisationdesecrans.cps.ca",
+    # healthygenerations
+    "healthygenerations.ca", "generationsensante.ca",
+    "stg.healthygenerations.ca", "stg.generationsensante.ca",
+    # membercentre, intranet, statements-studio, shared services
+    "members.cps.ca", "stg.members.cps.ca", "intranet.cps.ca", "intranet-api.cps.ca",
+    "statements-studio.cps.ca", "plausible.cps.ca", "forms.cps.ca", "automation.cps.ca",
+    "html-cleaner.cps.ca", "docs.cps.ca",
+]
+# Email services the sites and Statements Studio call: Mailtrap (test inbox; SMTP on 2525/587,
+# which only the firewall carries, so its SMTP hosts are listed by exact name), Mailchimp's
+# marketing API (one data-centre host, usN.api.mailchimp.com, reached through the proxy) and
+# Mailchimp Transactional (Mandrill: HTTPS API and SMTP relay).
+EMAIL_HOSTS = ["mailtrap.io", "send.api.mailtrap.io", "sandbox.api.mailtrap.io", "bulk.api.mailtrap.io",
+               "smtp.mailtrap.io", "sandbox.smtp.mailtrap.io", "live.smtp.mailtrap.io", "bulk.smtp.mailtrap.io",
+               "mailchimp.com", "login.mailchimp.com", ".api.mailchimp.com",
+               "mandrillapp.com", "smtp.mandrillapp.com"]
+# Moneris payments: developer docs and the test (QA) gateway.
+MONERIS_HOSTS = ["developer.moneris.com", "gatewayt.moneris.com"]
+# Airtable: the web app, its static assets and help pages.
+AIRTABLE_HOSTS = ["airtable.com", "www.airtable.com", "static.airtable.com", "support.airtable.com"]
+# Flowbite: Tailwind component docs.
+FLOWBITE_HOSTS = ["flowbite.com"]
+# DDEV config keys whose list items are extra host names for the same site (usually French).
+HOSTNAME_KEYS = ("additional_hostnames", "additional_fqdns")
 GITHUB_HOSTS = {"github.com", "api.github.com", "raw.githubusercontent.com", "objects.githubusercontent.com"}
 # What git and gh reach besides the API: release uploads and assets, Actions logs and artifacts
 # (Azure blob shards GitHub names one by one), container images. Listed by name for the proxy;
@@ -107,6 +154,11 @@ CLOUDFLARE_HOSTS = ["api.cloudflare.com", "share.cps.ca"]
 # scripts). Python package and Chromium are baked into the image at build time, which runs on
 # the Mac outside the firewall. The npm package of the same version uses the same browser build.
 PLAYWRIGHT_VERSION = "1.64.1"
+# .ddev subfolders mounted writable inside the read-only .ddev mount. Only DDEV's own containers
+# read them; no exec-host hook or host command lives there. php/, mysql/ and apache/ are equally
+# container-only if a project ever needs them. Never config*.yaml, commands/, providers/,
+# web-build/, db-build/, web-entrypoint.d/ or homeadditions/.
+WRITABLE_DDEV_DIRS = ("nginx_full",)
 PLAYWRIGHT_BROWSERS = "/opt/ms-playwright"
 # Where `playwright install` fetches browsers. Firefox, WebKit and ffmpeg download from here; Chromium
 # for another Playwright version redirects to storage.googleapis.com, which stays closed (any GCS
@@ -163,6 +215,20 @@ class Project:
         return f"{self.ddev_name}.{self.ddev.get('project_tld') or 'ddev.site'}"
 
     @property
+    def site_hosts(self) -> list[str]:
+        """Every name DDEV serves the site on: the primary host, additional_hostnames under the
+        project TLD and additional_fqdns as written. CPS sites are bilingual, so the French
+        name (soinsdenosenfants.cps.test) must resolve and bypass the proxy like the English
+        one. Wildcards can't be a link alias, so they're left out."""
+        if not self.site_host:
+            return []
+        tld = self.ddev.get("project_tld") or "ddev.site"
+        hosts = [self.site_host]
+        hosts += [f"{h}.{tld}" for h in self.ddev.get("additional_hostnames_list", [])]
+        hosts += self.ddev.get("additional_fqdns_list", [])
+        return [h for h in dict.fromkeys(hosts) if "*" not in h]
+
+    @property
     def node_modules(self) -> str | None:
         """/workspace path of the project's node_modules, when it has a package.json."""
         if not self.package:
@@ -189,7 +255,8 @@ def unquote(s: str) -> str:
 
 
 def parse_ddev_config(path: Path) -> tuple[dict, list]:
-    """Top-level scalars, database.type/version, and web_environment variable NAMES only."""
+    """Top-level scalars, database.type/version, additional_hostnames/fqdns (as lists under
+    '<key>_list'), and web_environment variable NAMES only."""
     cfg, env_names, block = {}, [], None
     for raw in path.read_text().splitlines():
         line = raw.split(" #")[0].rstrip() if not raw.lstrip().startswith("#") else ""
@@ -202,9 +269,16 @@ def parse_ddev_config(path: Path) -> tuple[dict, list]:
                 key, val = m.group(1), unquote(m.group(2))
                 if val in ("", "[]"):
                     block = key
+                elif key in HOSTNAME_KEYS and val.startswith("["):
+                    # Flow style: additional_hostnames: [soinsdenosenfants, www]
+                    cfg[f"{key}_list"] = [unquote(h.strip()) for h in val.strip("[]").split(",") if h.strip()]
                 cfg[key] = val
             continue
-        if block == "database":
+        if block in HOSTNAME_KEYS:
+            m = re.match(r"^\s*-\s*(\S+)\s*$", line)
+            if m:
+                cfg.setdefault(f"{block}_list", []).append(unquote(m.group(1)))
+        elif block == "database":
             m = re.match(r"^\s+(type|version):\s*(.*)$", line)
             if m:
                 cfg[f"database_{m.group(1)}"] = unquote(m.group(2))
@@ -491,10 +565,24 @@ def guardrail_mounts(p: Project) -> list[str]:
         if (p.path / rel).exists():
             out.append(f"      - ../{rel}:/workspace/{rel}:ro")
     out.append("      - ../.devcontainer:/workspace/.devcontainer:ro")
+    if (p.path / ".git").is_dir():
+        # Git on the Mac runs hooks and the commands .git/config names (core.fsmonitor,
+        # core.hooksPath, filter drivers, aliases); VS Code runs `git status` constantly. Writable,
+        # either would let the sandbox run code outside itself. Commits still work inside; setting
+        # an upstream (`push -u`, `branch -u`) fails there, so do that on the Mac. A Mac-side
+        # `git config` replaces the file, so the container sees the old copy until it's recreated.
+        out.append("      - ../.git/hooks:/workspace/.git/hooks:ro")
+        out.append("      - ../.git/config:/workspace/.git/config:ro")
     if (p.path / ".ddev").is_dir():
         # DDEV runs exec-host hooks on the Mac at the next `ddev start` (ensure-ddev.sh), so a
         # writable .ddev would let the sandbox schedule commands outside itself.
         out.append("      - ../.ddev:/workspace/.ddev:ro")
+        for sub in WRITABLE_DDEV_DIRS:
+            if (p.path / ".ddev" / sub).is_dir():
+                # Exception: only nginx inside the DDEV web container reads this; nothing in it runs
+                # on the Mac. Mount the directory, not a file: editors save via temp file + rename,
+                # which fails on a single-file bind mount.
+                out.append(f"      - ../.ddev/{sub}:/workspace/.ddev/{sub}")
     return out
 
 
@@ -701,8 +789,7 @@ def no_proxy_hosts(p: Project) -> list[str]:
             hosts.append("db")
         hosts += p.ddev_addons
         hosts += [l.split(":")[-1] for l in p.ddev_links]
-        if p.site_host:
-            hosts.append(p.site_host)
+        hosts += p.site_hosts
     return list(dict.fromkeys(hosts))
 
 
@@ -803,9 +890,10 @@ def gen_compose(p: Project) -> str:
         for addon in p.ddev_addons:
             links.append(f"      - ddev-{p.ddev_name}-{addon}:{addon}")
         links += [f"      - {l}" for l in p.ddev_links]
-        if p.site_host:
-            links += ["      # The site itself, through DDEV's router, so BrowserSync/Vite can proxy it.",
-                      f"      - ddev-router:{p.site_host}"]
+        if p.site_hosts:
+            links += ["      # The site itself (every language's host name), through DDEV's router, so",
+                      "      # BrowserSync/Vite/Playwright can reach it.",
+                      *[f"      - ddev-router:{h}" for h in p.site_hosts]]
         out += ["    # The same host names DDEV's web container sees.", "    external_links:", *links]
     out += ["    cap_add:", "      - NET_ADMIN", "      - NET_RAW", *IPV6_OFF,
             "    depends_on:", f"      - {PROXY_HOST}"]
@@ -978,6 +1066,13 @@ def gen_allowed_domains(p: Project) -> str:
     groups.append(("Playwright browser downloads (a project's own Playwright version)", PLAYWRIGHT_HOSTS))
     groups.append(("CleanShot screenshots and videos", CLEANSHOT_HOSTS))
     groups.append(("CPS domains and all their subdomains (live sites, staging, Plausible)", CPS_HOSTS))
+    groups.append(("CPS sites by exact name, production and staging, English and French (for the firewall;"
+                   " the proxy already allows them through the domains above)", CPS_SITE_HOSTS))
+    groups.append(("Email services: Mailtrap (test inbox), Mailchimp API, Mailchimp Transactional (Mandrill)",
+                   EMAIL_HOSTS))
+    groups.append(("Moneris payments: developer docs and the test gateway", MONERIS_HOSTS))
+    groups.append(("Airtable: web app, static assets, help pages", AIRTABLE_HOSTS))
+    groups.append(("Flowbite: Tailwind component docs", FLOWBITE_HOSTS))
     groups.append(("Cloudflare: wrangler deploys for the noslop skill, and its pages on share.cps.ca by name"
                    " (for the firewall; the proxy already allows it through .cps.ca)", CLOUDFLARE_HOSTS))
     out = [f"# Generated by cps-devcontainer {VERSION}.",
