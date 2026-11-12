@@ -98,6 +98,7 @@ hide "$ee" EE \
   ermin/user/config/config.php \
   ermin/user/cache/default_site/page.php \
   ermin/user/logs/error.log \
+  ermin/ee/installer_7.5.28_6af39e5097486/updater/ExpressionEngine/Updater/Version_7_5_28.php \
   .env \
   backup.sql \
   vendor/autoload.php
@@ -127,6 +128,16 @@ out=$("$SETUP_SCRIPT" --project="$ee3" --stack=expressionengine --force --skip-v
 assert_true "EE: committed config.php with a literal password is reported" grep -q "holds a literal password (password) and is committed" <<< "$out"
 out=$("$SETUP_SCRIPT" --doctor --project="$ee3" 2>&1)
 assert_true "--doctor reports it too" grep -q "holds a literal password and is committed" <<< "$out"
+
+# An old upgrade installer was committed: the rule is still added (nothing needs it), and
+# the fix names the folder
+ee5=$(new_repo)
+mk "$ee5" system/ee/ExpressionEngine/Core/Core.php system/ee/installer_7.5.1_aaa111/VERSION
+git -C "$ee5" add -A >/dev/null 2>&1 && git -C "$ee5" commit -qm init >/dev/null 2>&1
+out=$("$SETUP_SCRIPT" --project="$ee5" --stack=expressionengine --force --skip-vscode --no-superpowers --skip-superpowers-update 2>&1)
+assert_true "installer rule added though an old installer is tracked" grep -qxF '/system/ee/installer_*/' "$ee5/.gitignore"
+hide "$ee5" "EE (tracked old installer)" system/ee/installer_7.5.28_bbb222/updater/x.php
+assert_true "the fix names the tracked installer folder" grep -q "git rm -r --cached system/ee/installer_7.5.1_aaa111" <<< "$out"
 
 # The common layout: config.php committed with EE's app keys, the database login in an
 # uncommitted config.local.php (each server and DDEV has its own)

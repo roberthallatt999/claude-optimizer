@@ -29,6 +29,11 @@ ee.env
 /system/expressionengine/cache/
 
 # =============================================================================
+# Leftover installer from an upgrade (EE's own .gitignore; delete it from servers too)
+# =============================================================================
+?junk /{{EE_SYSTEM_DIR}}/ee/installer_*/
+
+# =============================================================================
 # ExpressionEngine Logs (may contain request data and errors)
 # =============================================================================
 /{{EE_SYSTEM_DIR}}/user/logs/*

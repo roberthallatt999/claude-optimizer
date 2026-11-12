@@ -3463,8 +3463,8 @@ verify_deployment() {
   if [[ -f "$PROJECT_DIR/.gitignore" ]] && git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
     local gi_ours gi_hits
     gi_ours=$(mktemp)
-    { gitignore_template_lines "$SCRIPT_DIR/projects/common/gitignore-security.txt"
-      gitignore_template_lines "$STACK_DIR/gitignore-security.txt"
+    { gitignore_template_lines "$SCRIPT_DIR/projects/common/gitignore-security.txt" nojunk
+      gitignore_template_lines "$STACK_DIR/gitignore-security.txt" nojunk
       printf '%s\n' "${GITIGNORE_RETIRED[@]}"; } | grep -v '^!' | sort -u > "$gi_ours"
     # Only rules in ai-config's part of the file (below its first header); the project's own
     # rules above it are its business, and a refresh never touches them.
@@ -3481,8 +3481,16 @@ verify_deployment() {
           END { for (p in n) printf "%s (%d)\n", p, n[p] }' | sort)
     rm -f "$gi_ours"
     # A config file ignored only while it holds literal credentials, but committed anyway
-    local gi_line gi_rule gi_keys
+    local gi_line gi_rule gi_keys gi_junk
     while IFS= read -r gi_line; do
+      # Leftovers the site never needs (an upgrade's installer folder), committed anyway
+      if [[ "$gi_line" == '?junk '* ]]; then
+        gi_rule=$(gitignore_resolve_line "$gi_line")
+        gi_junk=$(cd "$PROJECT_DIR" && git ls-files -ci --exclude="$gi_rule" 2>/dev/null \
+          | cut -d/ -f1-"$(printf '%s' "${gi_rule#/}" | sed 's#/$##' | awk -F/ '{print NF}')" | sort -u | tr '\n' ' ')
+        [[ -n "$gi_junk" ]] && hc_warn "The repo tracks files the site doesn't need (${gi_rule}): remove them from git, they stay on disk — git rm -r --cached ${gi_junk% }"
+        continue
+      fi
       [[ "$gi_line" == '?secret '* ]] || continue
       gi_rule="${gi_line#\?secret }"
       gi_rule="${gi_rule//\{\{EE_SYSTEM_DIR\}\}/${EE_SYSTEM_DIR:-system}}"
@@ -3985,6 +3993,9 @@ php_config_has_literal_secret() {
 gitignore_resolve_line() {
   local line="$1" sysdir="${EE_SYSTEM_DIR:-system}"
   line="${line//\{\{EE_SYSTEM_DIR\}\}/$sysdir}"
+  # "?junk": never needed by the app (a leftover upgrade installer), so the rule is added even
+  # when the repo already tracks such files
+  line="${line#\?junk }"
   if [[ "$line" == '?secret '* ]]; then
     line="${line#\?secret }"
     local path="$PROJECT_DIR/${line#/}"
@@ -3999,10 +4010,11 @@ gitignore_resolve_line() {
 # Print a .gitignore template's pattern lines as they'd be written for this project
 # ("?secret" rules that are off are left out).
 gitignore_template_lines() {
-  local file="$1" line out
+  local file="$1" nojunk="${2:-}" line out
   [[ -f "$file" ]] || return 0
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ -z "$line" || "$line" == \#* ]] && continue
+    [[ -n "$nojunk" && "$line" == '?junk '* ]] && continue
     out=$(gitignore_resolve_line "$line") && printf '%s\n' "$out"
   done < "$file"
 }
@@ -4109,8 +4121,9 @@ merge_gitignore_template() {
       continue
     fi
 
-    local secret_rule=false
+    local secret_rule=false junk_rule=false
     [[ "$line" == '?secret '* ]] && secret_rule=true
+    [[ "$line" == '?junk '* ]] && junk_rule=true
     if ! line=$(gitignore_resolve_line "$line"); then
       echo -e "  ${GREEN}✓${NC}  ${line#/} reads its secrets from the environment — not ignored, so it can be committed"
       continue
@@ -4134,11 +4147,19 @@ merge_gitignore_template() {
           echo -e "  ${YELLOW}⚠${NC}  ${line#/} holds a literal password ($(php_config_literal_names "$PROJECT_DIR/${line#/}" "$PHP_DB_SECRET_NAMES" | tr '\n' ' ' | sed 's/ $//')) and is committed to git. Move it to an uncommitted file (config.local.php, .env.php), or take the file out of git with: git rm --cached ${line#/}"
           continue
         fi
-        if [[ "$kind" == stack ]]; then
+        if [[ "$junk_rule" == true ]]; then
+          # The tracked folder the pattern names: as many path parts of the first hit as the
+          # pattern has (lcmin/ee/installer_*/ → lcmin/ee/installer_7.5.28_…)
+          local junk_dir junk_parts
+          junk_parts=$(printf '%s' "${line#/}" | sed 's#/$##' | awk -F/ '{print NF}')
+          junk_dir=$(printf '%s\n' "$hits" | head -1 | cut -d/ -f1-"$junk_parts")
+          echo -e "  ${YELLOW}⚠${NC}  '${line}' added; the repo already tracks such files, which the site doesn't need. Remove them from git (they stay on disk): git rm -r --cached ${junk_dir}"
+        elif [[ "$kind" == stack ]]; then
           echo -e "  ${YELLOW}⚠${NC}  Not adding '${line}': it matches files this repo tracks ($(printf '%s\n' "$hits" | tr '\n' ' '))"
           continue
         fi
-        echo -e "  ${YELLOW}⚠${NC}  '${line}' matches tracked files ($(printf '%s\n' "$hits" | tr '\n' ' ')); new files like them won't be added by git — add a !-exception if the site needs them"
+        [[ "$junk_rule" == true ]] \
+          || echo -e "  ${YELLOW}⚠${NC}  '${line}' matches tracked files ($(printf '%s\n' "$hits" | tr '\n' ' ')); new files like them won't be added by git — add a !-exception if the site needs them"
       fi
     fi
 
