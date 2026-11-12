@@ -4030,6 +4030,107 @@ gitignore_secret_rules_off() {
   done < "$file"
 }
 
+# --- Does the .gitignore already cover a rule? --------------------------------------------
+# Exact text isn't enough: a site's own "vendor/" already does what "/vendor/" would, and
+# "/ermin/user/config/config.local.php" what "ermin/user/config/config.local.php" does. Each
+# rule is reduced to sample paths it matches, and git itself is asked whether the file as it
+# stands ignores them. The check runs in a scratch repo holding only a copy of the file, so a
+# global excludesFile or .git/info/exclude on this machine can't make a rule look covered.
+
+GI_PROBE_REPO=""
+gitignore_probe_repo() {
+  if [[ -z "$GI_PROBE_REPO" || ! -d "$GI_PROBE_REPO" ]]; then
+    GI_PROBE_REPO=$(mktemp -d)
+    git -C "$GI_PROBE_REPO" init -q 2>/dev/null
+  fi
+}
+
+# gitignore_probe_paths <pattern> — sample paths the pattern matches, one per line. A pattern
+# with no inner slash matches at any depth, so it gets a nested sample too.
+gitignore_probe_paths() {
+  local p="${1#!}" dir=false anchored=false
+  [[ "$p" == /* ]] && anchored=true
+  p="${p#/}"
+  [[ "$p" == '**/'* ]] && p="${p#\*\*/}"
+  [[ "$p" == */ ]] && { dir=true; p="${p%/}"; }
+  [[ "$p" == */* ]] && anchored=true
+  p=$(printf '%s' "$p" | sed -E 's/\[[^]]*\]/_/g; s/\*+/aicprobe/g; s/\?/x/g')
+  [[ "$dir" == true ]] && p="$p/aicprobe"
+  printf '%s\n' "$p"
+  [[ "$anchored" == true ]] || printf 'aicprobe-dir/%s\n' "$p"
+}
+
+# gitignore_file_ignores <gitignore file> <pattern> — 0 when the file ignores every sample
+# path of the pattern, 1 when it ignores none, 2 when it ignores some.
+gitignore_file_ignores() {
+  local file="$1" pattern="$2" probe yes=0 no=0
+  gitignore_probe_repo
+  cp "$file" "$GI_PROBE_REPO/.gitignore" 2>/dev/null || : > "$GI_PROBE_REPO/.gitignore"
+  while IFS= read -r probe; do
+    if git -C "$GI_PROBE_REPO" -c core.excludesFile=/dev/null check-ignore -q --no-index -- "$probe" 2>/dev/null; then
+      yes=$((yes + 1))
+    else
+      no=$((no + 1))
+    fi
+  done < <(gitignore_probe_paths "$pattern")
+  [[ $no -eq 0 ]] && return 0
+  [[ $yes -eq 0 ]] && return 1
+  return 2
+}
+
+# gitignore_rule_needed <gitignore file> <rule> — false when adding the rule would change
+# nothing: a pattern whose paths are already all ignored, or a !-exception whose paths are
+# already all included.
+gitignore_rule_needed() {
+  local s
+  gitignore_file_ignores "$1" "$2"; s=$?
+  if [[ "$2" == !* ]]; then [[ $s -ne 1 ]]; else [[ $s -ne 0 ]]; fi
+}
+
+# dedupe_gitignore_managed <gitignore file> — drop lines in ai-config's part of the file that
+# change nothing given the rest of it (a copy of a rule the site already has). Lines above
+# ai-config's header are the project's own and are never touched. Backed up first.
+dedupe_gitignore_managed() {
+  local gitignore_path="$1"
+  [[ -f "$gitignore_path" ]] || return 0
+  local from
+  from=$(grep -n '(Added by ai-config' "$gitignore_path" 2>/dev/null | head -1 | cut -d: -f1)
+  [[ -n "$from" ]] || return 0
+
+  local work without removed="" n=0 i line total
+  work=$(mktemp); without=$(mktemp)
+  cp "$gitignore_path" "$work"
+  total=$(wc -l < "$work" | tr -d ' ')
+  i=$((from + 1))
+  while [[ $i -le $total ]]; do
+    line=$(sed -n "${i}p" "$work")
+    line="${line%"${line##*[![:space:]]}"}"
+    if [[ -n "$line" && "$line" != \#* ]]; then
+      sed "${i}d" "$work" > "$without"
+      if ! gitignore_rule_needed "$without" "$line"; then
+        cp "$without" "$work"
+        removed+="$line"$'\n'
+        n=$((n + 1))
+        total=$((total - 1))
+        continue
+      fi
+    fi
+    i=$((i + 1))
+  done
+  rm -f "$without"
+  if [[ $n -eq 0 ]]; then rm -f "$work"; return 0; fi
+
+  if [[ "$DRY_RUN" == true ]]; then
+    echo -e "  ${YELLOW}[DRY-RUN]${NC} Would remove ${n} ai-config rule(s) the .gitignore already covers: $(printf '%s' "$removed" | tr '\n' ' ')"
+    rm -f "$work"
+    return 0
+  fi
+  backup_file "$gitignore_path"
+  cat "$work" > "$gitignore_path"
+  rm -f "$work"
+  echo -e "  ${GREEN}✓${NC}  Removed ${n} ai-config rule(s) the .gitignore already covers: $(printf '%s' "$removed" | tr '\n' ' ')"
+}
+
 # retire_gitignore_patterns — remove GITIGNORE_RETIRED lines from the part of .gitignore that
 # ai-config wrote (below its first "Added by ai-config" header), unless this stack's current
 # rules still ship that exact line. Lines the project wrote above that header are never
@@ -4135,8 +4236,12 @@ merge_gitignore_template() {
       continue
     fi
 
-    # Pattern line — skip if already present (exact match)
+    # Pattern line — skip if already present (exact match), or if the file already does what
+    # it would do (the site's own "vendor/" covers "/vendor/")
     if grep -qxF "$line" "$gitignore_path" 2>/dev/null; then
+      continue
+    fi
+    if ! gitignore_rule_needed "$gitignore_path" "$line"; then
       continue
     fi
 
@@ -4154,6 +4259,11 @@ merge_gitignore_template() {
           junk_parts=$(printf '%s' "${line#/}" | sed 's#/$##' | awk -F/ '{print NF}')
           junk_dir=$(printf '%s\n' "$hits" | head -1 | cut -d/ -f1-"$junk_parts")
           echo -e "  ${YELLOW}⚠${NC}  '${line}' added; the repo already tracks such files, which the site doesn't need. Remove them from git (they stay on disk): git rm -r --cached ${junk_dir}"
+        elif [[ "$kind" == stack ]] && ! printf '%s\n' "$hits" | grep -qv '\(^\|/\)\.gitignore$'; then
+          # Only the folder's own .gitignore matched (Craft's storage/*-backups/, Laravel's
+          # storage/): that folder already ignores its contents itself.
+          echo -e "  ${GREEN}✓${NC}  ${line} has its own .gitignore — not needed"
+          continue
         elif [[ "$kind" == stack ]]; then
           echo -e "  ${YELLOW}⚠${NC}  Not adding '${line}': it matches files this repo tracks ($(printf '%s\n' "$hits" | tr '\n' ' '))"
           continue
@@ -4299,7 +4409,8 @@ update_gitignore() {
   local claude_tracked=()
 
   for entry in "${claude_entries[@]}"; do
-    if grep -qxF "$entry" "$gitignore_path" 2>/dev/null; then
+    if grep -qxF "$entry" "$gitignore_path" 2>/dev/null \
+      || ! gitignore_rule_needed "$gitignore_path" "$entry"; then
       claude_skipped+=("$entry")
     elif [[ "$entry" == ".claude/" ]] && grep -qxF ".claude/*" "$gitignore_path" 2>/dev/null; then
       # The project ignores .claude/ selectively and re-includes shared folders; ".claude/"
@@ -4377,6 +4488,10 @@ update_gitignore() {
   if [[ -f "$stack_security" ]]; then
     merge_gitignore_template "$stack_security" "$gitignore_path" "$stack_label" stack
   fi
+
+  # --- 5. Drop ai-config's copies of rules the file already has in another spelling ---
+  dedupe_gitignore_managed "$gitignore_path"
+  [[ -n "$GI_PROBE_REPO" ]] && rm -rf "$GI_PROBE_REPO" && GI_PROBE_REPO=""
 
   echo ""
 }

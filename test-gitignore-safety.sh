@@ -301,6 +301,57 @@ assert_true "Coilpack detected with EE in ee/system/" grep -q 'stack=coilpack' "
 keep "$cpe" Coilpack ee/system/user/config/license.key ee/system/user/addons/x/db.x.sql ee/system/user/cache/index.html
 hide "$cpe" Coilpack ee/system/user/config/config.php ee/system/user/cache/default_site/x.php
 
+# A folder with its own tracked .gitignore (Craft's storage/composer-backups/) handles itself
+cb=$(new_repo)
+: > "$cb/craft"
+echo '{"require":{"craftcms/cms":"^5.0"}}' > "$cb/composer.json"
+mkdir -p "$cb/storage/composer-backups"; printf '*\n!.gitignore\n' > "$cb/storage/composer-backups/.gitignore"
+git -C "$cb" add -A >/dev/null 2>&1 && git -C "$cb" commit -qm init >/dev/null 2>&1
+out=$("$SETUP_SCRIPT" --project="$cb" --force --skip-vscode --no-superpowers --skip-superpowers-update 2>&1)
+assert_false "a folder's own tracked .gitignore isn't a warning" grep -q "Not adding '/storage/composer-backups/'" <<< "$out"
+assert_true "it's reported as handled by the folder" grep -q "/storage/composer-backups/ has its own .gitignore" <<< "$out"
+
+# ============================================================================
+echo -e "\n${CYAN}=== Rules the site already has are not added again ===${NC}\n"
+# ============================================================================
+
+du=$(new_repo)
+mk "$du" wp-content/themes/x/style.css
+cat > "$du/.gitignore" <<'EOF'
+# The site's own rules, in its own spelling
+vendor
+.claude
+CLAUDE.md
+/wp-content/cache
+*.sql
+EOF
+deploy "$du" --stack=wordpress
+assert_false "site's 'vendor' covers /vendor/: not added" grep -qxF '/vendor/' "$du/.gitignore"
+assert_false "site's '.claude' covers .claude/: not added" grep -qxF '.claude/' "$du/.gitignore"
+assert_false "site's '/wp-content/cache' covers /wp-content/cache/: not added" grep -qxF '/wp-content/cache/' "$du/.gitignore"
+assert_true "site's own lines are all kept" bash -c "grep -qxF vendor '$du/.gitignore' && grep -qxF .claude '$du/.gitignore' && grep -qxF '/wp-content/cache' '$du/.gitignore'"
+assert_true "exceptions the site needs are still added (!*-schema.sql)" grep -qxF '!*-schema.sql' "$du/.gitignore"
+hide "$du" "dedupe" vendor/autoload.php .claude/settings.local.json wp-content/cache/x.html dump.sql
+keep "$du" "dedupe" wp-content/plugins/p/install/schema.sql
+before=$(cat "$du/.gitignore")
+deploy "$du" --refresh
+assert_true "a refresh changes nothing (no churn)" test "$before" == "$(cat "$du/.gitignore")"
+
+# A copy an earlier run added below ai-config's header is removed on refresh
+printf '/vendor/\n' >> "$du/.gitignore"
+deploy "$du" --refresh
+assert_false "an earlier copy of a site rule is removed" grep -qxF '/vendor/' "$du/.gitignore"
+hide "$du" "dedupe" vendor/autoload.php
+
+# The check ignores this machine's global excludes: a rule they cover is still added
+gx=$(new_repo)
+printf '.env\n*.sql\n' > "$gx/global-excludes"
+git -C "$gx" config core.excludesFile "$gx/global-excludes"
+mk "$gx" wp-content/themes/x/style.css
+deploy "$gx" --stack=wordpress
+assert_true "global excludes don't stop .env being added" grep -qxF '.env' "$gx/.gitignore"
+assert_true "global excludes don't stop *.sql being added" grep -qxF '*.sql' "$gx/.gitignore"
+
 # ============================================================================
 echo -e "\n${CYAN}=== ai-config.conf [gitignore] skip ===${NC}\n"
 # ============================================================================
