@@ -821,6 +821,24 @@ def shared_skill_mounts(user: str, home: Path | None = None) -> list[str]:
     return lines
 
 
+def common_hooks_mount(user: str, home: Path | None = None) -> list[str]:
+    """The trusted safety guard from this checkout, read-only so Claude can't edit it.
+
+    A bind mount of the checkout rather than a copy: the container runs whatever version
+    has been pulled, with nothing to sync.
+    """
+    home = home or Path.home()
+    hooks = KIT.parent / "projects" / "common" / "hooks"
+    if not (hooks / "safety-guard.sh").is_file():
+        return []
+    try:
+        src = "${HOME}/" + hooks.relative_to(home).as_posix()
+    except ValueError:
+        src = hooks.as_posix()
+    return ["      # Commit check: the trusted safety guard from claude-config-repo, read-only so Claude can't edit it.",
+            f"      - {src}:/home/{user}/.claude/hooks:ro"]
+
+
 def gen_compose(p: Project) -> str:
     _, user = base_image(p)
     vol = ["      # The project, writable.", "      - ..:/workspace:cached",
@@ -837,6 +855,7 @@ def gen_compose(p: Project) -> str:
             "      # every CPS container. Revoke it in Cloudflare.",
             f"      - cloudflare-config:/home/{user}/.config/cps-cloudflare"]
     vol += shared_skill_mounts(user)
+    vol += common_hooks_mount(user)
     vol += ["      # VS Code extensions survive rebuilds (Claude Code's alone is 135 MB).",
             f"      - vscode-extensions:/home/{user}/.vscode-server/extensions"]
     if p.node_modules:
