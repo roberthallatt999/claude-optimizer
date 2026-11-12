@@ -65,6 +65,9 @@ A profile says who you are in one context:
 - `share_domain`: where noslop publishes pages
 - `sensitive`: personal information that never sits behind a shared passcode
 - `not_for`: what noslop isn't for
+- `favicon`, `touch_icon`, `share_image` (optional): the tab icon, iPhone icon and
+  link-preview image on published pages. Public https URLs off the share domain, since
+  everything under a page's address is behind its passcode
 
 See `profiles/example.conf`.
 

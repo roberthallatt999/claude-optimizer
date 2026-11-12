@@ -26,6 +26,15 @@
     // The page's path on the shared host. Build the page with relative asset links.
     "BASE_PATH": "/{{WORKER_NAME}}",
     // After this date (UTC) the gate answers "expired", and `cloudflare.sh prune` lists the page.
-    "EXPIRES": "{{EXPIRES}}"
+    "EXPIRES": "{{EXPIRES}}",
+    // Link previews (Teams, Slack, Outlook, iMessage) only ever see the passcode screen. Anyone
+    // holding the link sees this text, so keep it generic: no names, numbers or findings.
+    "SHARE_DESCRIPTION": "{{SHARE_DESCRIPTION}}",
+    // From the ai-config profile (favicon, touch_icon, share_image). Each must be a public https
+    // URL outside this page's path, since everything under the path sits behind the passcode.
+    // Empty leaves the tag out.
+    "FAVICON": "{{FAVICON}}",
+    "TOUCH_ICON": "{{TOUCH_ICON}}",
+    "SHARE_IMAGE": "{{SHARE_IMAGE}}"
   }
 }

@@ -13,17 +13,17 @@ export default {
     const url = new URL(request.url);
     const base = (env.BASE_PATH ?? '').replace(/\/+$/, '');
     if (!env.PASSCODE) {
-      return page(env, base, 'This page isn’t ready yet.', 503, false);
+      return page(env, base, 'This page isn’t ready yet.', 503, false, url);
     }
     if (env.EXPIRES && new Date().toISOString().slice(0, 10) > env.EXPIRES) {
-      return page(env, base, `This page expired on ${env.EXPIRES}. Ask the sender for a new link.`, 410, false);
+      return page(env, base, `This page expired on ${env.EXPIRES}. Ask the sender for a new link.`, 410, false, url);
     }
     if (base && url.pathname === base) {
       // Relative asset links only resolve under the trailing slash.
       return noindex(Response.redirect(`${url.origin}${base}/${url.search}`, 301));
     }
     if (base && !url.pathname.startsWith(`${base}/`)) {
-      return page(env, base, 'There’s no page here.', 404, false);
+      return page(env, base, 'There’s no page here.', 404, false, url);
     }
     const token = await gateToken(env.PASSCODE, `${url.host}${base}`);
 
@@ -31,7 +31,7 @@ export default {
       const form = await request.formData();
       const tried = String(form.get('passcode') ?? '');
       if (!(await sameText(tried, env.PASSCODE))) {
-        return page(env, base, 'That passcode didn’t work. Check it and try again.', 401, true);
+        return page(env, base, 'That passcode didn’t work. Check it and try again.', 401, true, url);
       }
       return noindex(new Response(null, {
         status: 303,
@@ -44,7 +44,7 @@ export default {
     }
 
     if (readCookie(request, COOKIE) !== token) {
-      return page(env, base, '', 401, true);
+      return page(env, base, '', 401, true, url);
     }
     // The built files sit at the root of ASSETS, so drop the page's path before looking them up.
     const assetUrl = new URL(request.url);
@@ -86,8 +86,42 @@ function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 
+// Only absolute https URLs go in the page header: a relative or other-scheme value would point
+// behind the gate (or somewhere unexpected), so it's dropped rather than half-working.
+function httpsUrl(value) {
+  return /^https:\/\/[^\s"'<>]+$/.test(value ?? '') ? value : '';
+}
+
+// Tab icon and link-preview tags. Teams, Slack, Outlook and iMessage never get past the passcode,
+// so the passcode screen is all a preview can see. The image must be public (outside the gate),
+// and anyone holding the link sees the text, so it stays generic: the title and a fixed line.
+function headTags(env, base, url, title) {
+  const favicon = httpsUrl(env.FAVICON);
+  const touchIcon = httpsUrl(env.TOUCH_ICON);
+  const image = httpsUrl(env.SHARE_IMAGE);
+  const description = escapeHtml(env.SHARE_DESCRIPTION || 'Private page. Passcode required.');
+  const pageUrl = escapeHtml(`${url.origin}${base}/`);
+  const tags = [
+    `<meta name="description" content="${description}">`,
+    '<meta property="og:type" content="website">',
+    `<meta property="og:title" content="${title}">`,
+    `<meta property="og:description" content="${description}">`,
+    `<meta property="og:url" content="${pageUrl}">`,
+    `<meta name="twitter:card" content="${image ? 'summary_large_image' : 'summary'}">`,
+    `<meta name="twitter:title" content="${title}">`,
+    `<meta name="twitter:description" content="${description}">`,
+  ];
+  if (image) {
+    tags.push(`<meta property="og:image" content="${escapeHtml(image)}">`,
+      `<meta name="twitter:image" content="${escapeHtml(image)}">`);
+  }
+  if (favicon) tags.push(`<link rel="icon" href="${escapeHtml(favicon)}">`);
+  if (touchIcon) tags.push(`<link rel="apple-touch-icon" href="${escapeHtml(touchIcon)}">`);
+  return tags.join('\n  ');
+}
+
 // The passcode screen, in the same look as the page behind it (style kit, WCAG AA colours).
-function page(env, base, message, status, withForm) {
+function page(env, base, message, status, withForm, url) {
   const title = escapeHtml(env.PAGE_TITLE || 'Private page');
   const note = message ? `<p class="note" role="alert">${escapeHtml(message)}</p>` : '';
   const form = withForm ? `
@@ -103,6 +137,7 @@ function page(env, base, message, status, withForm) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>${title}</title>
+  ${headTags(env, base, url, title)}
   <style>
     :root { --bg: #fff; --card: #fff; --text: rgba(0,0,0,.9); --text-2: rgba(0,0,0,.6);
       --line: rgba(0,0,0,.12); --shadow: 0 4px 20px rgba(0,0,0,.075); --clay-strong: #b5502f; --bad: #a42528;

@@ -150,6 +150,20 @@ assert_true  "cloudflare: the gate knows its path" grep -q "\"BASE_PATH\": \"/$n
 assert_true  "cloudflare: no workers.dev address" grep -q '"workers_dev": false' "$site/wrangler.jsonc"
 assert_true  "cloudflare: a new page expires in 30 days by default" \
   grep -q "\"EXPIRES\": \"$(date -u -v+30d +%F 2>/dev/null || date -u -d '+30 days' +%F)\"" "$site/wrangler.jsonc"
+assert_true  "cloudflare: no icons in the profile leaves them empty" grep -q '"FAVICON": ""' "$site/wrangler.jsonc"
+icon_site=$(tmp_dir)
+printf '%s\n' 'name = R' 'organization = A "quoted" & co' 'share_domain = share.example.org' \
+  'favicon = https://www.example.org/favicon-32x32.png' 'touch_icon = javascript:alert(1)' \
+  'share_image = https://www.example.org/share-card.png?v=4&x=1' > "$cfg_home/profiles/icons.conf"
+AI_CONFIG_PROFILE=icons CLOUDFLARE_CONFIG="$cfdir/config" "$CF" new "$icon_site" icons >/dev/null 2>&1
+assert_true  "cloudflare: new copies the profile favicon" \
+  grep -q '"FAVICON": "https://www.example.org/favicon-32x32.png"' "$icon_site/wrangler.jsonc"
+assert_true  "cloudflare: a share image keeps its query string (& survives sed)" \
+  grep -qF '"SHARE_IMAGE": "https://www.example.org/share-card.png?v=4&x=1"' "$icon_site/wrangler.jsonc"
+assert_true  "cloudflare: a non-https icon is dropped" grep -q '"TOUCH_ICON": ""' "$icon_site/wrangler.jsonc"
+assert_true  "cloudflare: quotes can't break out of the JSON string" \
+  grep -q '"SHARE_DESCRIPTION": "Private page from A quoted & co. Passcode required."' "$icon_site/wrangler.jsonc"
+assert_false "cloudflare: no placeholder left behind" grep -q '{{' "$icon_site/wrangler.jsonc" "$icon_site/worker.js"
 assert_false "cloudflare: days must be a number" "$CF" new "$(tmp_dir)" topic soon
 assert_true  "cloudflare: the gate refuses an expired page" grep -q 'expired on' "$NOSLOP/templates/cloudflare/worker.js"
 assert_false "cloudflare: delete without a token deletes nothing" "$CF" delete q3-traffic-7f3a9c2e
@@ -190,6 +204,23 @@ assert_false "cloudflare: config never prints the token" grep -q sekret-token-va
 if command -v node >/dev/null 2>&1; then
   cp "$NOSLOP/templates/cloudflare/worker.js" "$cfdir/worker.mjs"
   assert_true "cloudflare: worker.js parses" node --check "$cfdir/worker.mjs"
+  # The locked screen is all a link preview sees: it must carry the icons and preview tags,
+  # drop a non-https value, and escape what it prints.
+  gate_html=$(node --input-type=module -e '
+    const { default: w } = await import(process.argv[1]);
+    const env = { PASSCODE: "x", BASE_PATH: "/p-0a1b2c3d", PAGE_TITLE: "Q3 <update>",
+      FAVICON: "https://www.example.org/favicon-32x32.png", TOUCH_ICON: "/apple-touch-icon.png",
+      SHARE_IMAGE: "https://www.example.org/i.png?v=4&x=1", SHARE_DESCRIPTION: "Private page. Passcode required." };
+    const res = await w.fetch(new Request("https://share.example.org/p-0a1b2c3d/"), env);
+    console.log(res.status); console.log(await res.text());' "$cfdir/worker.mjs" 2>&1)
+  assert_true  "gate: still locked (401)" test "$(head -1 <<< "$gate_html")" = 401
+  assert_true  "gate: og:image on the passcode screen" \
+    grep -qF '<meta property="og:image" content="https://www.example.org/i.png?v=4&amp;x=1">' <<< "$gate_html"
+  assert_true  "gate: large preview card when there is an image" grep -q 'summary_large_image' <<< "$gate_html"
+  assert_true  "gate: favicon on the passcode screen" grep -qF '<link rel="icon" href="https://www.example.org/favicon-32x32.png">' <<< "$gate_html"
+  assert_false "gate: a relative icon is dropped" grep -q 'apple-touch-icon' <<< "$gate_html"
+  assert_true  "gate: og:url is the page address" grep -qF 'content="https://share.example.org/p-0a1b2c3d/"' <<< "$gate_html"
+  assert_true  "gate: the title is escaped" grep -qF 'content="Q3 &lt;update&gt;"' <<< "$gate_html"
 fi
 assert_true  "cloudflare: worker fails closed without PASSCODE" grep -q 'if (!env.PASSCODE)' "$NOSLOP/templates/cloudflare/worker.js"
 

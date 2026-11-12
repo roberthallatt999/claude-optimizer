@@ -20,7 +20,7 @@ ai-config profile, so the same skill serves work, volunteer and side projects.
 
 0. **Read the profile first.** Run `~/.claude/skills/noslop/scripts/profile.sh` from the
    project folder. It prints `key=value` lines: `name`, `organization`, `voice`, `spelling`,
-   `share_domain`, `sensitive`, `not_for`. If it prints `profile=none`, ask the user who the
+   `share_domain`, `sensitive`, `not_for`, and optionally `favicon`, `touch_icon`, `share_image`. If it prints `profile=none`, ask the user who the
    page is from and where (if anywhere) to publish it, then go on with those answers. Below,
    ⟨key⟩ means that profile value.
 1. **Who it's from.** The header line reads "From ⟨name⟩, ⟨organization⟩ to …" (just
@@ -62,13 +62,20 @@ ai-config profile, so the same skill serves work, volunteer and side projects.
       To update a page, work in its folder: `new` keeps the existing name and address. Set
       `PAGE_TITLE` in `wrangler.jsonc` to the header line's "what this is".
    3. Build into `dist/` with relative asset links (Vite: `base: './'`), because the page is
-      served under its path. A single HTML page goes in `dist/index.html`.
+      served under its path. A single HTML page goes in `dist/index.html`. When the profile
+      sets ⟨favicon⟩ or ⟨touch_icon⟩, put `<link rel="icon" href="⟨favicon⟩">` and
+      `<link rel="apple-touch-icon" href="⟨touch_icon⟩">` in its `<head>` too. The passcode
+      screen already gets them, with the link-preview tags, from `wrangler.jsonc`. Never point
+      an icon or preview image at a file inside `dist/`: it sits behind the passcode.
    4. Deploy with `cloudflare.sh wrangler deploy`. The safety hook asks the user first.
    5. Set the passcode with `cloudflare.sh passcode <name>`. It makes one of three plain words
       and two digits, sets it on the page and records it on this machine. Until it is set, the
       page answers "not ready" to everyone.
    6. Check from outside with curl: the address from `cloudflare.sh url <name>` must answer
-      401, and a POST of the passcode to `<address>__unlock` must answer 303. A 403 page that
+      401, and a POST of the passcode to `<address>__unlock` must answer 303. When the profile
+      sets ⟨share_image⟩, the 401 body must carry `og:image` with that URL, and the URL itself
+      must answer 200 without a login. The preview text is `PAGE_TITLE` plus
+      `SHARE_DESCRIPTION`; anyone with the link sees both, so neither holds names or numbers. A 403 page that
       says "Sorry, you have been blocked" is a Cloudflare security rule on the zone, not the
       gate: tell the user and leave the rule alone.
    7. End with 3 lines: the link, the passcode, and the expiry date. After that date the page

@@ -189,6 +189,33 @@ slugify() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9]\{1,\}/-/g' -e 's/^-//' -e 's/-$//' | cut -c1-40 | sed 's/-$//'
 }
 
+profile_value() { "$(dirname "${BASH_SOURCE[0]}")/profile.sh" "$1" 2>/dev/null || true; }
+
+# A profile icon or share image: an absolute https URL with nothing that could break out of the
+# JSON string in wrangler.jsonc or the HTML attribute in the gate. Anything else is dropped.
+profile_url() {
+  local key=$1 value
+  value=$(profile_value "$key")
+  [ -n "$value" ] || return 0
+  # Prefix test plus a list of refused characters (whitespace, quotes, angle brackets, backslash).
+  if [[ "$value" == https://?* && "$value" != *[[:space:]\"\'\<\>\\]* ]]; then
+    printf '%s' "$value"
+  else
+    printf 'cloudflare: ignoring profile %s (not a plain https URL): %s\n' "$key" "$value" >&2
+  fi
+}
+
+# The link-preview line. Anyone holding the link sees it, so it names only the organization.
+share_description() {
+  local org
+  org=$(profile_value organization | tr -d '"\\<>' | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//')
+  if [ -n "$org" ]; then printf 'Private page from %s. Passcode required.' "$org"
+  else printf 'Private page. Passcode required.'; fi
+}
+
+# Escapes a value for the replacement side of a sed s|…|…| command.
+sed_escape() { printf '%s' "$1" | sed -e 's/[\\&|]/\\&/g'; }
+
 valid_name() { [[ "$1" =~ ^[a-z0-9]([a-z0-9-]{0,52}[a-z0-9])?$ ]]; }
 valid_domain() { [[ "$1" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]]; }
 
@@ -293,10 +320,17 @@ cmd_new() {
   [ -n "$name" ] || die "five random names were all taken - try another topic"
   valid_name "$name" || die "bad page name: $name"
   expires=$(days_from_today "$days")
+  local favicon touch_icon share_image description
+  favicon=$(sed_escape "$(profile_url favicon)")
+  touch_icon=$(sed_escape "$(profile_url touch_icon)")
+  share_image=$(sed_escape "$(profile_url share_image)")
+  description=$(sed_escape "$(share_description)")
   mkdir -p "$dir"
   for f in worker.js wrangler.jsonc; do
     sed -e "s/{{WORKER_NAME}}/$name/g" -e "s/{{SHARE_DOMAIN}}/$CLOUDFLARE_SHARE_DOMAIN/g" \
       -e "s/{{SHARE_ZONE}}/$CLOUDFLARE_SHARE_ZONE/g" -e "s/{{EXPIRES}}/$expires/g" \
+      -e "s|{{FAVICON}}|$favicon|g" -e "s|{{TOUCH_ICON}}|$touch_icon|g" \
+      -e "s|{{SHARE_IMAGE}}|$share_image|g" -e "s|{{SHARE_DESCRIPTION}}|$description|g" \
       "$TEMPLATE_DIR/$f" >"$dir/$f"
   done
   record_set "$name" --arg name "$name" --arg address "$(cmd_url "$name")" --arg topic "$topic" \
