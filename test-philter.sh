@@ -184,6 +184,71 @@ out=$(PATH="$no_bin:$PATH" run "$q" --doctor); base_status=$?
 assert_false "no .philter: doctor says nothing about Philter" contains "$out" "Philter"
 assert_eq   "no .philter: same exit code" "$base_status" "$no_status"
 
+# Only a validated name is ever printed (terminal escape injection), exit code unchanged.
+bad_case() {  # bad_case <label> <file content, printf format> <forbidden text>
+  local bp bout bstatus
+  bp=$(make_craft)
+  conf "$bp" acme
+  run "$bp" --force >/dev/null
+  printf "$2" > "$bp/.philter"
+  bout=$(PATH="$no_bin:$PATH" run "$bp" --doctor); bstatus=$?
+  assert_true  "$1: reports an invalid or empty name" contains "$bout" "invalid or empty set name in .philter"
+  assert_false "$1: raw content is not printed" contains "$bout" "$3"
+  assert_false "$1: no escape character in the output" contains "$bout" $'\033[31m'
+  assert_eq    "$1: exit code unchanged" "$base_status" "$bstatus"
+}
+bad_case "empty .philter"        ''                         'zzzz-never'
+bad_case "escape in the name"    '\033[31mevil\n'           'evil'
+bad_case "uppercase and space"   'Acme Corp\n'              'Acme Corp'
+bad_case "comment-only .philter" '# nothing here\n'         'nothing here'
+
+# ============================================================================
+echo -e "\n${CYAN}=== a symlinked .philter is never written through ===${NC}\n"
+# ============================================================================
+
+p=$(make_craft)
+outside="$(tmp_dir)/outside.txt"
+printf 'precious\n' > "$outside"
+cp "$outside" "$outside.orig"
+ln -s "$outside" "$p/.philter"
+conf "$p" acme
+out=$(run "$p" --force)
+assert_true "setup: outside file byte-identical" cmp -s "$outside" "$outside.orig"
+assert_true "setup: warns about the symlink" contains "$out" ".philter is a symlink"
+out=$(run "$p" --refresh)
+assert_true "refresh: outside file byte-identical" cmp -s "$outside" "$outside.orig"
+assert_true "refresh: warns about the symlink" contains "$out" ".philter is a symlink"
+assert_true "the symlink itself is left in place" test -L "$p/.philter"
+
+# A symlink to a marked file would be read for its current value too; still skipped.
+printf '%s\nbeta\n' "$MARKER" > "$outside"
+cp "$outside" "$outside.orig"
+run "$p" --refresh >/dev/null
+assert_true "a symlink to a marked file is not rewritten either" cmp -s "$outside" "$outside.orig"
+
+# ============================================================================
+echo -e "\n${CYAN}=== unmarked file: warning names its set when valid ===${NC}\n"
+# ============================================================================
+
+p=$(make_craft)
+printf '# mine\nclient-x\n' > "$p/.philter"
+conf "$p" other
+out=$(run "$p" --force)
+assert_true "warning includes the current valid set name" contains "$out" "(set 'client-x')"
+printf '\033[31mevil\n' > "$p/.philter"
+out=$(run "$p" --refresh)
+assert_false "an invalid current name is not echoed" contains "$out" "evil"
+
+# ============================================================================
+echo -e "\n${CYAN}=== no stack's .gitignore rules ignore .philter ===${NC}\n"
+# ============================================================================
+
+g=$(tmp_dir)
+git -C "$g" init -q .
+cat "$SCRIPT_DIR"/projects/*/gitignore-security.txt > "$g/.gitignore"
+touch "$g/.philter"
+assert_false "union of every stack's rules does not match .philter" git -C "$g" check-ignore -q .philter
+
 # ============================================================================
 echo ""
 echo -e "Passed: ${GREEN}$PASS${NC}  Failed: ${RED}$FAIL${NC}"

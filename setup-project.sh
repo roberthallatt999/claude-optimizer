@@ -2947,9 +2947,20 @@ write_philter_file() {
 
   echo ""
   echo -e "${CYAN}Philter policy set (.philter)...${NC}"
+  # Never follow a symlink: a cloned repo could point .philter outside the project and the
+  # write would clobber that file.
+  if [[ -L "$target" ]]; then
+    echo -e "  ${YELLOW}⚠${NC}  .philter is a symlink — not written"
+    return 0
+  fi
   if [[ -f "$target" ]]; then
     if [[ "$(sed -n 1p "$target" | tr -d '\r')" != "$PHILTER_MARKER" ]]; then
-      echo -e "  ${YELLOW}⚠${NC}  .philter exists but was not written by ai-config — leaving it as is (delete it to let ai-config manage it)"
+      current="$(philter_file_set "$target")"
+      if philter_valid_name "$current"; then
+        echo -e "  ${YELLOW}⚠${NC}  .philter exists (set '$current') but was not written by ai-config — leaving it as is (delete it to let ai-config manage it)"
+      else
+        echo -e "  ${YELLOW}⚠${NC}  .philter exists but was not written by ai-config — leaving it as is (delete it to let ai-config manage it)"
+      fi
       return 0
     fi
     current="$(philter_file_set "$target")"
@@ -2957,11 +2968,12 @@ write_philter_file() {
       echo -e "  ${GREEN}✓${NC} .philter already names set '$PHILTER_SET'"
       return 0
     fi
+    philter_valid_name "$current" || current="(invalid name)"   # never echo raw file content
     if [[ "$DRY_RUN" == true ]]; then
       echo -e "  ${YELLOW}[DRY-RUN]${NC} .philter: $current → $PHILTER_SET"
       return 0
     fi
-    printf '%s\n%s\n' "$PHILTER_MARKER" "$PHILTER_SET" > "$target"
+    philter_write_atomic "$target" || return 0
     echo -e "  ${GREEN}✓${NC} Updated .philter: $current → $PHILTER_SET"
     return 0
   fi
@@ -2969,8 +2981,26 @@ write_philter_file() {
     echo -e "  ${YELLOW}[DRY-RUN]${NC} Write .philter ($PHILTER_SET)"
     return 0
   fi
-  printf '%s\n%s\n' "$PHILTER_MARKER" "$PHILTER_SET" > "$target"
+  philter_write_atomic "$target" || return 0
   echo -e "  ${GREEN}✓${NC} Wrote .philter ($PHILTER_SET) — commit it; philter-guard reads it (optional)"
+}
+
+# philter_valid_name <name> — true for a name philter-guard accepts.
+philter_valid_name() { [[ "$1" =~ ^[a-z0-9][a-z0-9-]*$ ]]; }
+
+# philter_write_atomic <target> — temp file in the project, then mv, so a half-written
+# .philter is never left behind.
+philter_write_atomic() {
+  local tmp
+  tmp="$(mktemp "$PROJECT_DIR/.philter.XXXXXX")" || {
+    echo -e "  ${YELLOW}⚠${NC}  Could not write .philter"
+    return 1
+  }
+  printf '%s\n%s\n' "$PHILTER_MARKER" "$PHILTER_SET" > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$1" || {
+    rm -f "$tmp"
+    echo -e "  ${YELLOW}⚠${NC}  Could not write .philter"
+    return 1
+  }
 }
 
 # ============================================================================
@@ -3500,11 +3530,18 @@ verify_deployment() {
   fi
 
   # Philter policy set: informational only, never a warning, so the exit code is unaffected
-  if [[ -f "$PROJECT_DIR/.philter" ]]; then
-    if command -v claude &>/dev/null && (cd "$PROJECT_DIR" && claude mcp get philter) </dev/null &>/dev/null; then
-      hc_ok "Philter guard installed; policy set '$(philter_file_set "$PROJECT_DIR/.philter")' from .philter — run /scrub to apply it"
+  if [[ -e "$PROJECT_DIR/.philter" || -L "$PROJECT_DIR/.philter" ]]; then
+    # Only a validated name is ever printed; the file's raw content never reaches the terminal.
+    pset=""
+    if [[ -f "$PROJECT_DIR/.philter" && ! -L "$PROJECT_DIR/.philter" ]]; then
+      pset="$(philter_file_set "$PROJECT_DIR/.philter")"
+    fi
+    if ! philter_valid_name "$pset"; then
+      hc_info "invalid or empty set name in .philter — expected lowercase letters, digits and hyphens"
+    elif command -v claude &>/dev/null && (cd "$PROJECT_DIR" && claude mcp get philter) </dev/null &>/dev/null; then
+      hc_ok "Philter guard installed; policy set '$pset' from .philter — run /scrub to apply it"
     else
-      hc_info "Philter guard not installed (optional) — .philter names set '$(philter_file_set "$PROJECT_DIR/.philter")' for it to use"
+      hc_info "Philter guard not installed (optional) — .philter names set '$pset' for it to use"
     fi
   fi
 
