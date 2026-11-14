@@ -87,8 +87,31 @@ one run.
 | `response-style` | `false` | `--no-response-style` |
 | `claudeignore` | `false` | `--no-claudeignore` |
 | `skip-vscode` | `true`/`false` | `--skip-vscode` |
+| `philter` | a set name | none (see below) |
 
 `true`/`yes`/`on`/`1` and `false`/`no`/`off`/`0` are all accepted.
+
+#### `philter = <set>`
+
+Names the Philter policy set this project uses. Setup and `--refresh` write it to a `.philter`
+file at the project root: one comment line saying ai-config wrote it, then the bare set name.
+
+```ini
+[options]
+philter = acme
+```
+
+- The value is lowercase letters, digits and hyphens, starting with a letter or digit
+  (`comprehensive` means the base policy). Anything else gets a warning and no file.
+- **Commit `.philter`.** ai-config never adds it to `.gitignore`, and `--clean` and
+  `--uninstall` leave it in place (both say so).
+- Changing the value and running `--refresh` rewrites the file and reports the change. A
+  `.philter` you wrote yourself, without ai-config's comment line, is never overwritten, and
+  without the `philter` option the file is not touched at all.
+- philter-guard is optional. ai-config only writes the name: it never calls Philter and never
+  reads philter-guard's key. `--doctor` reports the set when the `philter` MCP server is
+  registered (use `/scrub` to apply it), and notes "Philter guard not installed" otherwise,
+  without affecting the exit code.
 
 ### `[decisions]`
 

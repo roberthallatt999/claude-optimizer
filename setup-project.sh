@@ -149,7 +149,9 @@ GIT_INTEGRATION_BRANCH=""
 #
 #   [options]    flags this project always wants (stack, okf-memory, orchestrator, …), so the
 #                stickiness that is otherwise inferred from ignored files survives a clone.
-#                An explicit command-line flag still wins.
+#                An explicit command-line flag still wins. philter = <set> writes the committed
+#                .philter file (one Philter policy set name, for philter-guard); it is never
+#                gitignored, and --clean and --uninstall leave it.
 #   [decisions]  path = <file> — where architectural decisions are recorded. Rendered into the
 #                managed Memory Protocol block and the memory rules.
 #   [exclude]    shipped files this project has deliberately removed, or taken ownership of.
@@ -176,6 +178,8 @@ POLICY_REMOTE_STAGE=()       # [remote] staging markers
 POLICY_REMOTE_ASSERT_DB=""   # [remote] assert-database: a staging write must prove its database
 POLICY_SCAN_ALLOW=""         # [scan] allow: test-fixture globs the guard's content scan skips
 POLICY_GITIGNORE_SKIP=()     # [gitignore] skip: ai-config .gitignore rules this project must not get
+PHILTER_SET=""               # [options] philter: the policy set name for the committed .philter file
+PHILTER_MARKER="# Philter policy set, written by ai-config from ai-config.conf (philter = …). See philter-guard."
 POLICY_SKIPPED=0             # files not written this run because [exclude] covers them
 DECISION_RECORD=""           # rendered clause for the managed memory-protocol blocks
 DECISION_LOCATION=""         # rendered path for {{DECISION_LOCATION}} in shipped rules
@@ -368,6 +372,14 @@ apply_project_policy() {
         if [[ "$b" == false ]] && ! cli_flag_seen --no-response-style; then NO_RESPONSE_STYLE=true; fi ;;
       claudeignore)
         if [[ "$b" == false ]] && ! cli_flag_seen --no-claudeignore; then NO_CLAUDEIGNORE=true; fi ;;
+      philter)
+        # One Philter policy set name, written to the committed .philter file. Same shape
+        # philter-guard accepts; anything else is refused here rather than written.
+        if [[ "$val" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+          PHILTER_SET="$val"
+        else
+          echo -e "  ${YELLOW}⚠${NC}  $POLICY_FILE_NAME [options]: philter = '$val' is not a set name — use lowercase letters, digits and hyphens (starting with a letter or digit); .philter not written"
+        fi ;;
       *)
         echo -e "  ${YELLOW}⚠${NC}  $POLICY_FILE_NAME [options]: unknown key '$key' — ignored" ;;
     esac
@@ -915,6 +927,7 @@ save_project_policy() {
     [[ "$NO_RESPONSE_STYLE" == true ]] && echo "response-style = false"
     [[ "$NO_CLAUDEIGNORE" == true ]]  && echo "claudeignore = false"
     [[ -n "$EFFORT_LEVEL" ]]          && echo "effort = $EFFORT_LEVEL"
+    [[ -n "$PHILTER_SET" ]]           && echo "philter = $PHILTER_SET"
     echo ""
     echo "[decisions]"
     if [[ -n "$POLICY_DECISIONS_PATH" ]]; then
@@ -2907,6 +2920,60 @@ register_code_index() {
 }
 
 # ============================================================================
+# Philter policy set (.philter)
+# ============================================================================
+
+# philter_file_set <file> — the set name in a .philter file: first line that isn't blank or a comment.
+philter_file_set() {
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    case "$line" in ''|'#'*) continue ;; esac
+    printf '%s' "$line"
+    return 0
+  done < "$1"
+  return 0
+}
+
+# write_philter_file — `philter = <set>` in ai-config.conf becomes the committed .philter file.
+# ai-config only writes the bare set name; it never calls Philter and never needs philter-guard.
+# A file without ai-config's marker line is the project's own and is never overwritten, and
+# without the option nothing is touched. The file is committed, so it is never gitignored here.
+write_philter_file() {
+  [[ -n "$PHILTER_SET" ]] || return 0
+  local target="$PROJECT_DIR/.philter" current
+
+  echo ""
+  echo -e "${CYAN}Philter policy set (.philter)...${NC}"
+  if [[ -f "$target" ]]; then
+    if [[ "$(sed -n 1p "$target" | tr -d '\r')" != "$PHILTER_MARKER" ]]; then
+      echo -e "  ${YELLOW}⚠${NC}  .philter exists but was not written by ai-config — leaving it as is (delete it to let ai-config manage it)"
+      return 0
+    fi
+    current="$(philter_file_set "$target")"
+    if [[ "$current" == "$PHILTER_SET" ]]; then
+      echo -e "  ${GREEN}✓${NC} .philter already names set '$PHILTER_SET'"
+      return 0
+    fi
+    if [[ "$DRY_RUN" == true ]]; then
+      echo -e "  ${YELLOW}[DRY-RUN]${NC} .philter: $current → $PHILTER_SET"
+      return 0
+    fi
+    printf '%s\n%s\n' "$PHILTER_MARKER" "$PHILTER_SET" > "$target"
+    echo -e "  ${GREEN}✓${NC} Updated .philter: $current → $PHILTER_SET"
+    return 0
+  fi
+  if [[ "$DRY_RUN" == true ]]; then
+    echo -e "  ${YELLOW}[DRY-RUN]${NC} Write .philter ($PHILTER_SET)"
+    return 0
+  fi
+  printf '%s\n%s\n' "$PHILTER_MARKER" "$PHILTER_SET" > "$target"
+  echo -e "  ${GREEN}✓${NC} Wrote .philter ($PHILTER_SET) — commit it; philter-guard reads it (optional)"
+}
+
+# ============================================================================
 # PHP Code Intelligence (php-lsp) and Template Map
 # ============================================================================
 
@@ -3432,6 +3499,15 @@ verify_deployment() {
     fi
   fi
 
+  # Philter policy set: informational only, never a warning, so the exit code is unaffected
+  if [[ -f "$PROJECT_DIR/.philter" ]]; then
+    if command -v claude &>/dev/null && (cd "$PROJECT_DIR" && claude mcp get philter) </dev/null &>/dev/null; then
+      hc_ok "Philter guard installed; policy set '$(philter_file_set "$PROJECT_DIR/.philter")' from .philter — run /scrub to apply it"
+    else
+      hc_info "Philter guard not installed (optional) — .philter names set '$(philter_file_set "$PROJECT_DIR/.philter")' for it to use"
+    fi
+  fi
+
   # PHP code intelligence (PHP stacks)
   if php_lsp_stack; then
     choice=$(plugin_setting "$settings" "$PHP_LSP_PLUGIN")
@@ -3828,6 +3904,7 @@ do_uninstall() {
   echo -e "${CYAN}Left in place:${NC}"
   if [[ -f "$PROJECT_DIR/MEMORY.md" ]]; then echo "  MEMORY.md (project memory)"; fi
   if [[ -d "$PROJECT_DIR/.okf" ]]; then echo "  .okf/ (knowledge bundle)"; fi
+  if [[ -f "$PROJECT_DIR/.philter" ]]; then echo "  .philter (committed Philter policy set — delete it yourself if unwanted)"; fi
   echo "  .gitignore entries, other settings (model, env, enabledPlugins, effortLevel), backups in .claude/ai-config/"
   if [[ -d "$PROJECT_DIR/.codegraph" ]]; then
     echo "  codegraph MCP registration — remove with: claude mcp remove codegraph --scope local"
@@ -4325,6 +4402,9 @@ do_clean() {
   echo -e "${CYAN}Cleaning existing configuration (moved to a backup, not deleted)...${NC}"
 
   local items=() item
+  if [[ -f "$PROJECT_DIR/.philter" ]]; then
+    echo -e "  ${CYAN}○${NC} .philter kept (committed Philter policy set; --clean never touches it)"
+  fi
   if [[ -e "$PROJECT_DIR/CLAUDE.md" ]]; then items+=("CLAUDE.md"); fi
   if [[ -e "$PROJECT_DIR/.claude" ]]; then items+=(".claude"); fi
   if [[ ${#items[@]} -eq 0 ]]; then
@@ -5125,6 +5205,7 @@ if [[ "$REFRESH" == true ]]; then
     deploy_okf_bundle
   fi
   register_code_index
+  write_philter_file
   enable_php_lsp
 
   # Re-apply the orchestrator pattern if requested, or sticky if already deployed
@@ -5503,6 +5584,9 @@ fi
 
 # 5b. Register an existing codegraph index for JS-framework stacks (never installs anything)
 register_code_index
+
+# 5b2. The committed Philter policy set, when ai-config.conf has philter = <set>
+write_philter_file
 
 # 5c. Enable the php-lsp plugin for PHP stacks when Intelephense is installed
 enable_php_lsp
