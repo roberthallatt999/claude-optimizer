@@ -95,6 +95,16 @@ if [ -r /run/ddev-relay/token ]; then
   fi
 fi
 
+# 5c. Philter on the Mac (philter-guard): only its MCP port, which the philter-scrub mod calls.
+#     The API port (27843) stays closed: its key lives in the philter-mcp container, not here.
+PHILTER_IP=$(getent ahostsv4 host.docker.internal | awk 'NR == 1 {print $1}')
+if [ -n "$PHILTER_IP" ]; then
+  iptables -A OUTPUT -p tcp -d "$PHILTER_IP" --dport 27840 -j ACCEPT
+  echo "Allowed Philter MCP $PHILTER_IP:27840"
+else
+  echo "WARNING: host.docker.internal not found; Philter can't be reached, so /scrub will block."
+fi
+
 # 6. Default deny, then allow established traffic and the allowlist.
 iptables -P INPUT DROP
 iptables -P FORWARD DROP

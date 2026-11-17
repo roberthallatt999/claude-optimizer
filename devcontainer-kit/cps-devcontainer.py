@@ -38,7 +38,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VERSION = "1.14.0"
+VERSION = "1.15.0"
 EE_MIGRATE_RELAY_NOTE = (
     "`.admin-scripts/ee-migrate.sh <staging|prod> status|rehearse|apply --expect=…` hands itself to the relay "
     "(as `ddev ee-migrate …`), which runs it on the Mac with your SSH, so no server credential is in here. "
@@ -49,7 +49,7 @@ EE_MIGRATE_RELAY_NOTE = (
     "count for each other. `local test` runs here directly.")
 KIT = Path(__file__).resolve().parent
 KIT_SCRIPTS = ("ddev-shim.sh", "ensure-ddev.sh", "init-firewall.sh", "ddev-relay.pl", "ddev-relay-client.sh",
-               "egress-proxy.sh")
+               "egress-proxy.sh", "philter-setup.sh")
 FILES = KIT / "files"
 
 CLAUDE_HOSTS = ["api.anthropic.com", "claude.ai", "claude.com", "platform.claude.com", "downloads.claude.ai"]
@@ -980,8 +980,10 @@ def gen_devcontainer_json(p: Project) -> str:
         # docker-compose.yml links to, when they aren't already running.
         cfg["initializeCommand"] = "/bin/bash \"${localWorkspaceFolder}/.devcontainer/ensure-ddev.sh\" \"${localWorkspaceFolder}\""
     cfg["features"] = features
+    # philter-setup.sh runs as the user (it writes the user's Claude config) and never fails.
     cfg["postStartCommand"] = ("sudo /usr/local/sbin/sandbox-firewall.sh "
-                               "&& sudo /usr/local/sbin/sandbox-own-volumes.sh")
+                               "&& sudo /usr/local/sbin/sandbox-own-volumes.sh "
+                               "&& bash /workspace/.devcontainer/philter-setup.sh")
     cfg["waitFor"] = "postStartCommand"
     # No route back to the Mac's git credentials: no SSH agent, and none of the variables through
     # which VS Code's Git extension answers HTTPS password prompts with the Mac's GitHub login.
@@ -1219,6 +1221,9 @@ def gen_readme(p: Project) -> str:
               f"- Proxy refusals show in `docker logs` of the `{PROXY_HOST}` container on the Mac (`TCP_DENIED` "
               "= not on the list).",
               "- The DB stops answering after `ddev restart`: `sudo /usr/local/sbin/sandbox-firewall.sh`.",
+              "- Prompts or tool output withheld by Philter: Philter runs on the Mac "
+              "(`cd ~/docker/philter-mcp && docker compose up -d`); `/scrub` shows its state, "
+              "`bash /workspace/.devcontainer/philter-setup.sh` reconnects.",
               "- `.devcontainer/` and the guardrail files are read-only inside: edit them on the Mac.", ""]
     return "\n".join(lines)
 
