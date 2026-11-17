@@ -40,6 +40,7 @@ This repository provides automated Claude Code configuration deployment across *
 - **[Updating Projects](guides/updating-projects.md)** - Refresh and update existing configurations
 - **[Project Policy](guides/project-policy.md)** - `ai-config.conf`: a project's committed say over its own config
 - **[MCP Integration](guides/mcp-integration.md)** - Connecting Supabase, GitHub, Cloudflare, and other MCP servers
+- **[Philter](guides/philter.md)** - Redact personal data before it reaches Claude; choose a policy set per codebase (opt-in)
 
 ## Reference
 

@@ -112,6 +112,8 @@ philter = acme
   reads philter-guard's key. `--doctor` reports the set when the `philter` MCP server is
   registered (use `/scrub` to apply it), and notes "Philter guard not installed" otherwise,
   without affecting the exit code.
+- Setting up Philter on a computer, writing a set for a codebase, and troubleshooting:
+  [Philter](philter.md).
 
 ### `[decisions]`
 
