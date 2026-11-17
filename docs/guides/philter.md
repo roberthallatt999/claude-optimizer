@@ -54,15 +54,15 @@ To start them without `setup.sh` (for example after writing `.env` by hand):
 cd ~/docker/philter-mcp
 docker compose up -d
 ./sync-policy.sh                     # upload the policies
-claude mcp add --transport http --scope user philter http://127.0.0.1:18000/mcp
+claude mcp add --transport http --scope user philter http://127.0.0.1:27840/mcp
 ```
 
 Check they're up:
 
 ```bash
 docker ps --format '{{.Names}}\t{{.Status}}\t{{.Ports}}' | grep philter
-curl -s  http://127.0.0.1:18000/health        # MCP server
-curl -sk https://127.0.0.1:18443/api/health   # Philter
+curl -s  http://127.0.0.1:27840/health        # MCP server
+curl -sk https://127.0.0.1:27843/api/health   # Philter
 ```
 
 Update the images with `docker compose pull && docker compose up -d`. The data volume and `.env`
@@ -86,8 +86,8 @@ servers or SSH port forwards:
 
 | Service | URL |
 |---|---|
-| MCP server | `http://127.0.0.1:18000/mcp` (health: `/health`) |
-| Philter API | `https://127.0.0.1:18443` (self-signed certificate) |
+| MCP server | `http://127.0.0.1:27840/mcp` (health: `/health`) |
+| Philter API | `https://127.0.0.1:27843` (self-signed certificate) |
 
 To use other ports, set `PHILTER_MCP_HOST_PORT` and/or `PHILTER_API_HOST_PORT` in philter-guard's
 `.env` and rerun `./setup.sh`. It recreates the containers and re-registers the MCP server at the
@@ -166,8 +166,8 @@ the project. Changing directory mid-session doesn't change the policy.
 
 | Symptom | Cause and fix |
 |---|---|
-| `philter` failed to connect: endpoint not found | The MCP URL points at something else on that port. Use `127.0.0.1` and the port from the table above: `claude mcp remove -s user philter && claude mcp add --transport http -s user philter http://127.0.0.1:18000/mcp` |
-| `ECONNREFUSED` | The containers aren't running, or the MCP URL has an old port. `cd ~/docker/philter-mcp && docker compose up -d`, then check `curl -s http://127.0.0.1:18000/health` |
+| `philter` failed to connect: endpoint not found | The MCP URL points at something else on that port. Use `127.0.0.1` and the port from the table above: `claude mcp remove -s user philter && claude mcp add --transport http -s user philter http://127.0.0.1:27840/mcp` |
+| `ECONNREFUSED` | The containers aren't running, or the MCP URL has an old port. `cd ~/docker/philter-mcp && docker compose up -d`, then check `curl -s http://127.0.0.1:27840/health` |
 | Messages not sent, tool output withheld | Philter is down; the plugin fails closed. Start the containers, then `/mcp` to reconnect |
 | `⚠ policy "<name>" not found, using base` | The set isn't on the server. Run `./sync-policy.sh` in philter-guard |
 | `⚠ .philter unreadable or invalid, using base` | The first line isn't a valid set name. Fix `philter =` in `ai-config.conf` and refresh |

@@ -247,7 +247,7 @@ readable text such as `(brand green: not set)` rather than a fake value.
   `philter` MCP server and the `/scrub` plugin) is installed once per computer by
   philter-guard, never by ai-config. A `.philter` ai-config didn't write, or a symlink, is left
   alone; `--doctor` reports the set (info only). philter-guard now publishes on
-  `127.0.0.1:18000` (MCP) and `:18443` (API), because `localhost:8000` lost to an SSH
+  `127.0.0.1:27840` (MCP) and `:27843` (API), because `localhost:8000` lost to an SSH
   `LocalForward` on `[::1]`. Guide: `docs/guides/philter.md`.
 - **`.gitignore` rules that never hide files a site needs** — the rules ai-config added hid
   files on 15 sites. On EE, a bare `cache/` hid Freeform's vendor code and EE core caches;
