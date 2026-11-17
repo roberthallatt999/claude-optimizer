@@ -1146,6 +1146,9 @@ def gen_managed_settings(p: Project) -> str:
             # safety guard still asks before an explicit -X POST/PUT/PATCH/DELETE to the API.
             "ask": ["Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(gh release create:*)",
                     "Bash(gh release upload:*)", "Bash(gh workflow run:*)", "Bash(gh run rerun:*)"],
+            # The philter-scrub mod's calls go through the permission check like any tool. Without
+            # these, every scrub asks (or, headless, is denied and the mod blocks the prompt).
+            "allow": ["mcp__philter__redact_text", "mcp__philter__list_policies"],
         },
         # Read by safety-guard.sh: PR and issue writes stop asking here (they still do on the Mac).
         # Managed settings are root-owned, so nothing inside can turn this on for itself.
