@@ -93,6 +93,9 @@ To use other ports, set `PHILTER_MCP_HOST_PORT` and/or `PHILTER_API_HOST_PORT` i
 `.env` and rerun `./setup.sh`. It recreates the containers and re-registers the MCP server at the
 new URL.
 
+A computer set up before these ports (on `8000`/`8080` or `18000`/`18443`) moves over when you
+pull philter-guard and rerun `./setup.sh`.
+
 Use `127.0.0.1` in the MCP URL, not `localhost`. `localhost` can resolve to the IPv6 address
 `::1`, and if anything else listens there (an SSH `LocalForward` does by default) Claude Code
 reaches that instead of Philter.
