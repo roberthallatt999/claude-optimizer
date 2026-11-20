@@ -577,18 +577,23 @@ def guardrail_mounts(p: Project) -> list[str]:
         # either would let the sandbox run code outside itself. Commits still work inside; setting
         # an upstream (`push -u`, `branch -u`) fails there, so do that on the Mac. A Mac-side
         # `git config` replaces the file, so the container sees the old copy until it's recreated.
+        out.append("      # Git hooks and config, read-only: git on the Mac runs what they name (hooks, core.fsmonitor, filters).")
         out.append("      - ../.git/hooks:/workspace/.git/hooks:ro")
         out.append("      - ../.git/config:/workspace/.git/config:ro")
     if (p.path / ".ddev").is_dir():
         # DDEV runs exec-host hooks on the Mac at the next `ddev start` (ensure-ddev.sh), so a
         # writable .ddev would let the sandbox schedule commands outside itself.
+        out.append("      # DDEV config, read-only: its exec-host hooks run on the Mac at the next `ddev start`.")
         out.append("      - ../.ddev:/workspace/.ddev:ro")
         for sub in WRITABLE_DDEV_DIRS:
             if (p.path / ".ddev" / sub).is_dir():
                 # Exception: only nginx inside the DDEV web container reads this; nothing in it runs
                 # on the Mac. Mount the directory, not a file: editors save via temp file + rename,
                 # which fails on a single-file bind mount.
-                out.append(f"      - ../.ddev/{sub}:/workspace/.ddev/{sub}")
+                out += [f"      # Exception: {sub} is read only by nginx inside the DDEV web container and never",
+                        "      # runs on the Mac, so it stays writable. Mount the directory, not the file: editors save",
+                        "      # via temp file + rename, which fails on a single-file bind mount.",
+                        f"      - ../.ddev/{sub}:/workspace/.ddev/{sub}"]
     return out
 
 
