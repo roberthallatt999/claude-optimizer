@@ -58,13 +58,20 @@ valid() {
   [ -n "$1" ]
 }
 
+variable_for() { # Keychain service -> the name egress-proxy.sh reads it under
+  case "$1" in
+    cps-devcontainer-github) echo GITHUB_TOKEN ;;
+    plausible-api) echo PLAUSIBLE_API_KEY ;;
+    cloudflare-api) echo CLOUDFLARE_API_TOKEN ;;
+  esac
+}
+
 found=''
 missing=''
 {
   echo '# Written by egress-credentials.sh on the Mac. Mounted into egress-proxy only.'
-  for pair in GITHUB_TOKEN:cps-devcontainer-github PLAUSIBLE_API_KEY:plausible-api CLOUDFLARE_API_TOKEN:cloudflare-api; do
-    var="${pair%%:*}"
-    service="${pair#*:}"
+  for service in cps-devcontainer-github plausible-api cloudflare-api; do
+    var="$(variable_for "$service")"
     value="$(keychain "$service")"
     if valid "$value"; then
       printf '%s=%s\n' "$var" "$value"
