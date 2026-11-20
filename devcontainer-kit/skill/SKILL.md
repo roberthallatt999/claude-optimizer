@@ -65,6 +65,10 @@ Edit the generated files in `<folder>/.devcontainer/`. Known patterns:
 
 Ask the user to run, in VS Code with the project open: **Dev Containers: Reopen in Container** (first time) or **Rebuild Container**. For DDEV projects, `ddev start` first.
 
+Upgrading an existing container (any kit change to compose, mounts or the Dockerfile): **Dev Containers: Rebuild and Reopen in Container** from outside the container, or **Rebuild Container** from inside. Plain **Reopen in Container** restarts the old container with its old mounts. On the 1.16.0 pilot that left the claude service on the shared `cps-gh-config` volume and without the proxy CA while the new egress proxy was already intercepting (gh used the old login; Cloudflare and Plausible failed TLS). If in doubt, `docker rm -f <project>_devcontainer-claude-1` on the Mac first; its login and history live on volumes.
+
+Upgrading to 1.16.0 also needs, once per Mac: the GitHub token in the Keychain (`security add-generic-password -U -s cps-devcontainer-github -a "$USER" -w`, in the user's own terminal). Verify inside: `echo "$GH_TOKEN"` shows `cps-egress-placeholder`; `gh auth status` says "(GH_TOKEN)" with no scopes line; Plausible and Cloudflare (`/accounts/$CLOUDFLARE_ACCOUNT_ID/tokens/verify`) answer with only the placeholder. After every project is on 1.16.0: the user revokes the old login that was on `cps-gh-config` (GitHub → Settings → Applications → GitHub CLI) and removes `cps-gh-config`, `cps-plausible-config`, and the old token file on `cps-cloudflare-config`.
+
 If the Dev Containers CLI is installed (`command -v devcontainer`), Claude can build and check it directly instead:
 
 ```bash
@@ -85,7 +89,7 @@ Run these in the container (via `devcontainer exec`, or ask the user to paste th
 | No sudo escape | `sudo -n iptables -F` | refused |
 | No Mac secrets | `ls ~/.aws ~/.ssh; echo ${SSH_AUTH_SOCK:-none}` | missing, `none` |
 | No Mac git login | in a **VS Code** terminal: `env \| grep -E '^(GIT_ASKPASS\|VSCODE_GIT_IPC_HANDLE)=.'` | prints nothing (blanked variables can exist empty, so don't count names) |
-| GitHub via gh | `gh auth status`, then `git push --dry-run origin HEAD` | logged in to github.com (first container only: the user runs `gh auth login` once; the volume is shared); dry run succeeds over HTTPS |
+| GitHub via gh | `gh auth status`, then `git push --dry-run origin HEAD` | logged in to github.com through the egress proxy (1.16.0: the token is the Mac's Keychain item `cps-devcontainer-github`; `echo $GH_TOKEN` shows only `cps-egress-placeholder`); dry run succeeds over HTTPS |
 | Volumes owned | `stat -c %U ~/.config/gh <node_modules path>` | the container user, not `root` |
 | Site reachable (DDEV PHP) | `curl -sk -o /dev/null -w '%{http_code}\n' https://<name>.<tld>` | `200` (or the site's redirect) |
 | Guardrails locked | `touch .devcontainer/x .claude/hooks/x` | `Read-only file system` |
@@ -111,7 +115,7 @@ Compare test counts with the same suite on DDEV (`ddev artisan test` etc.). A fa
 | A test needs to write into a sibling repo | Add a writable overlay for that folder only (step 4). |
 | DB unreachable after `ddev restart`, npm/Composer timing out | `sudo /usr/local/sbin/sandbox-firewall.sh` in the container. |
 | Can't save `.devcontainer/` files in the container window | Expected: edit on the Mac. |
-| `git push` asks for a username, or `gh` says not logged in | Kit 1.3.0 routes GitHub through gh: run `gh auth login` once in any CPS container (the `cps-gh-config` volume is shared). Older `.devcontainer/` folders need the 1.3.0 Dockerfile, compose and managed-settings changes ported by hand. |
+| `git push` asks for a username, or `gh` says not logged in | Kit 1.16.0: the proxy adds the token. Check the initializeCommand output ("tokens injected for: …"); if `cps-devcontainer-github` is missing, the user stores it in a Mac terminal (`security add-generic-password -U -s cps-devcontainer-github -a "$USER" -w`) and reopens. A TLS error for github.com means the CA isn't trusted: rerun `sudo /usr/local/sbin/sandbox-trust-ca.sh`. Kits 1.3.0–1.15.0 used `gh auth login` on the shared `cps-gh-config` volume. |
 | Dev server page spins forever on the Mac (`localhost:5173`), but `curl` inside works | Vite is listening on `[::1]` only (`ss -ltn`); VS Code forwards to 127.0.0.1. Kit 1.3.0 sets `NODE_OPTIONS=--dns-result-order=ipv4first` in docker-compose.yml; recreate the container. |
 | DDEV didn't start, or didn't stop after closing | `ensure-ddev.sh` runs on the Mac. Read `~/.cache/cps-devcontainer/watch.log`. A project already running at open is left running by design. Kit before 1.5.0 only checked DDEV and failed with `Run: ddev start`; port `files/ensure-ddev.sh` and the `initializeCommand`. |
 | `ddev start` fails: `unable to listen on required ports, port 3000 is already in use` (or 3001/5173) | A container window is holding the port through a static `forwardPorts` (`lsof -nP -iTCP:3000 -sTCP:LISTEN` shows `Code Helper`). Kit 1.4.0 uses `portsAttributes` only; port the change and rebuild, or close that window. |
@@ -139,7 +143,7 @@ End with one table: project, status (converted / verified / skipped / blocked), 
 
 - Never leave a `.devcontainer/` change on a branch that a container might check out. Inside the container `.devcontainer/` is read-only, so a checkout or merge between commits that differ there stops halfway (Statements Studio, 2026-10-20: the switch to `main` left a stray `devcontainer.json`). Ship dev container changes to `main` from the Mac straight away (`cps-ship.sh`), and never stack feature work on top of them. To recover a half-done switch: on the Mac, `git checkout -- .devcontainer/<file>` once you've confirmed the branch holds the same content.
 - Never put secret values into `.devcontainer/` files. They're committed.
-- Never mount `~/.aws`, `~/.ssh`, `~/.gitconfig`, the Mac's `~/.config/gh` or the Docker socket. GitHub access comes only from the shared `cps-gh-config` volume.
+- Never mount `~/.aws`, `~/.ssh`, `~/.gitconfig`, the Mac's `~/.config/gh` or the Docker socket. GitHub access comes only through the egress proxy, which holds the token (kit 1.16.0); never mount `~/.cache/cps-devcontainer/egress` into the claude service (only its `ca.crt` and the placeholder folders).
 - Never widen `allowed-domains.txt` without telling the user why.
 - Never loosen the read-only guardrail mounts or the sudoers rule to make something work. Find another way, or ask.
 - Follow each project's own `CLAUDE.md` guardrails while working in it.

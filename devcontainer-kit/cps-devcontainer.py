@@ -38,7 +38,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VERSION = "1.15.0"
+VERSION = "1.16.0"
 EE_MIGRATE_RELAY_NOTE = (
     "`.admin-scripts/ee-migrate.sh <staging|prod> status|rehearse|apply --expect=…` hands itself to the relay "
     "(as `ddev ee-migrate …`), which runs it on the Mac with your SSH, so no server credential is in here. "
@@ -49,7 +49,7 @@ EE_MIGRATE_RELAY_NOTE = (
     "count for each other. `local test` runs here directly.")
 KIT = Path(__file__).resolve().parent
 KIT_SCRIPTS = ("ddev-shim.sh", "ensure-ddev.sh", "init-firewall.sh", "ddev-relay.pl", "ddev-relay-client.sh",
-               "egress-proxy.sh", "philter-setup.sh")
+               "egress-proxy.sh", "egress-credentials.sh", "philter-setup.sh")
 FILES = KIT / "files"
 
 CLAUDE_HOSTS = ["api.anthropic.com", "claude.ai", "claude.com", "platform.claude.com", "downloads.claude.ai"]
@@ -138,13 +138,17 @@ NODE_FRAMEWORK_PORTS = {"next": 3000, "@docusaurus/core": 3000, "astro": 4321, "
 PORT_LABELS = {3000: "BrowserSync / dev server", 3001: "BrowserSync UI", 4321: "Astro", 5173: "Vite"}
 # BrowserSync's control UI sits next to its proxy port.
 EXTRA_PORTS = {"browser-sync": [3001]}
-# One gh login for every CPS container: a fixed-name volume, so each project mounts the same one.
-GH_CONFIG_VOLUME = "cps-gh-config"
-# Likewise one Plausible config + API key (the Mac keeps its key in the Keychain, which
-# containers can't reach) for the plausible skill, which is mounted from the Mac read-only.
-PLAUSIBLE_CONFIG_VOLUME = "cps-plausible-config"
-# And one Cloudflare account ID + API token for the noslop skill's web version (wrangler deploys
-# each page to its own path on share.cps.ca). The skill is mounted from the Mac read-only.
+# Tokens (1.16.0): GitHub, Plausible and Cloudflare tokens stay in the Mac's Keychain.
+# egress-credentials.sh (initializeCommand) copies them into EGRESS_DIR/credentials.env, mounted
+# into the egress proxy only; the proxy intercepts TLS for those hosts with this Mac's CA and
+# sets Authorization itself. The container sees EGRESS_PLACEHOLDER and the CA's certificate.
+# Before 1.16.0 the real tokens lived on shared volumes inside the container (cps-gh-config,
+# cps-plausible-config); those volumes are no longer mounted.
+EGRESS_DIR = "${HOME}/.cache/cps-devcontainer/egress"
+EGRESS_PLACEHOLDER = "cps-egress-placeholder"
+EGRESS_CA_IN_CONTAINER = "/run/cps-egress/ca.crt"
+# One Cloudflare page-record store for every CPS container (noslop's cloudflare.sh keeps its
+# pages list there); its config and token files are the read-only ones from EGRESS_DIR.
 CLOUDFLARE_CONFIG_VOLUME = "cps-cloudflare-config"
 # The published pages are under share.cps.ca. CPS_HOSTS (.cps.ca) lets the proxy through, but
 # the firewall can only look up exact names, so share.cps.ca is listed by name as well: tools
@@ -642,11 +646,20 @@ def gen_dockerfile(p: Project) -> str:
         "    > /usr/local/sbin/sandbox-own-volumes.sh \\",
         "    && chmod 755 /usr/local/sbin/sandbox-own-volumes.sh",
         "",
+        "# Trusts this Mac's egress-proxy CA (its certificate only; the key stays in the proxy), so the",
+        "# proxy can add tokens to requests for GitHub, Plausible and Cloudflare. Root-owned, no arguments.",
+        "RUN printf '%s\\n' '#!/bin/sh' 'set -e' \\",
+        f"    '[ -s {EGRESS_CA_IN_CONTAINER} ] || exit 0' \\",
+        f"    'install -m 644 {EGRESS_CA_IN_CONTAINER} /usr/local/share/ca-certificates/cps-egress-ca.crt' \\",
+        "    'update-ca-certificates >/dev/null' \\",
+        "    > /usr/local/sbin/sandbox-trust-ca.sh \\",
+        "    && chmod 755 /usr/local/sbin/sandbox-trust-ca.sh",
+        "",
         f"# The base image gives \"{user}\" passwordless sudo for everything, which would let",
-        "# anything inside run `sudo iptables -F`. Allow only the two root-owned scripts.",
+        "# anything inside run `sudo iptables -F`. Allow only the three root-owned scripts.",
         "RUN rm -f /etc/sudoers.d/* \\",
         f"    && echo \"{user} ALL=(root) NOPASSWD: /usr/local/sbin/sandbox-firewall.sh, "
-        f"/usr/local/sbin/sandbox-own-volumes.sh\" > /etc/sudoers.d/{user}-firewall \\",
+        f"/usr/local/sbin/sandbox-own-volumes.sh, /usr/local/sbin/sandbox-trust-ca.sh\" > /etc/sudoers.d/{user}-firewall \\",
         f"    && chmod 0440 /etc/sudoers.d/{user}-firewall",
         "",
         f"RUN mkdir -p /home/{user}/.claude && chown -R {user}:{user} /home/{user}/.claude",
@@ -760,17 +773,19 @@ def node_and_claude_lines(p: Project, image: str, user: str) -> list[str]:
 
 
 def own_volume_lines(p: Project, user: str) -> list[str]:
-    paths = [f"/home/{user}/.config/gh", f"/home/{user}/.config/plausible", f"/home/{user}/.config/cps-cloudflare"] \
+    # Not ~/.config/plausible: since 1.16.0 it's a read-only bind mount from the Mac. ~/.config/gh
+    # is no longer a volume, but gh still keeps its (token-free) settings there.
+    paths = [f"/home/{user}/.config/gh", f"/home/{user}/.config/cps-cloudflare"] \
         + ([p.node_modules] if p.node_modules else [])
     return ["set -e"] + [f"mkdir -p {d} && chown {user}:{user} {d}" for d in paths]
 
 
 def github_lines(user: str) -> list[str]:
-    """Dockerfile lines that let git push/pull through gh's login on the shared volume."""
+    """Dockerfile lines that let git push/pull through gh, whose token the egress proxy supplies."""
     return [
-        f"# GitHub from inside: git asks gh, whose login lives on the {GH_CONFIG_VOLUME} volume every",
-        "# CPS container shares (one `gh auth login`; revoke it on GitHub). SSH remotes are rewritten",
-        "# to HTTPS in here only. The Mac's SSH key and keychain never come in.",
+        "# GitHub from inside: git asks gh, which holds only GH_TOKEN's placeholder; the egress proxy",
+        "# swaps in the real token (Keychain item cps-devcontainer-github on the Mac). SSH remotes are",
+        "# rewritten to HTTPS in here only. The Mac's SSH key and keychain never come in.",
         f"RUN mkdir -p /home/{user}/.config/gh && chown -R {user}:{user} /home/{user}/.config \\",
         "    && git config --system credential.https://github.com.helper '' \\",
         "    && git config --system --add credential.https://github.com.helper '!gh auth git-credential' \\",
@@ -867,14 +882,16 @@ def gen_compose(p: Project) -> str:
     vol += guardrail_mounts(p)
     vol += ["      # Claude Code sign-in + settings survive rebuilds.", f"      - claude-config:/home/{user}/.claude",
             "      # Shell history (bash/zsh) survives rebuilds.", "      - command-history:/commandhistory",
-            "      # GitHub login (gh), shared by every CPS container: sign in once, revoke on GitHub.",
-            f"      - gh-config:/home/{user}/.config/gh",
-            "      # Plausible stats: its host/sites config and API key, shared by every CPS container.",
-            "      # The key can only read stats; revoke it in Plausible.",
-            f"      - plausible-config:/home/{user}/.config/plausible",
-            "      # The Cloudflare account and API token noslop's web version deploys with, shared by",
-            "      # every CPS container. Revoke it in Cloudflare.",
-            f"      - cloudflare-config:/home/{user}/.config/cps-cloudflare"]
+            "      # Tokens never come in (1.16.0). The egress proxy adds them on the way out; inside are",
+            "      # placeholders and the certificate of this Mac's interception CA (egress-credentials.sh).",
+            f"      - {EGRESS_DIR}/ca.crt:{EGRESS_CA_IN_CONTAINER}:ro",
+            "      # Plausible: the Mac's host/sites config and a placeholder key, read-only.",
+            f"      - {EGRESS_DIR}/plausible:/home/{user}/.config/plausible:ro",
+            "      # Cloudflare (noslop's web version): page records on a volume every CPS container shares;",
+            "      # the account config and a placeholder token on top, read-only.",
+            f"      - cloudflare-config:/home/{user}/.config/cps-cloudflare",
+            f"      - {EGRESS_DIR}/cloudflare/config:/home/{user}/.config/cps-cloudflare/config:ro",
+            f"      - {EGRESS_DIR}/cloudflare/api-token:/home/{user}/.config/cps-cloudflare/api-token:ro"]
     vol += shared_skill_mounts(user)
     vol += common_hooks_mount(user)
     vol += ["      # VS Code extensions survive rebuilds (Claude Code's alone is 135 MB).",
@@ -886,8 +903,15 @@ def gen_compose(p: Project) -> str:
         vol += ["      # This project's token for the DDEV relay on the Mac (ensure-ddev.sh writes it), so",
                 "      # `ddev start/stop/logs/snapshot/import-db` work inside. No other project's token is here.",
                 f"      - ${{HOME}}/.cache/cps-devcontainer/relay/tokens/{p.ddev_name}.token:/run/ddev-relay/token:ro"]
-    vol += ["      # Deliberately NOT mounted: ~/.aws, ~/.ssh, ~/.gitconfig, the Mac's ~/.config/gh, the Docker socket."]
+    vol += ["      # Deliberately NOT mounted: ~/.aws, ~/.ssh, ~/.gitconfig, the Mac's ~/.config/gh, the Docker socket,",
+            "      # the CA's key and credentials.env (egress proxy only)."]
     env = [f"      CLAUDE_CONFIG_DIR: /home/{user}/.claude",
+           "      # gh (and git, through gh's credential helper) send this; the egress proxy swaps in the",
+           "      # real token for github.com, api.github.com and uploads.github.com only.",
+           f"      GH_TOKEN: {EGRESS_PLACEHOLDER}",
+           "      # Node and Python's requests don't read the system trust store that sandbox-trust-ca.sh fills.",
+           f"      NODE_EXTRA_CA_CERTS: {EGRESS_CA_IN_CONTAINER}",
+           "      REQUESTS_CA_BUNDLE: /etc/ssl/certs/ca-certificates.crt",
            "      # Not CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: it also stops the plan-usage fetch, so",
            "      # Account & Usage shows nothing. These are the parts of it worth keeping. Claude Code",
            "      # lives in the image, so it updates on rebuild, not in place.",
@@ -945,11 +969,13 @@ def gen_compose(p: Project) -> str:
             "    # Squid: CONNECT/HTTP only to host names in allowed-domains.txt, which it re-reads every",
             "    # 15 s. The folder, not the file, is mounted so an editor's save-by-rename shows up.",
             "    build:", "      context: .", "      dockerfile: Dockerfile.proxy",
-            "    restart: unless-stopped", "    volumes:", "      - .:/etc/sandbox:ro", *IPV6_OFF]
+            "    restart: unless-stopped", "    volumes:", "      - .:/etc/sandbox:ro",
+            "      # This Mac's interception CA (key included) and the real tokens: here only, never in the",
+            "      # claude service. Written on the Mac by egress-credentials.sh from the Keychain.",
+            f"      - {EGRESS_DIR}:/etc/sandbox-egress:ro", *IPV6_OFF]
     if p.uses_ddev:
         out += ["", "networks:", "  ddev:", "    external: true", "    name: ddev_default"]
-    out += ["", "volumes:", "  claude-config:", "  command-history:", "  vscode-extensions:", "  gh-config:",
-            f"    name: {GH_CONFIG_VOLUME}", "  plausible-config:", f"    name: {PLAUSIBLE_CONFIG_VOLUME}",
+    out += ["", "volumes:", "  claude-config:", "  command-history:", "  vscode-extensions:",
             "  cloudflare-config:", f"    name: {CLOUDFLARE_CONFIG_VOLUME}"]
     if p.node_modules:
         out.append("  node-modules:")
@@ -975,13 +1001,18 @@ def gen_devcontainer_json(p: Project) -> str:
         "workspaceFolder": "/workspace",
         "remoteUser": user,
     }
+    # Runs on the Mac before the container starts. egress-credentials.sh: the egress proxy's CA and
+    # tokens from the Keychain (every project). ensure-ddev.sh: this project's DDEV, and any project
+    # docker-compose.yml links to, when they aren't already running.
+    init = "/bin/bash \"${localWorkspaceFolder}/.devcontainer/egress-credentials.sh\""
     if p.uses_ddev:
-        # Runs on the Mac before the container starts: starts this project's DDEV, and any project
-        # docker-compose.yml links to, when they aren't already running.
-        cfg["initializeCommand"] = "/bin/bash \"${localWorkspaceFolder}/.devcontainer/ensure-ddev.sh\" \"${localWorkspaceFolder}\""
+        init += (" && /bin/bash \"${localWorkspaceFolder}/.devcontainer/ensure-ddev.sh\" "
+                 "\"${localWorkspaceFolder}\"")
+    cfg["initializeCommand"] = init
     cfg["features"] = features
     # philter-setup.sh runs as the user (it writes the user's Claude config) and never fails.
-    cfg["postStartCommand"] = ("sudo /usr/local/sbin/sandbox-firewall.sh "
+    cfg["postStartCommand"] = ("sudo /usr/local/sbin/sandbox-trust-ca.sh "
+                               "&& sudo /usr/local/sbin/sandbox-firewall.sh "
                                "&& sudo /usr/local/sbin/sandbox-own-volumes.sh "
                                "&& bash /workspace/.devcontainer/philter-setup.sh")
     cfg["waitFor"] = "postStartCommand"
@@ -1191,15 +1222,29 @@ def gen_readme(p: Project) -> str:
                   "`~/.cache/cps-devcontainer/relay/relay.log`.", ""]
         if (p.path / ".admin-scripts" / "ee-migrate.sh").is_file():
             lines += [EE_MIGRATE_RELAY_NOTE, ""]
-    lines += ["## GitHub", "",
-              "Sign in once, in any CPS container: `gh auth login` (GitHub.com, HTTPS, paste a token). The login "
-              f"lives on the shared `{GH_CONFIG_VOLUME}` Docker volume, so every CPS container uses it, and git "
-              "uses it for push and pull (SSH remotes are rewritten to HTTPS inside the container only).",
+    lines += ["## GitHub, Plausible and Cloudflare tokens", "",
+              "No token is inside the container. The real ones stay in the Mac's Keychain; "
+              "`egress-credentials.sh` (run on the Mac before the container starts) hands them to the "
+              "`egress-proxy` service only, which adds them to HTTPS requests for `github.com`, "
+              "`api.github.com`, `uploads.github.com`, `plausible.cps.ca` and `api.cloudflare.com`. "
+              f"Inside, `GH_TOKEN` and the skills' key files hold the placeholder `{EGRESS_PLACEHOLDER}`. "
+              "`gh` and git (through gh) work as usual; SSH remotes are rewritten to HTTPS inside only.",
+              "",
+              "Set up GitHub once per Mac, in a Mac terminal (it asks for the token without echoing it), "
+              "then reopen the container:",
+              "",
+              "```sh",
+              'security add-generic-password -U -s cps-devcontainer-github -a "$USER" -w',
+              "```",
               "",
               "Use a fine-grained token limited to the canadian-paediatric-society repos: Contents, Pull "
               "requests and Actions read/write (add Workflows only to edit `.github/workflows` from here). "
-              "Revoking it on GitHub cuts off every container at once. The Mac's SSH key and keychain never "
-              "enter the container.", ""]
+              "Revoking it on GitHub cuts off every container at once. Plausible and Cloudflare use the "
+              "Keychain items their skills already set up on the Mac (`plausible-api`, `cloudflare-api`).",
+              "",
+              "After a kit upgrade, use **Dev Containers: Rebuild and Reopen in Container** (or **Rebuild "
+              "Container** from inside): plain Reopen restarts the old container with its old mounts.",
+              ""]
     preview = []
     if p.site_host:
         preview.append(f"- https://{p.site_host} in the Mac's browser shows edits made here straight away: "
@@ -1235,8 +1280,10 @@ def gen_proxy_dockerfile() -> str:
     return "\n".join([
         f"# Generated by cps-devcontainer {VERSION}. The egress proxy (see egress-proxy.sh).",
         "FROM debian:bookworm-slim",
+        "# squid-openssl: TLS interception for the few hosts it injects tokens into (1.16.0);",
+        "# ca-certificates: it verifies those hosts' real certificates itself.",
         "RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \\",
-        "    && apt-get install -y --no-install-recommends squid \\",
+        "    && apt-get install -y --no-install-recommends squid-openssl ca-certificates \\",
         "    && apt-get clean && rm -rf /var/lib/apt/lists/*",
         "COPY egress-proxy.sh /usr/local/sbin/egress-proxy.sh",
         "RUN chmod 755 /usr/local/sbin/egress-proxy.sh",

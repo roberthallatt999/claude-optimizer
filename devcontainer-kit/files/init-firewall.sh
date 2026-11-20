@@ -137,7 +137,9 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
 done
 if ! curl -s -o /dev/null --connect-timeout 5 -x "$PROXY" https://api.anthropic.com; then
   echo "WARNING: egress proxy not answering; tools using HTTPS_PROXY will fail until it does."
-elif curl -s -o /dev/null --connect-timeout 5 -x "$PROXY" https://example.com; then
+# A real answer from example.com, not curl's exit status: a proxy error page counts as blocked.
+elif case "$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 -x "$PROXY" https://example.com)" in
+       2??|3??) true ;; *) false ;; esac; then
   echo "ERROR: egress proxy let example.com through"; exit 1
 else
   echo "Egress proxy active: allowlist by host name."
