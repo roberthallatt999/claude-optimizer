@@ -18,6 +18,7 @@ Main project context file for Claude Code. Contains:
   |---|---|---|
   | Safety Guardrails | Never read secrets, never push/publish or touch production without approval | always on |
   | Memory Protocol (or OKF Memory Protocol) | When to read/update `MEMORY.md` (or the `.okf/` bundle) | `--okf-memory` swaps which one |
+  | Engineering Practices | Framework-first security, a test behind every security claim, attack test before the fix, CI audits, split big files | `--no-engineering-practices` |
   | Response Style | Concise-output defaults | `--no-response-style` |
   | Front-End Stack | The detected front-end stack, when one is found | automatic |
   | Code Index | Points at the registered codegraph MCP server | JS-framework stacks with codegraph installed |
@@ -194,6 +195,7 @@ for the handful of rules (the original six stack-pattern rules, `accessibility.m
 
 | Flag | Effect |
 |------|--------|
+| `--no-engineering-practices` | Omit the Engineering Practices block and `.claude/rules/engineering-practices.md` |
 | `--no-response-style` | Omit the Response Style block in `CLAUDE.md` |
 | `--eager-libraries` | Keep `@import`s of `.claude/libraries/*.md` |
 | `--effort=<low\|medium\|high\|xhigh\|max>` | Set `effortLevel` in `settings.local.json` |

@@ -101,6 +101,16 @@ Every deployment creates:
 Every deployment includes the memory system and token-saving defaults:
 
 - `MEMORY.md` - Persistent memory bank (preserved on refresh)
+- **Engineering Practices block** in `CLAUDE.md` and `.claude/rules/engineering-practices.md` -
+  rules that keep AI-written code checkable by one person: how to work (assumptions first,
+  read before writing, simplest code, surgical changes, verifiable goals, no hacks, fail
+  loud), code quality (names, constants, small functions, why-comments, intent-encoding
+  tests), a server-side security checklist; use the framework's security
+  features instead of hand-written ones, back every security claim in a comment with a test
+  that attacks it over a real request, write that test first and see it fail, let CI run
+  `composer audit` / `npm audit` / tests / PHPStan (`--doctor` warns about the ones a
+  project's workflows don't run), suggest a fresh-eyes security review each quarter, and
+  split files over ~1,000 lines before adding to them.
 - **Response Style block** in `CLAUDE.md` - concise-output defaults: lead with the
   answer, no narration or recaps, `path:line` references instead of pasted code.
   Output tokens are the most expensive, so this is on by default.
@@ -120,6 +130,7 @@ Every deployment includes the memory system and token-saving defaults:
 
 | Flag | Effect |
 |------|--------|
+| `--no-engineering-practices` | Omit the Engineering Practices block and rule (removes the block on `--refresh`) |
 | `--no-response-style` | Omit the Response Style block (removes it on `--refresh`) |
 | `--eager-libraries` | Keep `@.claude/libraries/*.md` imports (loaded every session) |
 | `--effort=<level>` | Set `effortLevel` (`low`, `medium`, `high`, `xhigh`, `max`) in `settings.local.json` |

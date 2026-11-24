@@ -72,6 +72,7 @@ claude-optimizer/
     │   ├── safety-guardrails.md  # Managed CLAUDE.md block: safety guardrails
     │   ├── memory-protocol.md    # Managed CLAUDE.md block: memory protocol
     │   ├── okf-memory-protocol.md  # Managed CLAUDE.md block: OKF memory protocol (--okf-memory)
+    │   ├── engineering-practices.md  # Managed CLAUDE.md block: practices for reviewable AI-written code
     │   ├── response-style.md     # Managed CLAUDE.md block: concise output defaults
     │   ├── code-index.md         # Managed CLAUDE.md block: codegraph code index
     │   ├── AGENTS.md.template    # Fallback AGENTS.md template (--with-openai)
@@ -108,6 +109,7 @@ projects/common/rules/
 ├── token-optimization.md     # Token efficiency (always loaded, no paths: scoping)
 ├── sensitive-files.md        # Prevents reading credentials/secrets
 ├── deployment-safety.md      # No unauthorized pushes or production changes
+├── engineering-practices.md  # Framework-first security, tested claims, CI audits, file size
 ├── okf-memory.md             # OKF bundle protocol (--okf-memory)
 ├── typescript-patterns.md    # Strict TS, discriminated unions, branded types
 ├── design-system.md          # Token-first, cva variants, component inventory

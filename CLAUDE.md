@@ -81,7 +81,7 @@ projects/
 │   ├── detect-frontend.sh     # Front-end stack detection (50+ frameworks/tools)
 │   ├── security.settings.local.json   # Shared safety policy merged into every project
 │   ├── protected-paths.conf   # Universal [deny]/[ignore] paths; each stack adds its own
-│   ├── memory-protocol.md, safety-guardrails.md, response-style.md,
+│   ├── memory-protocol.md, safety-guardrails.md, engineering-practices.md, response-style.md,
 │   │   code-index.md, okf-memory-protocol.md   # Managed CLAUDE.md/AGENTS.md block sources
 │   └── MEMORY.md.template     # Memory bank template
 ├── expressionengine/          # Full Claude config
@@ -116,7 +116,7 @@ superpowers/
 ├── commands/                 # Slash commands
 └── hooks/                    # Session hooks
 
-test-*.sh                     # 22 test suites, each independently runnable
+test-*.sh                     # 25 test suites, each independently runnable
 run-tests.sh                  # Runs every test-*.sh suite, or a selected subset
 ai-config-fleet.sh            # --doctor / --refresh / --list across many projects
 .github/workflows/tests.yml   # CI: runs the suites on macOS + Ubuntu, plus shellcheck
@@ -240,6 +240,35 @@ readable text such as `(brand green: not set)` rather than a fake value.
 
 ## Recent Changes
 
+- **Engineering Practices for AI-assisted code** — a security review of an AI-built Laravel
+  app found most problems in hand-written login, sanitiser and access-check code, two comments
+  that promised protection the code didn't give, a 2,300-line editor component nobody could
+  check for access control, and nothing in CI watching for outdated packages. A new always-on
+  managed block (`projects/common/engineering-practices.md`, placed before Response Style) and
+  a path-scoped rule (`projects/common/rules/engineering-practices.md`, with a per-stack table of
+  the framework features to use instead) set how Claude works (state assumptions, read before
+  writing, simplest code that works, surgical changes, verifiable goals, no hacks, report what
+  wasn't verified; adapted from Andrej Karpathy's notes on LLM coding mistakes), code quality
+  (names, constants, one job per function, why-comments, tests that encode intent), a
+  server-side security checklist, and tell Claude to: use the framework's security features
+  first; back every security claim in a comment with a test that attacks it over a real request;
+  write that test before the fix and show it failing; treat earlier sessions' comments as claims;
+  leave audits, tests and static analysis to CI; suggest a fresh-eyes security review each
+  quarter; and split a file over ~1,000 lines before adding to it. `--doctor` (and every deploy)
+  warns when a project's `.github/workflows` don't run `composer audit`, `npm audit`, PHP tests
+  or PHPStan that its lockfiles and config call for; the shared CPS deploy workflows run none
+  today. `--refresh` adds the rule to older projects unless it was deleted on purpose. Opt out
+  with `--no-engineering-practices` / `engineering-practices = false`. Tests:
+  `test-engineering-practices.sh`. Response Style gained: no apologies, real file links, and no
+  confirmation requests for what's already known (per-action approval for pushes, deploys and
+  production stays). From a pasted guideline set, three items were changed on purpose: "assume
+  nothing is in production, break compatibility freely" became "breaking changes are fine when
+  they're the right design, but name what breaks and update every caller" (these are live sites);
+  "refactor continuously" yields to surgical changes (wider cleanup is a separate, proposed
+  commit); and "keep every dependency on the latest version" became "patch promptly, upgrade
+  majors and CMS versions through the staged upgrade workflow". The shared CPS
+  `base-deploy.yml` now runs `composer audit` / `npm audit` (`dependency_audit: warn|block|off`),
+  and `--doctor` counts it as covering both.
 - **Philter policy set per project (opt-in)** — `philter = <set>` under `[options]` in
   `ai-config.conf` makes setup and `--refresh` write a committed `.philter` naming the
   [philter-guard](https://github.com/roberthallatt999/philter-guard) policy set for that

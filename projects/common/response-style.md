@@ -12,6 +12,12 @@ Output tokens are the most expensive part of a session, so default to concise:
 - Keep progress updates to a sentence or two. Use lists or tables only when they are
   shorter than the equivalent prose.
 - Ask a clarifying question only when blocked, and batch questions into one message.
+  Don't ask the developer to confirm what's already in the conversation, or to check code
+  you can read yourself. (Approval for pushes, deploys and production changes is still
+  required: see Safety Guardrails.)
+- No apologies, and no remarks about having understood the request.
+- Link to the real file (`path:line`), never a placeholder like `x.md`. Don't show the
+  current implementation unless asked.
 - Give fuller detail when the developer asks for it, or when explaining a risk, a
   trade-off, or a failure.
 - Subagents return a short report — files changed (`path:line`), commands run with

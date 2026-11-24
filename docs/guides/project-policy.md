@@ -84,6 +84,7 @@ one run.
 | `with-openai` | `true`/`false` | `--with-openai` |
 | `superpowers` | `true`/`false` | `--no-superpowers` |
 | `eager-libraries` | `true`/`false` | `--eager-libraries` |
+| `engineering-practices` | `false` | `--no-engineering-practices` |
 | `response-style` | `false` | `--no-response-style` |
 | `claudeignore` | `false` | `--no-claudeignore` |
 | `skip-vscode` | `true`/`false` | `--skip-vscode` |
