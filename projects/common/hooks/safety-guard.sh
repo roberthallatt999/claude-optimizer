@@ -218,7 +218,9 @@ is_secret_path() {
     process.env|*meta.env) return 1 ;;   # JS identifiers, not files
     .env*|*.env) return 0 ;;
     id_rsa|id_rsa.pub|id_dsa|id_ecdsa|id_ed25519|id_ed25519.pub) return 0 ;;
-    *.pem|*.key|*.p12|*.pfx|*.jks|*.keystore|*.priv|*.cer|*.crt|*.der|*.csr) return 0 ;;
+    # Not .crt/.cer/.der/.csr: certificates are public. A private key pasted into one is still
+    # caught when it's read, by the content scan (BEGIN … PRIVATE KEY).
+    *.pem|*.key|*.p12|*.pfx|*.jks|*.keystore|*.priv) return 0 ;;
     *.secret|*.secrets|*.token|*.password) return 0 ;;
     credentials.json|*-credentials.json|*service-account*.json|application_default_credentials.json) return 0 ;;
     secrets.json|secrets.yml|secrets.yaml|vault.yml|vault.yaml|auth.json) return 0 ;;
@@ -733,7 +735,39 @@ esac
 # ---------------------------------------------------------------------------
 cmd="$(json_field .tool_input.command)"
 [[ -n "$cmd" ]] || exit 0
-lc="$(lower "$cmd")"
+
+# strip_data_heredocs — drop the bodies of quoted heredocs (<<'EOF', <<"EOF") that cat or tee
+# writes to a file. The shell doesn't expand a quoted heredoc and cat/tee don't run it, so its
+# words are file contents, not paths or commands: `cat > x.conf <<'EOF'` holding
+# "Bash(gh auth token:*)" is a config line, not a token print. Kept: unquoted heredocs ($(…)
+# runs), heredocs piped on (cat <<'EOF' | bash), and any fed to an interpreter (python3 - <<'EOF'
+# can open files). The credential-shape check below still reads the full command.
+strip_data_heredocs() {
+  awk '
+    BEGIN { q = sprintf("%c", 39) }
+    skip != "" {
+      t = $0
+      if (dash) sub(/^\t+/, "", t)
+      if (t == skip) skip = ""
+      next
+    }
+    {
+      print
+      if (match($0, "<<-?[ \t]*[" q "\"][A-Za-z_][A-Za-z0-9_]*[" q "\"]")) {
+        pre = substr($0, 1, RSTART - 1)
+        tag = substr($0, RSTART, RLENGTH)
+        post = substr($0, RSTART + RLENGTH)
+        if (pre ~ /(^|[;&|])[ \t]*(cat|tee)([ \t]|$)/ && post !~ /\|/) {
+          dash = (tag ~ /^<<-/)
+          gsub("^<<-?[ \t]*[" q "\"]|[" q "\"]$", "", tag)
+          skip = tag
+        }
+      }
+    }'
+}
+cmd_scan="$(printf '%s\n' "$cmd" | strip_data_heredocs)"
+[[ -n "$cmd_scan" ]] || cmd_scan="$cmd"
+lc="$(lower "$cmd_scan")"
 lc="${lc//$'\n'/;}"
 
 m() { [[ "$lc" =~ $1 ]]; }
@@ -815,10 +849,34 @@ bare_word_exists() {
   return $found
 }
 
+# lc_paths — the command with each grep/rg/sed pattern or script argument blanked: in
+# `grep -n '^\.git' f` or `sed 's/credentials/x/' f` the first argument is a pattern, and the
+# files come after it. Not when the pattern is read from a file (-f, --file), and an argument
+# the parser can't place stays in, so a misparse can only over-match.
+lc_paths="$lc"
+_pat_re="${S}(grep|egrep|fgrep|rg|ag|ack|sed)((([[:space:]]+-[a-z][a-z-]*(=[^[:space:]]*)?)|([[:space:]]+-[abcm][[:space:]]+[0-9]+)|([[:space:]]+-i[[:space:]]+(''|\"\")))*)[[:space:]]+('[^']*'|\"[^\"]*\"|[^-[:space:];&|'\"][^[:space:];&|'\"]*)"
+_guard=0
+while [[ "$lc_paths" =~ $_pat_re ]] && (( _guard++ < 20 )); do
+  # ${S} has its own groups, so take the pattern argument as the last group, and the tool and
+  # options from the matched text itself.
+  _full="${BASH_REMATCH[0]}"; _arg="${BASH_REMATCH[${#BASH_REMATCH[@]}-1]}"
+  [[ "$_full" =~ (grep|egrep|fgrep|rg|ag|ack|sed) ]]; _tool="${BASH_REMATCH[1]}"
+  _opts="${_full%"$_arg"}"
+  if [[ "$_opts" =~ [[:space:]](-f|--file)([[:space:]=]|$) ]]; then
+    _new="${_full/"$_tool"/"${_tool}_"}"
+  else
+    _new="${_full%"$_arg"}"; _new="${_new/"$_tool"/"${_tool}_"} __pattern__"
+  fi
+  lc_paths="${lc_paths/"$_full"/"$_new"}"
+done
+
 secret=""
 while IFS= read -r tok; do
   [[ -n "$tok" ]] || continue
   if is_secret_path "$tok"; then
+    # json.dump(…), fs.readFileSync(…): a function call, not a file, wherever every mention is one.
+    _rest="${lc_paths//"$tok("/}"
+    [[ "$_rest" != *"$tok"* ]] && continue
     # A bare word ("credentials", "secrets") is prose in an echo or a commit message far more
     # often than a file name: only an existing file by that name counts. Key names still do.
     if [[ "$tok" != */* && "$tok" != *.* ]] && ! bare_word_exists "$tok" \
@@ -857,7 +915,7 @@ while IFS= read -r tok; do
     break
   fi
 done <<EOF
-$(printf '%s' "$lc" | tr -c 'a-z0-9._/~*@+:%-' '\n')
+$(printf '%s' "$lc_paths" | tr -c 'a-z0-9._/~*@+:%-' '\n')
 EOF
 
 READ_VERBS="${S}(cat|zcat|gzcat|bzcat|xzcat|zless|zmore|zgrep|gunzip|unzip|less|more|head|tail|bat|batcat|nl|tac|strings|xxd|od|hexdump|base64|source|\.|grep|egrep|fgrep|rg|ag|ack|awk|gawk|sed|cut|sort|uniq|diff|cmp|jq|yq|cp|scp|rsync|curl|wget|nc|ncat|openssl|gpg|vi|vim|nvim|nano|emacs|code|open|pbcopy|xclip|python|python3|node|deno|php|ruby|perl|export|dotenv|tee|zip|tar|echo|printf|eval|read)([[:space:]]|$)"

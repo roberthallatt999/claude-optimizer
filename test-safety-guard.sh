@@ -201,6 +201,29 @@ bash_expect none 'echo "export const key = process.env.API_KEY;" > src/config.ts
 bash_expect none 'grep -rn "AKIA" src/'
 
 echo ""
+echo -e "${CYAN}=== Words a command only mentions are not reads ===${NC}"
+# Each of these was denied on 2026-11-23 while editing this repo.
+NL=$'\n'
+bash_expect none "python3 -c \"import json; json.dump(d, open('out.json','w'))\""
+bash_expect none "sed -i '' 's/credentials\\.conf/token-hosts.conf/g' a.py"
+bash_expect none "grep -n '^\\.git' notes.txt"
+bash_expect none "grep -rn 'id_rsa' docs/"
+bash_expect none "printf '%s\\n' 'install -m 644 /run/x/ca.crt /usr/local/share/ca-certificates/ai.crt' >> Dockerfile"
+bash_expect none "cat > integrations/github.conf <<'EOF'${NL}[deny]${NL}Bash(gh auth token:*)${NL}Read(**/.env)${NL}EOF"
+bash_expect none "tee notes.md <<'EOF'${NL}never cat .env${NL}EOF"
+# …and these must still be caught.
+bash_expect deny "sed -n p .env"
+bash_expect deny "grep password .env"
+bash_expect deny "grep -f .env notes.txt"
+bash_expect deny "sed -f .env x"
+bash_expect deny "python3 -c \"print(open('.env').read())\""
+bash_expect deny "cat <<'EOF' | bash${NL}cat .env${NL}EOF"
+bash_expect deny "python3 - <<'EOF'${NL}print(open('.env').read())${NL}EOF"
+bash_expect deny "cat > x.txt <<EOF${NL}\$(cat .env)${NL}EOF"
+bash_expect deny "cat > x.txt <<'EOF'${NL}hi${NL}EOF${NL}cat .env"
+bash_expect deny "cat server.key"
+bash_expect deny "grep -r token . --include=.env"
+
 echo -e "${CYAN}=== Killing processes by name: ask ===${NC}"
 # The line that killed VS Code and Chrome on macOS (2026-11-23): -u and the UID became patterns.
 bash_expect ask  'pkill -f "ddev-relay.pl --serve" -u "$(id -u)" 2>/dev/null || true'
