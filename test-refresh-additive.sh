@@ -169,9 +169,9 @@ run "$p" --refresh --dry-run
 assert_eq "--dry-run refresh changes nothing" "$snapshot" "$(tree_sha "$p")"
 
 run "$p" --refresh --apply-pending
-assert_false "--apply-pending adopts the staged CLAUDE.md" grep -q KEEP-CLAUDE "$p/CLAUDE.md"
-assert_true "--apply-pending backed up the edited CLAUDE.md" latest_backup_has "$p" CLAUDE.md KEEP-CLAUDE
-assert_eq "--apply-pending empties pending/" "0" "$(find "$p/.claude/ai-config/pending" -type f 2>/dev/null | wc -l | tr -d ' ')"
+assert_true "--apply-pending never replaces an edited CLAUDE.md with the stock render" grep -q KEEP-CLAUDE "$p/CLAUDE.md"
+assert_true "--apply-pending leaves the CLAUDE.md reference render staged" test -f "$p/.claude/ai-config/pending/CLAUDE.md"
+assert_eq "--apply-pending adopts everything else" "0" "$(find "$p/.claude/ai-config/pending" -type f ! -name CLAUDE.md ! -name AGENTS.md 2>/dev/null | wc -l | tr -d ' ')"
 assert_true "agent edit kept until adopted, now backed up" latest_backup_has "$p" .claude/agents/security-expert.md KEEP-AGENT
 
 p=$(make_next_project)

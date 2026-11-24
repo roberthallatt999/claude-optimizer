@@ -1611,7 +1611,7 @@ install_rendered() {
     append_managed_policies "$dest"
     stage_pending "$render" "$rel"
     COUNT_KEPT=$((COUNT_KEPT + 1))
-    echo -e "  ${YELLOW}○${NC} Kept your edits to $rel (managed blocks refreshed) — full new render staged at .claude/ai-config/pending/$rel"
+    echo -e "  ${YELLOW}○${NC} Kept your edits to $rel (managed blocks refreshed) — stock render for reference at .claude/ai-config/pending/$rel (--apply-pending never adopts it)"
   fi
   rm -rf "$work"
 }
@@ -1647,6 +1647,14 @@ apply_pending_updates() {
       POLICY_SKIPPED=$((POLICY_SKIPPED + 1))
       continue
     fi
+    # CLAUDE.md/AGENTS.md: the staged copy is the stock template render, and the kept file's
+    # managed blocks are already refreshed in place. Adopting it would replace a project's
+    # hand-tuned context with generic text, so it stays a reference to diff by hand.
+    case "$rel" in
+      CLAUDE.md|AGENTS.md)
+        echo -e "  ${YELLOW}○${NC} Left $rel as is — the staged stock render is for reference only (diff by hand)"
+        continue ;;
+    esac
     if [[ "$DRY_RUN" == true ]]; then
       echo -e "  ${YELLOW}[DRY-RUN]${NC} Replace $rel with its staged version"
       continue
@@ -4632,10 +4640,15 @@ PRECOMMIT_LINE='[ -f "$HOME/.claude/hooks/safety-guard.sh" ] && { AI_CONFIG_GUAR
 precommit_check_present() {
   local hp f
   hp="$(git -C "$PROJECT_DIR" config --get core.hooksPath 2>/dev/null || true)"
-  case "$hp" in "") ;; /*) ;; *) hp="$PROJECT_DIR/$hp" ;; esac
+  case "$hp" in "") ;; \~|\~/*) hp="$HOME${hp#\~}" ;; /*) ;; *) hp="$PROJECT_DIR/$hp" ;; esac
   for f in "$(precommit_hook_path)" ${hp:+"$hp/pre-commit"} "$PROJECT_DIR/.husky/pre-commit"; do
     [[ -n "$f" && -f "$f" ]] || continue
-    grep -qsE "$PRECOMMIT_MARKER|safety-guard\.sh\"? --pre-commit" "$f" && return 0
+    grep -qs "$PRECOMMIT_MARKER" "$f" && return 0
+    # A hand-written hook (often a global core.hooksPath one) may call the guard through a
+    # variable: guard="$HOME/.claude/hooks/safety-guard.sh"; bash "$guard" --pre-commit.
+    # Count it when the file names the guard and runs some command with --pre-commit.
+    grep -qs 'safety-guard\.sh' "$f" &&
+      grep -qsE '^[^#]*[[:space:]]--pre-commit([[:space:]]|;|$)' "$f" && return 0
   done
   return 1
 }

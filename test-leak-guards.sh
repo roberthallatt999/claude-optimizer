@@ -23,6 +23,11 @@ NC='\033[0m'
 TMPS=()
 tmp_dir() { local d; d="$(mktemp -d)"; TMPS+=("$d"); echo "$d"; }
 cleanup_all() { local d; for d in "${TMPS[@]:-}"; do [[ -n "$d" && -d "$d" ]] && rm -rf "$d"; done; }
+# Keep the developer's global git config out of the test repos: a global core.hooksPath (a
+# machine-wide pre-commit hook) would stop ai-config installing .git/hooks/pre-commit here.
+GITCFG=$(tmp_dir)/gitconfig
+printf '[user]\n\tname = ai-config test\n\temail = test@example.invalid\n[init]\n\tdefaultBranch = main\n' > "$GITCFG"
+export GIT_CONFIG_GLOBAL="$GITCFG" GIT_CONFIG_NOSYSTEM=1
 trap cleanup_all EXIT
 
 check() {   # <name> <expected> <actual>
@@ -263,6 +268,22 @@ H=$(tmp_dir); git -C "$H" init -q; touch "$H/artisan"; echo '{"require":{"larave
 printf '#!/bin/sh\necho mine\n' > "$H/.git/hooks/pre-commit"
 "$SETUP" --stack=coilpack --project="$H" --force --no-superpowers --skip-vscode >/dev/null 2>&1
 check "setup: an existing pre-commit hook is left alone" yes "$(grep -q mine "$H/.git/hooks/pre-commit" && echo yes || echo no)"
+# A global core.hooksPath hook that calls the guard through a variable counts as installed.
+G=$(tmp_dir); git -C "$G" init -q; touch "$G/artisan"; echo '{"require":{"laravel/framework":"^11"}}' > "$G/composer.json"
+GH=$(tmp_dir)
+printf '#!/bin/sh\nguard="$HOME/.claude/hooks/safety-guard.sh"\nif [ -f "$guard" ]; then\n  bash "$guard" --pre-commit || exit 1\nfi\n' > "$GH/pre-commit"
+git -C "$G" config core.hooksPath "$GH"
+# (output captured first: with pipefail, grep -q closing the pipe early would fail the pipeline)
+out=$("$SETUP" --stack=coilpack --project="$G" --force --no-superpowers --skip-vscode 2>&1)
+check "setup: variable-style hooksPath guard is recognised" no \
+  "$(grep -q 'pre-commit secret check not installed' <<< "$out" && echo yes || echo no)"
+out=$("$SETUP" --project="$G" --doctor 2>&1)
+check "doctor: variable-style hooksPath guard is recognised" no \
+  "$(grep -q 'No git pre-commit secret check' <<< "$out" && echo yes || echo no)"
+printf '#!/bin/sh\n# safety-guard.sh --pre-commit is not run here\necho hi\n' > "$GH/pre-commit"
+out=$("$SETUP" --project="$G" --doctor 2>&1)
+check "doctor: a hook that only mentions the guard in a comment still warns" yes \
+  "$(grep -q 'No git pre-commit secret check' <<< "$out" && echo yes || echo no)"
 "$SETUP" --stack=coilpack --project="$N" --uninstall --force >/dev/null 2>&1
 check "uninstall: removes our pre-commit hook"          no  "$([[ -f "$N/.git/hooks/pre-commit" ]] && echo yes || echo no)"
 
