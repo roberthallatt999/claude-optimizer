@@ -11,6 +11,10 @@ It's optional. Without `--devcontainer` or `--sandbox=…`, nothing on this page
 | --- | --- | --- |
 | `--sandbox=devcontainer` (or `--devcontainer`) | A VS Code dev container: default-deny firewall, egress proxy, tokens added on the way out, guardrails read-only | Ready |
 | `--sandbox=enclave` | Eclipse Enclave's per-project policy, built from the same settings ([below](#enclave)) | Ready (fewer features) |
+| `--sandbox=claude` | Claude Code's own sandbox for Bash (Seatbelt / bubblewrap) with the same allowlist; no Docker ([runbook](../runbooks/claude-sandbox.md)) | Ready (Bash only) |
+
+Step-by-step: [dev container](../runbooks/devcontainer.md), [Enclave](../runbooks/enclave.md),
+[Claude Code sandbox](../runbooks/claude-sandbox.md).
 | `--sandbox=none` | Stop updating a sandbox (nothing is deleted) | Ready |
 
 ## Quick start (dev container)
@@ -79,6 +83,17 @@ Four layers, later ones adding to or overriding earlier ones:
    by you on the Mac.
 
 A block wins over every allow, including a wildcard. Claude Code's own hosts can't be blocked.
+
+Three rules keep the project, which Claude can write from inside, from widening its own sandbox:
+
+- **Tokens follow the profile only.** Settings an integration uses to decide where a token goes
+  or which Mac folder is mounted (`plausible_host` in `[credential]`, Keychain items, volumes)
+  come from the profile. The same key under `[sandbox]` is ignored, with a note.
+- **`ai-config.conf` is read-only inside.** It's always mounted read-only; if the project has
+  none, ai-config creates an empty one first (commit it).
+- **A refresh that widens asks first.** New hosts to reach or to send a token to are listed;
+  on a terminal you're asked, otherwise they're left out. `ai-config --refresh --force` (or the
+  generator's `--yes`) applies them. The first generation doesn't ask.
 
 ## Integrations
 
@@ -187,6 +202,29 @@ What Enclave doesn't do, and ai-config reports when it matters:
 | `sandbox-domains allow` asks on the Mac | No request from inside: check `enclave network log --verdict deny`, add the host under `[sandbox]`, refresh |
 | Playwright and wrangler in the image | Add them with an Enclave feature |
 
+## Machine-wide floor (managed settings)
+
+`scripts/install-global-guard.sh` registers the safety guard and the secret-file deny rules in
+`~/.claude/settings.json`, which you (or a plugin, or a careless edit) can change. Claude Code's
+managed settings rank above every other source, and their lists merge with the rest, so a deny
+rule there can't be removed by a user, project or plugin settings file.
+
+```sh
+scripts/install-managed-settings.sh            # builds the file and prints the one sudo command to run
+scripts/install-managed-settings.sh --check    # is the installed copy current?
+scripts/install-managed-settings.sh --remove   # prints the command that removes it
+```
+
+It installs a single drop-in, `managed-settings.d/50-ai-config.json` (macOS:
+`/Library/Application Support/ClaudeCode/`, Linux: `/etc/claude-code/`), so an existing
+`managed-settings.json` is never replaced. It holds the shared deny rules,
+`disableBypassPermissionsMode: "disable"` (no `--dangerously-skip-permissions`), and the global
+safety guard as a hook. `--strict` adds `allowManagedHooksOnly` and
+`allowManagedPermissionRulesOnly`: only managed hooks and permission rules load, so every project's
+own hooks and rules are ignored. Use it only where one fixed policy should govern every session.
+The script never writes the system folder itself: it prints the `sudo install …` line for you to
+run. Restart Claude Code afterwards; `/status` lists the managed source.
+
 ## Doppler
 
 Doppler's [Claude Code guide](https://www.doppler.com/agents-claude-code) gives an agent its own
@@ -207,6 +245,9 @@ sandbox:
 | `~/.cache/ai-devcontainer/relay/` | The relay, one token per project, the request log |
 | `~/.cache/ai-devcontainer/egress/ca.*` | This Mac's interception CA (the key never enters the claude service) |
 | `~/.cache/ai-devcontainer/egress/projects/<key>/` | That project's tokens (`credentials.env`, mode 600, proxy only) and placeholder config |
+
+`<key>` is the project's DDEV or folder name plus 8 hex digits of a hash of its path, so two
+projects with the same name never share a token. A key already held by another folder is refused.
 
 ## Moving from cps-devcontainer (kit 1.x)
 

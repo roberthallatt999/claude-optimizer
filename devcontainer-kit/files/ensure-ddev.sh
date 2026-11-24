@@ -160,8 +160,11 @@ while read -r project container; do
   echo "Warning: could not start linked DDEV project $project; continuing without it."
 done <<< "$needed"
 
-# The relay (sandbox-domains, and ddev commands from inside) is keyed by the DDEV project name.
-[ -n "$own_project" ] && /bin/bash "$(dirname "$0")/ensure-relay.sh" "$workspace" "$own_project"
+# The relay (sandbox-domains, and ddev commands from inside), keyed by the project key the
+# generator wrote into devcontainer.json (name plus a hash of the folder: two projects with the
+# same name never share a token). Kit 1.x passed no key and used the DDEV name.
+relay_key="${2:-$own_project}"
+[ -n "$relay_key" ] && /bin/bash "$(dirname "$0")/ensure-relay.sh" "$workspace" "$relay_key"
 
 # A reopen or rebuild replaces the previous watcher and inherits the projects it owned, so
 # sites started on the first open still stop when the container finally closes.

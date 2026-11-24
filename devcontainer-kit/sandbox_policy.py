@@ -158,8 +158,15 @@ def fill(text: str, settings: dict) -> tuple[str, list]:
     return re.sub(r"\{([a-z0-9_]+)\}", sub, text), missing
 
 
-def parse_integration(name: str, path: Path, settings: dict) -> tuple[Integration | None, list]:
-    """One integration file. Returns (integration or None, problems)."""
+def parse_integration(name: str, path: Path, settings: dict,
+                      trusted: dict | None = None) -> tuple[Integration | None, list]:
+    """One integration file. Returns (integration or None, problems).
+
+    `settings` fills [hosts]; `trusted` (the profile and derived names only, never the
+    project's [sandbox] values) fills [credential] and [mount]. ai-config.conf lives in the
+    project, which the sandbox can write, so it must never decide where a token is sent or
+    which Mac folder is mounted."""
+    trusted = settings if trusted is None else trusted
     cp = configparser.ConfigParser(allow_no_value=True, delimiters=("=",), inline_comment_prefixes=(";", "#"),
                                    interpolation=None, strict=False)
     cp.optionxform = str
@@ -200,11 +207,12 @@ def parse_integration(name: str, path: Path, settings: dict) -> tuple[Integratio
         if cp.has_section(section):
             values, missing = {}, []
             for k, v in cp[section].items():
-                text, miss = fill((v or "").strip(), settings)
+                text, miss = fill((v or "").strip(), trusted)
                 values[k] = text
                 missing += miss
             if missing:
-                problems.append(f"integration {name}: [{section}] needs {', '.join(sorted(set(missing)))}; left out")
+                problems.append(f"integration {name}: [{section}] needs {', '.join(sorted(set(missing)))} from the "
+                                "profile (a project's [sandbox] can't set where a token goes); left out")
                 continue
             setattr(it, attr, values)
     if it.credential:
@@ -272,10 +280,15 @@ def resolve(project: Path, profile_name: str | None = None, extra: list[str] | N
     proj, problems = read_project_section(project)
     settings = {k: v for k, v in prof.items() if k not in ("from",)}
     settings.update(derived_settings(profile, prof))
-    # Project values override profile ones for {key} substitution (plausible_host = …).
+    # From the Mac only: fills [credential] and [mount] (where tokens go, what's mounted).
+    trusted = dict(settings)
+    # Project values may fill [hosts] ({key} substitution), never the names derived from the
+    # profile (Keychain items, volumes, folders).
     for k, v in proj.items():
-        if k not in ("integrations", "domains", "hosts", "block"):
+        if k not in ("integrations", "domains", "hosts", "block") and k not in trusted:
             settings[k] = v
+        elif k in trusted and k not in ("integrations", "domains", "hosts", "block") and v != trusted[k]:
+            problems.append(f"[sandbox] {k} is ignored: it's a profile setting, and the project can't change it")
 
     notes, info = list(problems), []
     if profile:
@@ -297,7 +310,7 @@ def resolve(project: Path, profile_name: str | None = None, extra: list[str] | N
             notes.append(f"integration '{n}' not found (built-in: {', '.join(sorted(available))}; private ones go "
                          f"in {AI_CONFIG_HOME / 'devcontainer' / 'integrations'})")
             continue
-        it, probs = parse_integration(n, available[n], settings)
+        it, probs = parse_integration(n, available[n], settings, trusted)
         notes += probs
         if it:
             integrations.append(it)

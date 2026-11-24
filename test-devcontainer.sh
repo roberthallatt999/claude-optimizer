@@ -47,7 +47,9 @@ check "no profile: no Playwright, wrangler or Plausible" '! grep -qi "playwright
 # Generated files only: the copied scripts keep the 1.x paths they link to, on purpose.
 check "no organization's names in the generated files" \
   '! grep -qi "cps\|paediatric\|caringforkids" "$O"/{Dockerfile,docker-compose.yml,devcontainer.json,allowed-domains.txt,README.md,managed-settings.json,token-hosts.conf,mounts.conf,domains.conf}'
-check "relay token mounted for a project without DDEV" 'grep -q "relay/tokens/plain.token:/run/ddev-relay/token:ro" "$O/docker-compose.yml"'
+check "relay token mounted for a project without DDEV" 'grep -qE "relay/tokens/plain-[0-9a-f]{8}\.token:/run/ddev-relay/token:ro" "$O/docker-compose.yml"'
+check "the project key carries a hash of its folder" 'grep -qE "ensure-relay.sh .* plain-[0-9a-f]{8}" "$O/devcontainer.json"'
+check "ai-config.conf is mounted read-only even when missing" 'grep -q "../ai-config.conf:/workspace/ai-config.conf:ro" "$O/docker-compose.yml"'
 check "init command starts the relay without DDEV" 'grep -q "ensure-relay.sh" "$O/devcontainer.json" && ! grep -q "ensure-ddev.sh" "$O/devcontainer.json"'
 check "sandbox-domains is installed in the image" 'grep -q "/usr/local/bin/sandbox-domains" "$O/Dockerfile"'
 check "kit sources name no organization" '! grep -rqiE "cps\.ca|paediatric|statements studio" "$KIT/ai-devcontainer.py" "$KIT/sandbox_policy.py" "$KIT/integrations"'
@@ -105,8 +107,16 @@ check "--update keeps an edited file" 'grep -q "# my edit" "$D/Dockerfile"'
 check "--update stages the new version" '[[ -f $W/.claude/ai-config/pending/.devcontainer/Dockerfile ]]'
 check "domains.conf is never replaced" 'grep -q api.mine.example "$D/domains.conf"'
 printf '[sandbox]\nhosts = added.example\n' > "$W/ai-config.conf"
-gen --project "$W" --update >/dev/null
-check "--update rewrites an unedited file" 'hosts_of "$D/allowed-domains.txt" | grep -qx added.example'
+out=$(gen --project "$W" --update </dev/null)
+check "a widening refresh lists the new host and, unconfirmed, leaves it out" \
+  '[[ "$out" == *"+ reach added.example"* ]] && ! hosts_of "$D/allowed-domains.txt" | grep -qx added.example'
+gen --project "$W" --update --yes </dev/null >/dev/null
+check "--yes applies it (and --update rewrites an unedited file)" 'hosts_of "$D/allowed-domains.txt" | grep -qx added.example'
+# ai-config.conf is in the project: it may add hosts, never decide where a token goes.
+printf '[options]\nprofile = acme\n\n[sandbox]\nplausible_host = attacker.example\n' > "$W/ai-config.conf"
+out=$(gen --project "$W" --update --yes </dev/null)
+check "a project can't redirect a token (plausible_host comes from the profile)" \
+  '[[ "$out" == *"plausible_host is ignored"* ]] && ! grep -q attacker.example "$D/token-hosts.conf" && grep -q stats.acme.example "$D/token-hosts.conf"'
 mkdir -p "$work/foreign/.devcontainer" && git -C "$work/foreign" init -q && echo '{}' > "$work/foreign/.devcontainer/devcontainer.json"
 out=$(gen --project "$work/foreign" --update)
 check "a .devcontainer/ it didn't write is skipped" '[[ "$out" == *SKIPPED* ]] && [[ $(cat "$work/foreign/.devcontainer/devcontainer.json") == "{}" ]]'
@@ -119,8 +129,11 @@ check "ai-config --devcontainer writes .devcontainer/" '[[ -f $S/.devcontainer/.
 check "the safety hook is re-registered in managed settings" 'grep -q safety-guard.sh "$S/.devcontainer/managed-settings.json"'
 check "settings.local.json exists to be mounted read-only" '[[ -f $S/.claude/settings.local.json ]]'
 printf '[sandbox]\nhosts = sticky.example\n' >> "$S/ai-config.conf"
-"$SETUP" --project="$S" --refresh --no-superpowers --skip-vscode >"$work/refresh.out" 2>&1
-check "the sandbox is sticky on --refresh" 'hosts_of "$S/.devcontainer/allowed-domains.txt" | grep -qx sticky.example'
+"$SETUP" --project="$S" --refresh --no-superpowers --skip-vscode </dev/null >"$work/refresh.out" 2>&1
+check "the sandbox is sticky on --refresh (a new host is listed, not applied unasked)" \
+  'grep -q "+ reach sticky.example" "$work/refresh.out" && ! hosts_of "$S/.devcontainer/allowed-domains.txt" | grep -qx sticky.example'
+"$SETUP" --project="$S" --refresh --force --no-superpowers --skip-vscode </dev/null >/dev/null 2>&1
+check "ai-config --refresh --force confirms it" 'hosts_of "$S/.devcontainer/allowed-domains.txt" | grep -qx sticky.example'
 printf '[sandbox]\nhosts = after-none.example\n' >> "$S/ai-config.conf"
 "$SETUP" --project="$S" --refresh --sandbox=none --no-superpowers --skip-vscode >/dev/null 2>&1
 check "--sandbox=none stops updating and deletes nothing" '[[ -d $S/.devcontainer ]] && ! hosts_of "$S/.devcontainer/allowed-domains.txt" | grep -qx after-none.example'

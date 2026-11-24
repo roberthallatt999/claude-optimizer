@@ -75,7 +75,8 @@
 
         .sidebar a.active {
             background: var(--link);
-            color: white;
+            /* Dark text: white on #58a6ff is 2.5:1, under WCAG AA's 4.5:1. */
+            color: var(--bg);
         }
 
         .content {
@@ -239,6 +240,11 @@
             <a href="#" data-file="docs/guides/philter.md">Philter</a>
             <a href="#" data-file="docs/guides/sandbox.md">Sandbox</a>
             <a href="#" data-file="docs/guides/mcp-integration.md">MCP Integration</a>
+
+            <h2>Runbooks</h2>
+            <a href="#" data-file="docs/runbooks/devcontainer.md">Dev Container Sandbox</a>
+            <a href="#" data-file="docs/runbooks/enclave.md">Enclave Sandbox</a>
+            <a href="#" data-file="docs/runbooks/claude-sandbox.md">Claude Code Sandbox</a>
 
             <h2>Reference</h2>
             <a href="#" data-file="docs/reference/stacks.md">Stacks</a>

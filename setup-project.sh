@@ -4710,6 +4710,9 @@ run_sandbox_step() {
   else
     args+=(--update)
   fi
+  # A refresh that widens the sandbox asks on a terminal (the project is writable inside);
+  # --force says yes.
+  [[ "$FORCE" == true ]] && args+=(--yes)
   python3 "$SANDBOX_KIT/ai-devcontainer.py" "${args[@]}" 2>&1 | sed 's/^/  /'
   # Mounted read-only, so it must exist before the container starts.
   if [[ -d "$PROJECT_DIR/.claude" && ! -f "$PROJECT_DIR/.claude/settings.local.json" ]]; then

@@ -50,7 +50,15 @@ token_file="$relay_dir/tokens/$key.token"
 if [ ! -s "$token_file" ]; then
   (umask 077 && openssl rand -hex 32 > "$token_file")
 fi
-echo "$workspace" > "$relay_dir/tokens/$key.root"
+# A key already held by another folder is never taken over: its token would then act on this
+# project, and that project's container on this one.
+root_file="$relay_dir/tokens/$key.root"
+if [ -s "$root_file" ] && [ "$(cat "$root_file")" != "$workspace" ] && [ -d "$(cat "$root_file")" ]; then
+  echo "Relay: key '$key' already belongs to $(cat "$root_file"); not reusing it for $workspace." >&2
+  echo "Regenerate this project's .devcontainer (ai-config --refresh) so it gets its own key." >&2
+  exit 0
+fi
+echo "$workspace" > "$root_file"
 
 installed="$relay_dir/ddev-relay.pl"
 # Repos may carry different kit versions; only ever move the shared copy forward.

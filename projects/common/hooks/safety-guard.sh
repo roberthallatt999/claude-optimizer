@@ -218,9 +218,10 @@ is_secret_path() {
     process.env|*meta.env) return 1 ;;   # JS identifiers, not files
     .env*|*.env) return 0 ;;
     id_rsa|id_rsa.pub|id_dsa|id_ecdsa|id_ed25519|id_ed25519.pub) return 0 ;;
-    # Not .crt/.cer/.der/.csr: certificates are public. A private key pasted into one is still
-    # caught when it's read, by the content scan (BEGIN … PRIVATE KEY).
-    *.pem|*.key|*.p12|*.pfx|*.jks|*.keystore|*.priv) return 0 ;;
+    # Not .crt/.cer/.csr: certificates and requests are public, and a PEM private key pasted into
+    # one is still caught when it's read (BEGIN … PRIVATE KEY). .der stays: binary DER private
+    # keys use it, and the text scan can't see inside them.
+    *.pem|*.key|*.p12|*.pfx|*.jks|*.keystore|*.priv|*.der) return 0 ;;
     *.secret|*.secrets|*.token|*.password) return 0 ;;
     credentials.json|*-credentials.json|*service-account*.json|application_default_credentials.json) return 0 ;;
     secrets.json|secrets.yml|secrets.yaml|vault.yml|vault.yaml|auth.json) return 0 ;;
@@ -757,7 +758,11 @@ strip_data_heredocs() {
         pre = substr($0, 1, RSTART - 1)
         tag = substr($0, RSTART, RLENGTH)
         post = substr($0, RSTART + RLENGTH)
-        if (pre ~ /(^|[;&|])[ \t]*(cat|tee)([ \t]|$)/ && post !~ /\|/) {
+        # The segment that owns the << must start with cat or tee; the quotes before the tag must
+        # balance; nothing after it may pipe on or feed a process substitution.
+        nq = gsub(q, q, pre); nd = gsub("\"", "\"", pre)
+        if (pre ~ /(^|[;&|])[ \t]*(cat|tee)[ \t][^;&|]*$/ && nq % 2 == 0 && nd % 2 == 0 \
+            && post !~ /[|]|[<>]\(/) {
           dash = (tag ~ /^<<-/)
           gsub("^<<-?[ \t]*[" q "\"]|[" q "\"]$", "", tag)
           skip = tag
@@ -767,6 +772,13 @@ strip_data_heredocs() {
 }
 cmd_scan="$(printf '%s\n' "$cmd" | strip_data_heredocs)"
 [[ -n "$cmd_scan" ]] || cmd_scan="$cmd"
+# Fail closed: a command that also runs something (cat > run.sh <<'EOF' … EOF; bash run.sh)
+# may execute what the heredoc wrote, so then nothing is stripped.
+_runs_re='(^|[;&|(`[:space:]])(bash|sh|zsh|dash|ksh|fish|source|\.|eval|exec|python[0-9.]*|node|deno|bun|perl|ruby|php|osascript|make|npm|npx|pnpm|yarn|composer)([[:space:]]|$)|(^|[;&|(`])[[:space:]]*\.{1,2}/'
+_scan_flat="$(lower "$cmd_scan")"; _scan_flat="${_scan_flat//$'\n'/;}"
+if [[ "$cmd_scan" != "$cmd" ]] && [[ "$_scan_flat" =~ $_runs_re ]]; then
+  cmd_scan="$cmd"
+fi
 lc="$(lower "$cmd_scan")"
 lc="${lc//$'\n'/;}"
 
@@ -854,6 +866,32 @@ bare_word_exists() {
 # files come after it. Not when the pattern is read from a file (-f, --file), and an argument
 # the parser can't place stays in, so a misparse can only over-match.
 lc_paths="$lc"
+# pattern_arg_blankable <tool> <options text> <argument> — true only when the argument is surely
+# a pattern or a plain substitution: every option before it is a known on/off flag (anything
+# that takes a value, like rg -g/-t/--pre, grep -e/-f/-d/--include X, keeps it in), and a sed
+# script is one s/…/…/ with no w or e flag (r, w, e and the rest can read or run files).
+# Lowercased input: -E reads as -e here, which only keeps more in (fails closed).
+pattern_arg_blankable() {
+  local tool="$1" opts="$2" arg="$3" o prev=""
+  # shellcheck disable=SC2086
+  for o in $opts; do
+    if [[ "$prev" =~ ^-[abcm]$ && "$o" =~ ^[0-9]+$ ]]; then prev=""; continue; fi
+    prev="$o"
+    case "$tool" in
+      sed)
+        [[ "$o" =~ ^(-[inrus]+|--in-place(=[^[:space:]]*)?|--quiet|--silent|''|\"\")$ ]] || return 1 ;;
+      *)
+        [[ "$o" =~ ^-[rnilvwcoqshxzu]+$ || "$o" =~ ^-[abcm]$ \
+           || "$o" =~ ^--(colou?r(=[a-z]+)?|line-number|ignore-case|recursive|count|files-with-matches|files-without-match|extended-regexp|fixed-strings|word-regexp|invert-match|no-filename|with-filename|hidden|no-ignore|smart-case|only-matching|quiet|no-messages|null|(include|exclude|exclude-dir)=[^[:space:]]+)$ ]] || return 1 ;;
+    esac
+  done
+  [[ "$prev" =~ ^-[abcm]$ ]] && return 1
+  if [[ "$tool" == sed ]]; then
+    local script="${arg#[\'\"]}"; script="${script%[\'\"]}"
+    [[ "$script" =~ ^[0-9,\$]*s/[^/]*/[^/]*/[gip0-9]*$ ]] || return 1
+  fi
+  return 0
+}
 _pat_re="${S}(grep|egrep|fgrep|rg|ag|ack|sed)((([[:space:]]+-[a-z][a-z-]*(=[^[:space:]]*)?)|([[:space:]]+-[abcm][[:space:]]+[0-9]+)|([[:space:]]+-i[[:space:]]+(''|\"\")))*)[[:space:]]+('[^']*'|\"[^\"]*\"|[^-[:space:];&|'\"][^[:space:];&|'\"]*)"
 _guard=0
 while [[ "$lc_paths" =~ $_pat_re ]] && (( _guard++ < 20 )); do
@@ -862,7 +900,7 @@ while [[ "$lc_paths" =~ $_pat_re ]] && (( _guard++ < 20 )); do
   _full="${BASH_REMATCH[0]}"; _arg="${BASH_REMATCH[${#BASH_REMATCH[@]}-1]}"
   [[ "$_full" =~ (grep|egrep|fgrep|rg|ag|ack|sed) ]]; _tool="${BASH_REMATCH[1]}"
   _opts="${_full%"$_arg"}"
-  if [[ "$_opts" =~ [[:space:]](-f|--file)([[:space:]=]|$) ]]; then
+  if ! pattern_arg_blankable "$_tool" "${_opts#*"$_tool"}" "$_arg"; then
     _new="${_full/"$_tool"/"${_tool}_"}"
   else
     _new="${_full%"$_arg"}"; _new="${_new/"$_tool"/"${_tool}_"} __pattern__"
@@ -874,9 +912,15 @@ secret=""
 while IFS= read -r tok; do
   [[ -n "$tok" ]] || continue
   if is_secret_path "$tok"; then
-    # json.dump(…), fs.readFileSync(…): a function call, not a file, wherever every mention is one.
-    _rest="${lc_paths//"$tok("/}"
-    [[ "$_rest" != *"$tok"* ]] && continue
+    # json.dump(…) in `python3 -c "…"`: a method call, not a file. Only a dotted identifier
+    # (no leading dot, no slash), only called, and only inside an interpreter's inline code:
+    # under zsh `cat .env(N)` is a glob qualifier, a real read.
+    if [[ "$tok" =~ ^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)+$ ]]; then
+      _tok_re="${tok//./\\.}"
+      _inline_re="(python[0-9.]*|node|deno|bun|ruby|perl|php)[[:space:]]+(-[a-z]+[[:space:]]+)*-[ce][[:space:]]*(\"[^\"]*|'[^']*)(^|[^a-z0-9_.])${_tok_re}\("
+      _rest="${lc_paths//"$tok("/}"
+      [[ "$lc_paths" =~ $_inline_re && "$_rest" != *"$tok"* ]] && continue
+    fi
     # A bare word ("credentials", "secrets") is prose in an echo or a commit message far more
     # often than a file name: only an existing file by that name counts. Key names still do.
     if [[ "$tok" != */* && "$tok" != *.* ]] && ! bare_word_exists "$tok" \

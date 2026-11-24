@@ -240,6 +240,29 @@ readable text such as `(brand green: not set)` rather than a fake value.
 
 ## Recent Changes
 
+- **Safety guard: mentions aren't reads; pkill/killall asks** — the guard split every command
+  into words and denied when any word looked like a secret file while a reading tool appeared
+  anywhere, so it blocked `json.dump(…)`, a sed substitution naming `credentials.conf`,
+  `grep '^\.git'`, and heredocs writing config lines. Now: bodies of quoted heredocs that
+  `cat`/`tee` write to a file aren't scanned as paths (never when the command also runs
+  something, pipes on, or uses `>(…)`); a grep/rg/ag/ack pattern is blanked only when every
+  option before it is a known on/off flag, and a sed script only when it is one plain
+  `s/…/…/` with no `w`/`e`; a dotted name followed by `(` is a call only inside
+  `python -c`/`node -e` code (zsh's `cat .env(N)` is a read); `.crt/.cer/.csr` aren't secret
+  paths (`.der` is). The raw command is still scanned for credential shapes. `pkill`/`killall`
+  ask when an option follows the pattern (macOS reads it as another pattern: a test line
+  `pkill -f "…" -u "$(id -u)"` killed VS Code and Chrome), a pattern is under four characters,
+  there's no pattern, or quoting can't be parsed; `kill -1` asks. Tests: `test-safety-guard.sh`
+  (285, each review-found bypass included).
+- **Sandbox trust boundary** — the project folder is writable from inside a sandbox, so nothing
+  in it may widen the sandbox unseen. Settings used in an integration's `[credential]` or
+  `[mount]` come from the profile only (a `[sandbox]` `plausible_host` can't redirect the token);
+  `ai-config.conf` is always mounted read-only (created empty if missing); a refresh that adds a
+  host to reach or send a token to lists it and asks (`--force`/`--yes` applies); project keys
+  carry a hash of the folder, and the relay and egress folders refuse a key another workspace
+  owns; writes into the project never follow links; Enclave's ownership record and backups live
+  next to its config, outside the repo. Runbooks: `docs/runbooks/devcontainer.md`,
+  `docs/runbooks/enclave.md`.
 - **Optional sandbox: `ai-config --devcontainer` (ai-devcontainer 2.0.0)** — the dev container
   kit is no longer CPS-only. `--devcontainer` (or `--sandbox=devcontainer`) deploys the project's
   config, then runs `devcontainer-kit/ai-devcontainer.py --update`; it's sticky (the kit's

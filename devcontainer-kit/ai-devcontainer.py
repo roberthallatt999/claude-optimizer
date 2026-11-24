@@ -153,13 +153,17 @@ class Project:
     notes: list = field(default_factory=list)            # manual follow-ups
     info: list = field(default_factory=list)             # things handled automatically
     policy: sandbox_policy.Policy | None = None          # what the sandbox may reach (sandbox_policy.py)
+    refused: set = field(default_factory=set)            # new hosts not confirmed this run (left out)
 
     @property
     def key(self) -> str:
         """This project's name for Mac-side state: its relay token and its egress folder. The
         DDEV project name (what kit 1.x used), else the folder name."""
         name = self.ddev_name if self.uses_ddev and self.ddev_name else self.folder
-        return re.sub(r"[^A-Za-z0-9_.-]", "-", name)[:64] or "project"
+        name = re.sub(r"[^A-Za-z0-9_.-]", "-", name)[:48] or "project"
+        # Plus a hash of the folder's path: two projects with the same name (a client's "site"
+        # and another's) must never share a relay token or a token folder.
+        return f"{name}-{hashlib.sha256(str(self.path.resolve()).encode()).hexdigest()[:8]}"
 
     @property
     def ddev_name(self) -> str | None:
@@ -533,7 +537,9 @@ def base_image(p: Project) -> tuple[str, str]:
 def guardrail_mounts(p: Project) -> list[str]:
     out = []
     for rel in (".claude/hooks", ".claude/settings.json", ".claude/settings.local.json", "ai-config.conf", ".mcp.json"):
-        if (p.path / rel).exists():
+        # ai-config.conf always: it sets what the sandbox reaches, so the container must not be
+        # able to create one either (--write creates an empty one first).
+        if (p.path / rel).exists() or rel == "ai-config.conf":
             out.append(f"      - ../{rel}:/workspace/{rel}:ro")
     out.append("      - ../.devcontainer:/workspace/.devcontainer:ro")
     if (p.path / ".git").is_dir():
@@ -1077,7 +1083,7 @@ def init_command(p: Project) -> str:
     ws = "\"${localWorkspaceFolder}\""
     cmd = f"/bin/bash {ws}/.devcontainer/egress-credentials.sh {ws} {p.key}"
     if p.uses_ddev:
-        cmd += f" && /bin/bash {ws}/.devcontainer/ensure-ddev.sh {ws}"
+        cmd += f" && /bin/bash {ws}/.devcontainer/ensure-ddev.sh {ws} {p.key}"
     else:
         cmd += f" && /bin/bash {ws}/.devcontainer/ensure-relay.sh {ws} {p.key}"
     return cmd.replace('""', '"')
@@ -1183,7 +1189,7 @@ def gen_allowed_domains(p: Project) -> str:
            "# Inside, the file is read-only.", ""]
     seen: set = set()
     for title, hosts in allowed_groups(p):
-        keep = [h for h in hosts if h not in seen and not sandbox_policy.blocked(h, block)]
+        keep = [h for h in hosts if h not in seen and h not in p.refused and not sandbox_policy.blocked(h, block)]
         seen.update(keep)
         if keep:
             out.append(f"# {title}")
@@ -1221,7 +1227,9 @@ def gen_token_hosts_conf(p: Project) -> str:
              "# variable<TAB>keychain service<TAB>scheme<TAB>hosts"]
     for it in integrations_with(p, "credential"):
         c = it.credential
-        lines.append("\t".join([c["variable"], c["keychain"], c["scheme"], " ".join(c["hosts"])]))
+        hosts = [h for h in c["hosts"] if h not in p.refused]
+        if hosts:
+            lines.append("\t".join([c["variable"], c["keychain"], c["scheme"], " ".join(hosts)]))
     return "\n".join(lines) + "\n"
 
 
@@ -1410,6 +1418,51 @@ def kit_contents(p: Project) -> dict[str, bytes]:
     return files
 
 
+def listed_hosts(path: Path, column: int | None = None) -> set:
+    """Host names in a generated allowed-domains.txt (column None) or token-hosts.conf (column 3)."""
+    out: set = set()
+    if not path.is_file():
+        return out
+    for line in path.read_text(errors="replace").splitlines():
+        line = line.split("#", 1)[0]
+        if column is None:
+            if line.strip():
+                out.add(line.strip())
+        else:
+            parts = line.split("\t")
+            if len(parts) > column:
+                out.update(parts[column].split())
+    return out
+
+
+def confirm_widening(p: Project, dest: Path, yes: bool) -> None:
+    """A refresh that would let the sandbox reach new hosts, or send a token to new ones, lists
+    them and asks first. The project (composer.json, .mcp.json) is writable from inside, so a
+    widening may not be the developer's. First generation: nothing to compare, no question.
+    Unconfirmed hosts go in p.refused and are left out of this run's files."""
+    if not (dest / MANIFEST).is_file():
+        return
+    files = render_kit(p)
+    new_allow = {l.strip() for l in files["allowed-domains.txt"].splitlines() if l.strip() and not l.startswith("#")}
+    new_cred = {h for l in files["token-hosts.conf"].splitlines() if not l.startswith("#")
+                for h in (l.split("\t")[3].split() if len(l.split("\t")) > 3 else [])}
+    added_allow = sorted(new_allow - listed_hosts(dest / "allowed-domains.txt"))
+    added_cred = sorted(new_cred - listed_hosts(dest / "token-hosts.conf", 3))
+    if not (added_allow or added_cred):
+        return
+    print("  ! This refresh widens the sandbox:")
+    for h in added_allow:
+        print(f"      + reach {h}")
+    for h in added_cred:
+        print(f"      + send a token to {h}")
+    ok = yes
+    if not ok and sys.stdin.isatty():
+        ok = input("    Apply? [y/N] ").strip().lower() in ("y", "yes")
+    if not ok:
+        p.refused = set(added_allow) | set(added_cred)
+        print("    Left out: rerun on a terminal to confirm, or with --yes (ai-config: --force).")
+
+
 def write_kit(p: Project, dest: Path, update: bool = False) -> list[str]:
     """Write the kit into dest. update=True: a file whose current content isn't what this tool
     last wrote (manifest) is kept, and the new version staged in
@@ -1527,6 +1580,7 @@ def main() -> int:
     ap.add_argument("--update", action="store_true",
                     help="write, keeping files you edited (new versions staged in .claude/ai-config/pending/.devcontainer/)")
     ap.add_argument("--profile", help="ai-config profile to use (default: the active one, as profile.sh resolves it)")
+    ap.add_argument("--yes", action="store_true", help="apply a refresh that widens the sandbox without asking (still listed)")
     ap.add_argument("--db-name", help="the site's database (with --project); default: detected from DDEV's volume")
     ap.add_argument("--version", action="version", version=VERSION)
     a = ap.parse_args()
@@ -1574,6 +1628,14 @@ def main() -> int:
             if (p.path / ".claude").is_dir() and not local.exists():
                 local.write_text("{}\n")
                 print("  -> created empty .claude/settings.local.json so it can be mounted read-only")
+            # Mounted read-only, so it must exist before the container starts: otherwise the
+            # container could create the file that sets what it may reach.
+            conf = p.path / "ai-config.conf"
+            if not conf.exists():
+                sandbox_policy.safe_write(p.path, conf, b"# ai-config project policy (docs/guides/project-policy.md).\n"
+                                          b"# [sandbox] here sets what the dev container may reach (docs/guides/sandbox.md).\n")
+                print("  -> created ai-config.conf so it can be mounted read-only (commit it)")
+            confirm_widening(p, dest, a.yes)
             changed = write_kit(p, dest, update=a.update and not a.force)
             print(f"  -> {dest}: " + (f"{len(changed)} file(s) written" if changed else "already current"))
     if not (a.out or a.write):

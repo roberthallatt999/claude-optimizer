@@ -39,6 +39,13 @@ CA_DAYS=3650
 
 umask 077
 mkdir -p "$DIR" "$OUT/mounts"
+# One folder per project: never hand this project's tokens to a folder another workspace owns.
+if [ -s "$OUT/workspace" ] && [ "$(cat "$OUT/workspace")" != "$workspace" ] && [ -d "$(cat "$OUT/workspace")" ]; then
+  echo "Egress proxy: key '$key' already belongs to $(cat "$OUT/workspace"); no tokens written for $workspace." >&2
+  echo "Regenerate this project's .devcontainer (ai-config --refresh) so it gets its own key." >&2
+  exit 0
+fi
+printf '%s\n' "$workspace" > "$OUT/workspace"
 chmod 700 "$DIR" "$DIR/projects" "$OUT"
 chmod 755 "$OUT/mounts"
 
