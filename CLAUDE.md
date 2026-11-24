@@ -240,6 +240,34 @@ readable text such as `(brand green: not set)` rather than a fake value.
 
 ## Recent Changes
 
+- **Optional sandbox: `ai-config --devcontainer` (ai-devcontainer 2.0.0)** — the dev container
+  kit is no longer CPS-only. `--devcontainer` (or `--sandbox=devcontainer`) deploys the project's
+  config, then runs `devcontainer-kit/ai-devcontainer.py --update`; it's sticky (the kit's
+  `.ai-devcontainer.manifest`, or `sandbox = devcontainer` in `ai-config.conf`), and
+  `--sandbox=none` stops updating without deleting. Without a flag nothing changes. What a container
+  reaches comes from `devcontainer-kit/sandbox_policy.py`: the profile's `devcontainer_*` keys, the
+  project's `[sandbox]` section (`integrations = +x, -y`, `domains`, `hosts`, `block`), and
+  integration files (`devcontainer-kit/integrations/*.conf`: github, playwright, plausible,
+  google-analytics, cloudflare, doppler, mailtrap, mailchimp, mandrill, moneris, stripe, airtable,
+  flowbite, cleanshot, context7; private ones in `~/.config/ai-config/devcontainer/integrations/`
+  win). Each can add hosts, a Keychain token the egress proxy injects (`token-hosts.conf`: bearer,
+  token or github scheme), a read-only config mount with a placeholder key, skills, deny rules and
+  image blocks (Playwright, wrangler). The CPS lists moved to the private `cps` profile; with it, the
+  allowlist matches 1.16.0's exactly, and the Keychain items and volume names are unchanged.
+  `sandbox-domains allow|block|unblock|list` inside goes through the relay (now for every project):
+  allow and unblock ask in a Mac dialog, block doesn't, all land in `.devcontainer/domains.conf`
+  (never regenerated, read by proxy and firewall, a block beats every allow, Claude Code's own hosts
+  can't be blocked). Tokens live per project in `~/.cache/ai-devcontainer/egress/projects/<key>/`.
+  On a Mac with `~/.cache/cps-devcontainer`, the new path links to it, so 1.x containers keep
+  working; a 1.x `.devcontainer/` is left alone unless `--force` (backed up first).
+  `cps-devcontainer.py` is a one-release wrapper. Guide: `docs/guides/sandbox.md`. Tests:
+  `test-devcontainer.sh`, `test-egress-proxy.sh` (15, Docker), `test-ddev-relay.sh` (42).
+  `--sandbox=enclave` writes the same policy as Eclipse Enclave's project config
+  (`devcontainer-kit/enclave-policy.py`: `allow_domains`, `add_readonly_dirs`, `+github-cli`, and
+  a Claude settings patch with the safety hook and deny rules), outside the repo, merging with your
+  own entries (`.claude/ai-config/enclave.json` records ours), validated by Enclave and rolled back
+  if invalid. Enclave has no block list, injects only the GitHub token and has no approve-from-inside;
+  ai-config reports those gaps.
 - **Philter policy set per project (opt-in)** — `philter = <set>` under `[options]` in
   `ai-config.conf` makes setup and `--refresh` write a committed `.philter` naming the
   [philter-guard](https://github.com/roberthallatt999/philter-guard) policy set for that

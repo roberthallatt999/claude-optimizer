@@ -21,7 +21,7 @@ if ! docker info >/dev/null 2>&1; then
   exit 0
 fi
 
-id="cps-egress-test-$$"
+id="ai-egress-test-$$"
 work=$(mktemp -d)
 cleanup() {
   docker rm -f "$id-proxy" "$id-upstream" >/dev/null 2>&1
@@ -33,13 +33,15 @@ trap cleanup EXIT
 GH_FAKE="fake.github.token.1"
 PLAUSIBLE_FAKE="fake.plausible.key.2"
 CLOUDFLARE_FAKE="fake.cloudflare.token.3"
-PLACEHOLDER="cps-egress-placeholder"
-CRED_NAMES="api.github.com github.com uploads.github.com plausible.cps.ca api.cloudflare.com"
+PLACEHOLDER="ai-egress-placeholder"
+TOKEN_SCHEME_FAKE="fake.token.scheme.4"
+CRED_NAMES="api.github.com github.com uploads.github.com stats.example.test api.cloudflare.com tokens.example.test"
 SPLICE_NAME="registry.npmjs.org"
-ALL_NAMES="$CRED_NAMES $SPLICE_NAME"
+BLOCK_NAME="blocked.example.test"
+ALL_NAMES="$CRED_NAMES $SPLICE_NAME $BLOCK_NAME"
 
 # --- certificates (inside a container, so macOS LibreSSL and CI OpenSSL behave the same) --
-mkdir -p "$work/egress" "$work/upstream" "$work/sandbox"
+mkdir -p "$work/egress" "$work/egress-ca" "$work/upstream" "$work/sandbox"
 docker run --rm -v "$work:/w" debian:bookworm-slim sh -ec "
   apt-get update -qq >/dev/null && apt-get install -y -qq openssl >/dev/null
   cd /w
@@ -58,9 +60,18 @@ docker run --rm -v "$work:/w" debian:bookworm-slim sh -ec "
   chmod 644 egress/* upstream/*
 " || { echo "FAIL: could not create test certificates"; exit 1; }
 
-printf 'GITHUB_TOKEN=%s\nPLAUSIBLE_API_KEY=%s\nCLOUDFLARE_API_TOKEN=%s\n' \
-  "$GH_FAKE" "$PLAUSIBLE_FAKE" "$CLOUDFLARE_FAKE" > "$work/egress/credentials.env"
+cp "$work/egress/ca.crt" "$work/egress/ca.key" "$work/egress-ca/"
+printf 'GITHUB_TOKEN=%s\nPLAUSIBLE_API_KEY=%s\nCLOUDFLARE_API_TOKEN=%s\nTOKEN_SCHEME_KEY=%s\n' \
+  "$GH_FAKE" "$PLAUSIBLE_FAKE" "$CLOUDFLARE_FAKE" "$TOKEN_SCHEME_FAKE" > "$work/egress/credentials.env"
+# What the generator writes: which variable goes to which hosts, and how (names only).
+printf '%s\t%s\t%s\t%s\n' \
+  GITHUB_TOKEN test-github github 'github.com api.github.com uploads.github.com' \
+  PLAUSIBLE_API_KEY plausible-api bearer stats.example.test \
+  CLOUDFLARE_API_TOKEN cloudflare-api bearer api.cloudflare.com \
+  TOKEN_SCHEME_KEY token-api token tokens.example.test > "$work/sandbox/token-hosts.conf"
+# blocked.example.test is on the generated list but blocked in domains.conf; the block wins.
 printf '%s\n' $ALL_NAMES > "$work/sandbox/allowed-domains.txt"
+printf '[allow]\n\n[block]\n%s  # test\n' "$BLOCK_NAME" > "$work/sandbox/domains.conf"
 
 # --- fake upstream: echoes the Authorization header on 80 and 443 -------------------------
 cat > "$work/upstream/echo.py" <<'EOF'
@@ -101,8 +112,9 @@ docker run -d --name "$id-upstream" --network "$id" "${aliases[@]}" -v "$work/up
 
 # --- the kit's proxy image ----------------------------------------------------------------
 mkdir -p "$work/build"
-python3 -I - "$KIT/cps-devcontainer.py" "$work/build/Dockerfile.proxy" <<'EOF'
-import importlib.util, sys
+python3 -I - "$KIT/ai-devcontainer.py" "$work/build/Dockerfile.proxy" <<'EOF'
+import importlib.util, os, sys
+sys.path.insert(0, os.path.dirname(sys.argv[1]))
 spec = importlib.util.spec_from_file_location("kit", sys.argv[1])
 kit = importlib.util.module_from_spec(spec)
 sys.modules["kit"] = kit  # @dataclass looks its module up here
@@ -117,6 +129,7 @@ start_proxy() { # start_proxy: proxy trusting the fake upstream's CA (stands in 
   docker rm -f "$id-proxy" >/dev/null 2>&1
   docker run -d --name "$id-proxy" --network "$id" \
     -v "$work/sandbox:/etc/sandbox:ro" -v "$work/egress:/etc/sandbox-egress:ro" \
+    -v "$work/egress-ca:/etc/sandbox-egress-ca:ro" \
     -v "$work/upstream/ca.crt:/usr/local/share/ca-certificates/test-upstream.crt:ro" \
     --entrypoint sh "$id-image" -c 'update-ca-certificates >/dev/null 2>&1; exec /usr/local/sbin/egress-proxy.sh' \
     >/dev/null || return 1
@@ -149,8 +162,10 @@ expect "uploads.github.com gets the real token as Bearer" "Bearer $GH_FAKE" \
 expected_basic="Basic $(printf 'x-access-token:%s' "$GH_FAKE" | base64 | tr -d '\n')"
 expect "github.com (git) gets the real token as Basic" "$expected_basic" \
   "$(client -u "x-access-token:$PLACEHOLDER" https://github.com/org/repo.git/info/refs | auth_of)"
-expect "plausible.cps.ca gets the Plausible key" "Bearer $PLAUSIBLE_FAKE" \
-  "$(client -H "$ph" https://plausible.cps.ca/api/v1/stats/aggregate | auth_of)"
+expect "stats.example.test gets the Plausible key" "Bearer $PLAUSIBLE_FAKE" \
+  "$(client -H "$ph" https://stats.example.test/api/v1/stats/aggregate | auth_of)"
+expect "the token scheme sends 'Token <value>'" "Token $TOKEN_SCHEME_FAKE" \
+  "$(client -H "$ph" https://tokens.example.test/ | auth_of)"
 expect "api.cloudflare.com gets the Cloudflare token" "Bearer $CLOUDFLARE_FAKE" \
   "$(client -H "$ph" https://api.cloudflare.com/client/v4/user/tokens/verify | auth_of)"
 expect "a token the client sends itself is replaced, not passed on" "Bearer $GH_FAKE" \
@@ -170,6 +185,8 @@ expect "other hosts get the client's own Authorization untouched" "Bearer client
 # final status (init-firewall.sh's own check does the same).
 expect "hosts off the allowlist are refused" "403" \
   "$(client -o /dev/null -w '%{http_code}' https://example.org/)"
+expect "a domains.conf [block] beats the generated allowlist" "403" \
+  "$(client -o /dev/null -w '%{http_code}' https://$BLOCK_NAME/)"
 
 # Without tokens: the placeholder still never reaches the host, and nothing is added.
 : > "$work/egress/credentials.env"

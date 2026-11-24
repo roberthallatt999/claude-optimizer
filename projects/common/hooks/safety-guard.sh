@@ -1129,6 +1129,51 @@ if m "${S}(mkfs(\.[a-z0-9]+)?|fdisk|diskutil[[:space:]]+(erase|zero|partition))(
   decide deny "Blocked by ai-config safety guard: disk-level destructive command."
 fi
 
+# --- Killing processes by name -------------------------------------------------
+# pkill/killall match by pattern, so a slip kills unrelated apps. macOS pkill stops reading
+# options at the first pattern: `pkill -f "x --serve" -u "$(id -u)"` searches for "-u" and the
+# UID too, which matched VS Code's and Chrome's helpers (--user-data-dir) and killed them
+# (2026-11-23). Linux reorders the arguments, so the same line looked fine there. Ask when an
+# option comes after a pattern, when a pattern is under four characters, when there is no
+# pattern (pkill -u <uid>: everything the user runs), or the arguments can't be parsed.
+# `kill -1` / `kill -- -1` signals every process the user owns. Killing one PID is not checked.
+kill_risk() { # $1 = pkill|killall, $2 = its arguments (original case); prints a reason or nothing
+  local tool="$1" args="$2" tok saw_pattern=false want_value=false patterns=0 short=""
+  # Options that take a value (pkill on macOS and Linux; killall on macOS and Linux).
+  local value_opts=' -F -G -g -P -s -t -U -u -j '
+  [[ "$tool" == killall ]] && value_opts=' -u -t -c -s -o -y '
+  local toks
+  toks=$(printf '%s\n' "$args" | xargs -n1 printf '%s\n' 2>/dev/null) || { printf 'its arguments could not be parsed'; return; }
+  while IFS= read -r tok; do
+    [[ -z "$tok" ]] && continue
+    if [[ "$want_value" == true ]]; then want_value=false; continue; fi
+    if [[ "$tok" == -* && "$tok" != - ]]; then
+      if [[ "$saw_pattern" == true ]]; then
+        printf "an option (%s) comes after the pattern; on macOS %s reads it as another pattern" "$tok" "$tool"; return
+      fi
+      [[ "$value_opts" == *" $tok "* ]] && want_value=true
+      continue
+    fi
+    saw_pattern=true; patterns=$((patterns + 1))
+    (( ${#tok} < 4 )) && short="$tok"
+  done <<< "$toks"
+  if [[ -n "$short" ]]; then printf "the pattern '%s' is under four characters and can match unrelated processes" "$short"; return; fi
+  # -F <pidfile> names its target through the file; otherwise no pattern means "everything".
+  (( patterns == 0 )) && [[ " $args " != *" -F "* ]] && printf 'it names no process, so it can signal everything the user runs'
+}
+# $(…) and `…` become one placeholder value, so their parentheses and quotes don't cut the arguments.
+kill_src=$(printf '%s\n' "${cmd//$'\n'/;}" | sed -E 's/\$\([^()]*\)/SUBST/g; s/`[^`]*`/SUBST/g')
+kill_segs=$(printf '%s\n' "$kill_src" | grep -oE "(^|[;&|({\`]|\\\$\\()[[:space:]]*((sudo|command|exec|nohup)[[:space:]]+)*(pkill|killall)([[:space:]]+[^;&|)]*)?" || true)
+while IFS= read -r seg; do
+  [[ -z "$seg" ]] && continue
+  [[ "$seg" =~ (pkill|killall)([[:space:]]+(.*))?$ ]] || continue
+  why=$(kill_risk "${BASH_REMATCH[1]}" "${BASH_REMATCH[3]:-}")
+  [[ -n "$why" ]] && decide ask "This ${BASH_REMATCH[1]} command kills processes by name, and ${why}. Put every option before the pattern, use a pattern specific to one program (or kill the PID your own script started), and approve only if that is what you mean."
+done <<< "$kill_segs"
+if m "${S}kill([[:space:]]+-[a-z0-9]+)*[[:space:]]+(--[[:space:]]+)?-1([[:space:]]|$|[;&|])"; then
+  decide ask "kill -1 sends the signal to every process you own (VS Code, the browser, this shell). Name the PID instead, and approve only if you really mean all of them."
+fi
+
 # --- EE migration runner -----------------------------------------------------
 # .admin-scripts/ee-migrate.sh is the only sanctioned path for EE migrations to reach a
 # server (EE Migrate spec §8). Its own checks gate staging; production apply always asks.

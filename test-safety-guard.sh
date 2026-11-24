@@ -201,6 +201,27 @@ bash_expect none 'echo "export const key = process.env.API_KEY;" > src/config.ts
 bash_expect none 'grep -rn "AKIA" src/'
 
 echo ""
+echo -e "${CYAN}=== Killing processes by name: ask ===${NC}"
+# The line that killed VS Code and Chrome on macOS (2026-11-23): -u and the UID became patterns.
+bash_expect ask  'pkill -f "ddev-relay.pl --serve" -u "$(id -u)" 2>/dev/null || true'
+bash_expect ask  'pkill -f node -u 501'
+bash_expect ask  'killall Chrome -9'
+bash_expect ask  'pkill -f vim'                         # short pattern
+bash_expect ask  'killall sh'
+bash_expect ask  'pkill -u 501'                          # no pattern: everything the user runs
+bash_expect ask  'sudo pkill -9 -f "a b'                 # unparseable quoting
+bash_expect ask  'make test; pkill -f "my-server --port 8080" -n'
+bash_expect ask  'kill -9 -1'
+bash_expect ask  'kill -- -1'
+bash_expect none 'pkill -u "$(id -u)" -f "ddev-relay.pl --serve" 2>/dev/null || true'
+bash_expect none 'pkill -f "ddev-relay.pl --serve"'
+bash_expect none 'pkill -TERM -F /tmp/relay.pid'
+bash_expect none 'killall -u robert Safari'
+bash_expect none 'killall Dock'
+bash_expect none 'kill "$relay_pid"'
+bash_expect none 'kill -9 12345'
+bash_expect none 'pgrep -f "-u"'                          # pgrep only lists
+
 echo -e "${CYAN}=== Destructive: deny ===${NC}"
 bash_expect deny 'rm -rf /'
 bash_expect deny 'rm -rf ~'

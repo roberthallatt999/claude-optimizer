@@ -1,5 +1,12 @@
 #!/usr/bin/perl
-# Runs real `ddev` on the Mac for the Claude sandbox, one allowlisted command at a time.
+# The Claude sandbox's one door to the Mac. Two kinds of request, each from a container's own
+# token:
+#
+#   * `sandbox-domains allow|block|unblock|list <name>`: edits that project's
+#     .devcontainer/domains.conf. Widening access (allow, unblock) asks first in a macOS dialog
+#     (Deny is the default); narrowing it (block) doesn't. The container can ask; only the Mac
+#     can grant.
+#   * real `ddev` for DDEV projects, one allowlisted command at a time (below).
 #
 # DDEV can't run inside the dev container: it needs the Docker socket, and with the socket
 # Claude could start an unfirewalled container mounting any Mac folder. Instead the container's
@@ -23,7 +30,7 @@
 #
 # Modes: --serve (ensure-ddev.sh starts it detached), --ping (prints the running version),
 # --approve-ee-migrate [project…] (in a terminal on the Mac; no project = every one with a script).
-# State and audit log: ~/.cache/cps-devcontainer/relay/. macOS's own perl, core modules only.
+# State and audit log: ~/.cache/ai-devcontainer/relay/. macOS's own perl, core modules only.
 use strict;
 use warnings;
 use Cwd qw(abs_path);
@@ -33,26 +40,31 @@ use File::Basename qw(dirname);
 use IO::Socket::INET;
 use POSIX qw(strftime);
 
-our $VERSION = 3;
-my $PORT = $ENV{CPS_DDEV_RELAY_PORT} || 20090;
-my $STATE = "$ENV{HOME}/.cache/cps-devcontainer/relay";
+our $VERSION = 4;
+my $PORT = $ENV{AI_DEVCONTAINER_RELAY_PORT} || $ENV{CPS_DDEV_RELAY_PORT} || 20090;
+my $STATE = "$ENV{HOME}/.cache/ai-devcontainer/relay";
 my $TOKENS = "$STATE/tokens";
 my $CONTAINER_ROOT = '/workspace';
 my $CONFIRM_TIMEOUT = 120;
 my $MAX_ARGS = 32;
 my $NAME = qr/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
 my $APPROVED = "$STATE/approved";
-my $EE_TEMPLATE = $ENV{CPS_EE_MIGRATE_TEMPLATE}
-    // "$ENV{HOME}/Web/code/github.com/canadian-paediatric-society/claude-config-repo/projects/expressionengine/templates/ee-migrate/ee-migrate.sh";
+# The kit's ee-migrate.sh, for comparison when approving a project's copy. ai-devcontainer.py
+# records the checkout it ran from in $STATE/kit-root.
+my $EE_TEMPLATE = $ENV{AI_DEVCONTAINER_EE_TEMPLATE} // $ENV{CPS_EE_MIGRATE_TEMPLATE}
+    // (slurp("$STATE/kit-root") . "/projects/expressionengine/templates/ee-migrate/ee-migrate.sh");
+my $DOMAIN = qr/^\.?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+# Claude Code can't run without these, so they can't be blocked.
+my %UNBLOCKABLE = map { $_ => 1 } qw(api.anthropic.com claude.ai claude.com platform.claude.com downloads.claude.ai);
 # Tests only: answer the dialog without showing it. Ignored on the real relay's port.
-my $ASSUME = ($ENV{CPS_DDEV_RELAY_PORT} && $ENV{CPS_DDEV_RELAY_PORT} != 20090) ? ($ENV{CPS_DDEV_RELAY_ASSUME} // '') : '';
+my $ASSUME = ($PORT != 20090) ? ($ENV{AI_DEVCONTAINER_RELAY_ASSUME} // $ENV{CPS_DDEV_RELAY_ASSUME} // '') : '';
 
 $ENV{PATH} = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
 
 my $mode = shift @ARGV // '';
 if ($mode eq '--ping') {
     my $s = IO::Socket::INET->new(PeerAddr => '127.0.0.1', PeerPort => $PORT, Timeout => 3) or exit 1;
-    print $s "CPSRELAY1\nPING\n";
+    print $s "AIRELAY1\nPING\n";
     my $reply = <$s> // '';
     exit 1 unless $reply =~ /^PONG (\d+)/;
     print "$1\n";
@@ -153,7 +165,8 @@ sub handle {
     local $SIG{ALRM} = sub { exit 0 };
     alarm 10;
     my $magic = read_line($sock) // '';
-    exit 0 unless $magic eq 'CPSRELAY1';
+    # AIRELAY1 from kit 2.x clients; CPSRELAY1 from 1.x containers still running.
+    exit 0 unless $magic eq 'AIRELAY1' || $magic eq 'CPSRELAY1';
     my $first = read_line($sock) // '';
     if ($first eq 'PING') { print $sock "PONG $VERSION\n"; close $sock; exit 0; }
 
@@ -169,6 +182,15 @@ sub handle {
         push @args, $arg;
     }
     alarm 0;
+
+    if ($args[0] eq 'sandbox-domains') {
+        shift @args;
+        domains_request($sock, $project, $root, @args);
+    }
+    unless (-f "$root/.ddev/config.yaml") {
+        log_line("$project DENIED  ddev " . join(' ', @args) . "  (not a DDEV project)");
+        reply_exit($sock, 2, 'this project has no DDEV config, so ddev commands are not relayed');
+    }
 
     my $request = join(' ', @args);
     my ($argv, $confirm, $error, $opts) = plan($project, $root, $cwd, @args);
@@ -314,7 +336,7 @@ sub plan {
 }
 
 sub approved_copy { return "$APPROVED/$_[0]/ee-migrate.sh"; }
-sub approve_hint { return "on the Mac, run: perl ~/.cache/cps-devcontainer/relay/ddev-relay.pl --approve-ee-migrate $_[0]"; }
+sub approve_hint { return "on the Mac, run: perl ~/.cache/ai-devcontainer/relay/ddev-relay.pl --approve-ee-migrate $_[0]"; }
 
 # Symlinks in these folders could point a file ee-migrate.sh writes (the downloaded dump, stamps,
 # baselines) at any path on the Mac.
@@ -472,7 +494,7 @@ sub confirmed {
     my ($project, $text, $note) = @_;
     return $ASSUME eq 'allow' if $ASSUME;
     my @script = ('on run argv',
-                  'display dialog (item 1 of argv) with title "DDEV request from the Claude sandbox" '
+                  'display dialog (item 1 of argv) with title "Request from the Claude sandbox" '
                   . 'buttons {"Deny", "Allow"} default button "Deny" cancel button "Deny" '
                   . "giving up after $CONFIRM_TIMEOUT with icon caution",
                   'end run');
@@ -501,4 +523,111 @@ sub run {
     while (my $line = <$out>) { print $sock $line; }
     close $out;
     return $? >> 8;
+}
+
+# --- sandbox-domains --------------------------------------------------------------------
+# Edits <project>/.devcontainer/domains.conf on the Mac. The container mounts that folder
+# read-only, so this is the only way a request from inside changes it.
+sub domains_request {
+    my ($sock, $project, $root, $action, $name, @why) = @_;
+    $action //= '';
+    my $file = "$root/.devcontainer/domains.conf";
+    my $dir = "$root/.devcontainer";
+    reply_exit($sock, 1, 'sandbox-domains: no .devcontainer folder for this project') unless -d $dir && !-l $dir;
+    reply_exit($sock, 1, 'sandbox-domains: domains.conf is a link; refusing') if -l $file;
+    if ($action eq 'list') {
+        print $sock (-f $file ? slurp_raw($file) : "(no domains.conf yet)\n");
+        reply_exit($sock, 0);
+    }
+    reply_exit($sock, 2, 'usage: sandbox-domains allow|block|unblock <name> ["why"] | list')
+        unless $action =~ /^(allow|block|unblock)$/ && defined $name;
+    $name = lc $name;
+    reply_exit($sock, 2, "sandbox-domains: '$name' isn't a host name (letters, digits, dots, hyphens; a leading "
+               . 'dot for every subdomain; no IPs or wildcards)') unless $name =~ $DOMAIN && length($name) <= 253;
+    my $why = join(' ', @why);
+    $why =~ s/[^\x20-\x7e]//g;
+    $why = substr($why, 0, 200);
+    my $bare = $name;
+    $bare =~ s/^\.//;
+    if ($action eq 'block' && $UNBLOCKABLE{$bare}) {
+        log_line("$project DENIED  sandbox-domains block $name  (Claude Code needs it)");
+        reply_exit($sock, 2, "sandbox-domains: Claude Code needs $bare, so it can't be blocked");
+    }
+    my ($allow, $block, $lines) = read_domains($file);
+    my $in_allow = grep { $_ eq $name } @$allow;
+    my $in_block = grep { $_ eq $name } @$block;
+    if ($action eq 'allow' && $in_block) {
+        reply_exit($sock, 2, "sandbox-domains: $name is blocked; run `sandbox-domains unblock $name` first");
+    }
+    if (($action eq 'allow' && $in_allow) || ($action eq 'block' && $in_block) || ($action eq 'unblock' && !$in_block)) {
+        reply_exit($sock, 0, "sandbox-domains: nothing to change ($name is " . ($action eq 'unblock' ? 'not blocked' : "already in [$action]") . ')');
+    }
+    if ($action ne 'block') {
+        my $what = $action eq 'allow' ? "Allow the sandbox to reach $name" : "Unblock $name";
+        $what .= $name =~ /^\./ ? ' and every subdomain' : '';
+        my $text = "$what?" . ($why ne '' ? "\n\nReason given: $why" : "\n\nNo reason given.");
+        unless (confirmed($project, $text, 'Only allow names you recognise. You can remove it from domains.conf later.')) {
+            log_line("$project REFUSED sandbox-domains $action $name  (not allowed in the dialog)");
+            reply_exit($sock, 3, 'sandbox-domains: not allowed (you clicked Deny on the Mac, or the dialog timed out)');
+        }
+    }
+    my $stamp = strftime('%F', localtime) . ', from inside' . ($why ne '' ? ": $why" : '');
+    my @out;
+    my $section = '';
+    my $added = 0;
+    for my $line (@$lines) {
+        if ($line =~ /^\s*\[(allow|block)\]\s*$/) {
+            # Close the target section with the new entry (unblock only removes, never adds).
+            if (!$added && $action ne 'unblock' && $section eq target_section($action)) {
+                push @out, "$name  # $stamp";
+                $added = 1;
+            }
+            $section = $1;
+            push @out, $line;
+            next;
+        }
+        my ($entry) = $line =~ /^\s*([^\s#]+)/;
+        if (defined $entry && lc($entry) eq $name) {
+            next if ($section eq 'allow' && $action eq 'block') || ($section eq 'block' && $action eq 'unblock');
+        }
+        push @out, $line;
+    }
+    if (!$added && $action ne 'unblock') {
+        my $target = target_section($action);
+        if ($section eq $target) {
+            push @out, "$name  # $stamp";
+        } else {
+            push @out, '', "[$target]", "$name  # $stamp";
+        }
+    }
+    my $tmp = "$file.new.$$";
+    open(my $fh, '>', $tmp) or reply_exit($sock, 1, "sandbox-domains: cannot write $file: $!");
+    print $fh join("\n", @out), "\n";
+    close $fh or reply_exit($sock, 1, "sandbox-domains: cannot write $file: $!");
+    rename $tmp, $file or reply_exit($sock, 1, "sandbox-domains: cannot save $file: $!");
+    log_line("$project " . ($action eq 'block' ? 'BLOCKED' : 'ALLOWED') . " sandbox-domains $action $name"
+             . ($why ne '' ? "  ($why)" : ''));
+    reply_exit($sock, 0, "sandbox-domains: $action $name saved in .devcontainer/domains.conf");
+}
+
+sub target_section { return $_[0] eq 'block' ? 'block' : 'allow'; }
+
+sub read_domains {
+    my ($file) = @_;
+    my (@allow, @block, @lines);
+    my $section = '';
+    if (open(my $fh, '<', $file)) {
+        while (my $line = <$fh>) {
+            chomp $line;
+            push @lines, $line;
+            if ($line =~ /^\s*\[(allow|block)\]\s*$/) { $section = $1; next; }
+            my ($entry) = $line =~ /^\s*([^\s#]+)/;
+            next unless defined $entry;
+            push @allow, lc $entry if $section eq 'allow';
+            push @block, lc $entry if $section eq 'block';
+        }
+        close $fh;
+    }
+    @lines = ('[allow]', '', '[block]') unless @lines;
+    return (\@allow, \@block, \@lines);
 }

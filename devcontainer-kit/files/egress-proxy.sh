@@ -7,7 +7,7 @@
 # Only CONNECT to port 443 and plain HTTP to port 80 are let through, and only to the names
 # in allowed-domains.txt; nothing is cached. The allowlist is re-read every 15 s.
 #
-# Tokens (kit 1.16.0): the Claude container holds placeholders only. For the hosts in CRED_HOSTS
+# Tokens: the Claude container holds placeholders only. For the hosts token-hosts.conf lists
 # squid intercepts TLS with this Mac's CA (egress-credentials.sh creates it; the container trusts
 # its certificate, the key is mounted here only), drops whatever Authorization header the client
 # sent and adds the real one from /etc/sandbox-egress/credentials.env. HTTPS requests only, so a
@@ -15,12 +15,29 @@
 # Without the CA or the credentials file the proxy runs exactly as before.
 set -eu
 
-EGRESS=/etc/sandbox-egress
-CRED_HOSTS="github.com api.github.com uploads.github.com plausible.cps.ca api.cloudflare.com"
+EGRESS=/etc/sandbox-egress          # this project's credentials.env (from the Mac)
+EGRESS_CA=/etc/sandbox-egress-ca    # this Mac's interception CA
+CRED_CONF=/etc/sandbox/token-hosts.conf
 TLS_CONF=/etc/squid/egress-tls.conf
 
 SRC=/etc/sandbox/allowed-domains.txt
+DOMAINS=/etc/sandbox/domains.conf   # [allow] and [block], written on the Mac (sandbox-domains)
 LIST=/etc/squid/sandbox-allowed.txt
+BLOCK=/etc/squid/sandbox-blocked.txt
+
+# The hosts tokens are added for: the last column of token-hosts.conf.
+CRED_HOSTS=$( { sed -e 's/#.*//' "$CRED_CONF" 2>/dev/null || true; } | awk -F '\t' 'NF >= 4 { print $4 }' | tr ' ' '\n' \
+  | grep -E '^[a-z0-9.-]+$' | sort -u | tr '\n' ' ')
+CRED_HOSTS=${CRED_HOSTS% }
+
+section() { # $1 allow|block: the names under [$1] in domains.conf, one per line
+  [ -r "$DOMAINS" ] || return 0
+  awk -v want="[$1]" '
+    { sub(/#.*/, ""); gsub(/[[:space:]]+/, " "); sub(/^ /, ""); sub(/ $/, "") }
+    $0 == "" { next }
+    /^\[/ { on = ($0 == want); next }
+    on { split($0, f, " "); print tolower(f[1]) }' "$DOMAINS"
+}
 
 drop_covered() {
   # In squid, ".example.org" already matches example.org and every subdomain, and squid 5
@@ -43,12 +60,19 @@ drop_covered() {
 }
 
 build_list() {
-  # One host per line, comments and blanks dropped. An empty list would make squid refuse
-  # to start, so it always holds one name that never resolves.
+  # One host per line, comments and blanks dropped: allowed-domains.txt plus domains.conf
+  # [allow]. domains.conf [block] goes to its own list, which squid denies before anything is
+  # allowed, so a block also beats a wildcard (.example.org) on the allowlist. An empty list
+  # would make squid refuse to start, so each always holds one name that never resolves.
   { sed -e 's/#.*//' -e 's/[[:space:]]//g' "$SRC" 2>/dev/null | grep -v '^$' || true
+    section allow
     echo 'allowlist-missing.invalid'; } | sort -u | drop_covered > "$LIST.new"
+  { section block; echo 'blocklist-empty.invalid'; } | sort -u | drop_covered > "$BLOCK.new"
   mv "$LIST.new" "$LIST"
+  mv "$BLOCK.new" "$BLOCK"
 }
+
+lists_sum() { cat "$SRC" "$DOMAINS" 2>/dev/null | cksum; }
 
 cred() { # $1 variable name: its value from credentials.env, or nothing
   [ -r "$EGRESS/credentials.env" ] || return 0
@@ -64,37 +88,52 @@ header_rule() { # $1 acl name, $2 header value; nothing when the token is missin
 }
 
 build_tls_conf() {
-  # Header rules for the credential hosts. Rewritten when credentials.env changes.
-  gh=$(cred GITHUB_TOKEN)
-  plausible=$(cred PLAUSIBLE_API_KEY)
-  cloudflare=$(cred CLOUDFLARE_API_TOKEN)
+  # One acl and one header rule per token-hosts.conf line (variable, keychain, scheme, hosts).
+  n=0
   {
     echo "acl cred_https proto HTTPS"
     echo "acl cred_any dstdomain $CRED_HOSTS"
-    echo "acl cred_github_api dstdomain api.github.com uploads.github.com"
-    echo "acl cred_github_git dstdomain github.com"
-    echo "acl cred_plausible dstdomain plausible.cps.ca"
-    echo "acl cred_cloudflare dstdomain api.cloudflare.com"
     echo "# Whatever the client sent (a placeholder, or another token) never reaches these hosts."
     echo "request_header_access Authorization deny cred_any"
-    header_rule cred_github_api "${gh:+Bearer $gh}"
-    # git over HTTPS takes a token as the password of Basic auth.
-    header_rule cred_github_git "${gh:+Basic $(printf 'x-access-token:%s' "$gh" | base64 -w 0)}"
-    header_rule cred_plausible "${plausible:+Bearer $plausible}"
-    header_rule cred_cloudflare "${cloudflare:+Bearer $cloudflare}"
+    { sed -e 's/#.*//' "$CRED_CONF" 2>/dev/null || true; } | while IFS="$(printf '\t')" read -r var _service scheme hosts; do
+      case "$var" in ''|*[!A-Z0-9_]*) continue ;; esac
+      [ -n "$hosts" ] || continue
+      n=$((n + 1))
+      value=$(cred "$var")
+      case "$scheme" in
+        github)
+          # git over HTTPS takes a token as the password of Basic auth; the API takes Bearer.
+          api=$(printf '%s\n' $hosts | grep -vx github.com | tr '\n' ' ')
+          if printf '%s\n' $hosts | grep -qx github.com; then
+            echo "acl cred_${n}_git dstdomain github.com"
+            header_rule "cred_${n}_git" "${value:+Basic $(printf 'x-access-token:%s' "$value" | base64 -w 0)}"
+          fi
+          if [ -n "${api% }" ]; then
+            echo "acl cred_${n} dstdomain ${api% }"
+            header_rule "cred_${n}" "${value:+Bearer $value}"
+          fi ;;
+        token)
+          echo "acl cred_${n} dstdomain $hosts"
+          header_rule "cred_${n}" "${value:+Token $value}" ;;
+        *)
+          echo "acl cred_${n} dstdomain $hosts"
+          header_rule "cred_${n}" "${value:+Bearer $value}" ;;
+      esac
+    done
   } > "$TLS_CONF.new"
-  unset gh plausible cloudflare value
+  unset value
   chown root:proxy "$TLS_CONF.new"
   chmod 640 "$TLS_CONF.new"
   mv "$TLS_CONF.new" "$TLS_CONF"
 }
 
+
 http_port_line='http_port 3128'
 tls_include=''
-if [ -s "$EGRESS/ca.crt" ] && [ -s "$EGRESS/ca.key" ]; then
+if [ -n "$CRED_HOSTS" ] && [ -s "$EGRESS_CA/ca.crt" ] && [ -s "$EGRESS_CA/ca.key" ]; then
   # The key is copied out of the read-only mount so only squid's user can read it.
-  install -o root -g proxy -m 640 "$EGRESS/ca.key" /etc/squid/egress-ca.key
-  install -o root -g proxy -m 644 "$EGRESS/ca.crt" /etc/squid/egress-ca.crt
+  install -o root -g proxy -m 640 "$EGRESS_CA/ca.key" /etc/squid/egress-ca.key
+  install -o root -g proxy -m 644 "$EGRESS_CA/ca.crt" /etc/squid/egress-ca.crt
   rm -rf /var/spool/squid/ssl_db
   mkdir -p /var/spool/squid
   /usr/lib/squid/security_file_certgen -c -s /var/spool/squid/ssl_db -M 4MB >/dev/null
@@ -117,13 +156,14 @@ if [ -s "$EGRESS/ca.crt" ] && [ -s "$EGRESS/ca.key" ]; then
     "include $TLS_CONF")
   echo "egress-proxy: token injection on for $CRED_HOSTS"
 else
-  echo "egress-proxy: no interception CA mounted; tokens are not injected (kit < 1.16 setup?)" >&2
+  echo "egress-proxy: no credential hosts or no interception CA mounted; tokens are not injected" >&2
 fi
 
 build_list
 cat > /etc/squid/squid.conf <<EOF
 $http_port_line
 acl allowed dstdomain "$LIST"
+acl blocked dstdomain "$BLOCK"
 acl SSL_ports port 443
 acl Safe_ports port 80 443
 acl CONNECT method CONNECT
@@ -132,6 +172,7 @@ acl private_dst dst 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.0/8 169.254.
 http_access deny !Safe_ports
 http_access deny CONNECT !SSL_ports
 http_access deny private_dst
+http_access deny blocked
 http_access allow allowed
 http_access deny all
 cache deny all
@@ -161,12 +202,12 @@ squid -N -f /etc/squid/squid.conf &
 squid_pid=$!
 trap 'kill "$squid_pid" "$tail_pid" 2>/dev/null; wait "$squid_pid" 2>/dev/null; exit 0' TERM INT
 
-last=$(cksum < "$SRC" 2>/dev/null || true)
+last=$(lists_sum)
 last_cred=$(cksum < "$EGRESS/credentials.env" 2>/dev/null || true)
 while kill -0 "$squid_pid" 2>/dev/null; do
   sleep 15 &
   wait $! || true
-  now=$(cksum < "$SRC" 2>/dev/null || true)
+  now=$(lists_sum)
   now_cred=$(cksum < "$EGRESS/credentials.env" 2>/dev/null || true)
   if [ "$now" != "$last" ]; then
     last=$now
