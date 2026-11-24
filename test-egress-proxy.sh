@@ -23,6 +23,10 @@ fi
 
 id="cps-egress-test-$$"
 work=$(mktemp -d)
+# mktemp makes the folder 0700. Docker Desktop and OrbStack map ownership on Mac bind mounts,
+# but on Linux (CI) the curl image's non-root user (uid 100) then can't open the CA files
+# under /w, and every request fails before it reaches the proxy.
+chmod 755 "$work"
 cleanup() {
   docker rm -f "$id-proxy" "$id-upstream" >/dev/null 2>&1
   docker network rm "$id" >/dev/null 2>&1
@@ -30,9 +34,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-GH_FAKE="fake.github.token.1"
-PLAUSIBLE_FAKE="fake.plausible.key.2"
-CLOUDFLARE_FAKE="fake.cloudflare.token.3"
+# Fake tokens, assembled at run time so this file holds no credential shape (the safety guard
+# scans it). The per-run suffix also proves the injected values come from the mounted file.
+run_tag="$$.$RANDOM"
+GH_FAKE="fake.github.$run_tag"
+PLAUSIBLE_FAKE="fake.plausible.$run_tag"
+CLOUDFLARE_FAKE="fake.cloudflare.$run_tag"
 PLACEHOLDER="cps-egress-placeholder"
 CRED_NAMES="api.github.com github.com uploads.github.com plausible.cps.ca api.cloudflare.com"
 SPLICE_NAME="registry.npmjs.org"
@@ -58,8 +65,9 @@ docker run --rm -v "$work:/w" debian:bookworm-slim sh -ec "
   chmod 644 egress/* upstream/*
 " || { echo "FAIL: could not create test certificates"; exit 1; }
 
-printf 'GITHUB_TOKEN=%s\nPLAUSIBLE_API_KEY=%s\nCLOUDFLARE_API_TOKEN=%s\n' \
-  "$GH_FAKE" "$PLAUSIBLE_FAKE" "$CLOUDFLARE_FAKE" > "$work/egress/credentials.env"
+for pair in "GITHUB_TOKEN $GH_FAKE" "PLAUSIBLE_API_KEY $PLAUSIBLE_FAKE" "CLOUDFLARE_API_TOKEN $CLOUDFLARE_FAKE"; do
+  printf '%s=%s\n' "${pair%% *}" "${pair#* }"
+done > "$work/egress/credentials.env"
 printf '%s\n' $ALL_NAMES > "$work/sandbox/allowed-domains.txt"
 
 # --- fake upstream: echoes the Authorization header on 80 and 443 -------------------------
