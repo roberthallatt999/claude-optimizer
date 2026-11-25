@@ -3306,7 +3306,9 @@ missing_pipeline_checks() {
     && ! grep -qE '(npm|pnpm|yarn) audit|audit-ci' <<< "$text"; then
     missing+=" npm-audit"
   fi
-  if [[ -f "$dir/phpunit.xml" || -f "$dir/phpunit.xml.dist" || -d "$dir/tests/Feature" ]] \
+  # A test file, not phpunit.xml: Laravel's skeleton ships the config, and a site that never
+  # wrote a test keeps it with nothing for CI to run.
+  if [[ -d "$dir/tests" ]] && [[ -n "$(find "$dir/tests" -name '*Test.php' -type f -print -quit 2>/dev/null)" ]] \
     && ! grep -qE 'artisan test|phpunit|pest' <<< "$text"; then
     missing+=" php-tests"
   fi

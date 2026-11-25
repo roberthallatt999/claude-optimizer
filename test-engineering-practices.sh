@@ -139,7 +139,8 @@ deploy "$p"
 echo '{}' > "$p/composer.lock"
 echo '{}' > "$p/package-lock.json"
 touch "$p/phpunit.xml" "$p/phpstan.neon"
-mkdir -p "$p/.github/workflows"
+mkdir -p "$p/tests/Unit" "$p/.github/workflows"
+touch "$p/tests/Unit/ExampleTest.php"
 printf 'jobs:\n  deploy:\n    steps:\n      - run: rsync -a . server:/\n' > "$p/.github/workflows/deploy.yml"
 out=$(doctor "$p")
 assert_true "reports composer audit missing" contains "$out" "composer-audit"
@@ -182,6 +183,20 @@ deploy "$p"
 rm -f "$p/package-lock.json"
 out=$(doctor "$p")
 assert_false "no lockfiles or test config: nothing to report" contains "$out" "CI doesn't run"
+
+# Laravel's skeleton ships phpunit.xml; a site that never wrote a test keeps it with no
+# tests/ folder, and there is nothing for CI to run.
+p=$(make_nuxt_project)
+deploy "$p"
+rm -f "$p/package-lock.json"
+touch "$p/phpunit.xml"
+mkdir -p "$p/tests/Feature"
+out=$(doctor "$p")
+assert_false "phpunit.xml and an empty tests/ folder are not tests" contains "$out" "php-tests"
+mkdir -p "$p/tests/Feature/Auth"
+touch "$p/tests/Feature/Auth/LoginTest.php"
+out=$(doctor "$p")
+assert_true "a test file anywhere under tests/ is" contains "$out" "php-tests"
 
 p=$(make_nuxt_project)
 deploy "$p"
