@@ -53,10 +53,16 @@ chmod 755 "$OUT/mounts"
 # Created once; its key never enters the Claude container. Named .crt because
 # update-ca-certificates only picks those up.
 if [ ! -s "$DIR/ca.crt" ] || [ ! -s "$DIR/ca.key" ]; then
-  openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days "$CA_DAYS" \
+  # openssl's progress dots are noise; its error is shown only when it fails (set -e would
+  # otherwise stop the script with no reason given).
+  if ! ca_err=$(openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days "$CA_DAYS" \
     -subj "/CN=ai-devcontainer egress proxy ($(hostname -s))" \
     -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign" \
-    -keyout "$DIR/ca.key.new" -out "$DIR/ca.crt.new" >/dev/null 2>&1
+    -keyout "$DIR/ca.key.new" -out "$DIR/ca.crt.new" 2>&1 >/dev/null); then
+    echo "Egress proxy: could not create the interception CA with $(command -v openssl) ($(openssl version 2>&1)):" >&2
+    printf '%s\n' "$ca_err" | tail -n 5 >&2
+    exit 1
+  fi
   mv "$DIR/ca.key.new" "$DIR/ca.key"
   mv "$DIR/ca.crt.new" "$DIR/ca.crt"
   echo "Egress proxy: created this Mac's interception CA ($DIR/ca.crt)."

@@ -163,10 +163,13 @@ mkdir -p "$HOME/.config/plausible" && echo "site=x" > "$HOME/.config/plausible/c
 printf 't-gh=fake.gh.1\nother=never.copied\n' > "$work/keychain"
 out=$(AI_DEVCONTAINER_FAKE_KEYCHAIN="$work/keychain" bash "$KIT/files/egress-credentials.sh" "$H" hproj 2>&1)
 E="$HOME/.cache/ai-devcontainer/egress/projects/hproj"
+egress_diag=""
+[[ -f "$E/credentials.env" ]] || egress_diag="${out:-(no output)}"
 check "the new state folder links to the 1.x one" '[[ -L $HOME/.cache/ai-devcontainer && -d $HOME/.cache/cps-devcontainer/egress ]]'
 check "only the listed Keychain items are copied" 'grep -q "^GITHUB_TOKEN=fake.gh.1$" "$E/credentials.env" && ! grep -q never.copied "$E/credentials.env"'
 check "missing items are named, values never printed" '[[ "$out" == *"t-pl"* && "$out" != *fake.gh.1* ]]'
-check "credentials.env is private" '[[ $(stat -f %Lp "$E/credentials.env" 2>/dev/null || stat -c %a "$E/credentials.env") == 600 ]]'
+# GNU stat first: on Linux `stat -f` means filesystem status and succeeds, so it can't go first.
+check "credentials.env is private" '[[ $(stat -c %a "$E/credentials.env" 2>/dev/null || stat -f %Lp "$E/credentials.env") == 600 ]]'
 check "mounted config is copied, its key file is the placeholder" 'grep -q site=x "$E/mounts/plausible/config" && grep -qx ai-egress-placeholder "$E/mounts/plausible/api-key"'
 check "the CA is shared by every project" '[[ -s $HOME/.cache/ai-devcontainer/egress/ca.crt ]]'
 
@@ -207,6 +210,10 @@ else
   echo "SKIP: enclave not installed (Enclave cases)"
 fi
 
+# Printed last so run-tests.sh's 30-line tail shows why the Mac-side script stopped.
+if [[ -n "${egress_diag:-}" ]]; then
+  printf '\negress-credentials.sh wrote no token file; it said:\n%s\n' "$egress_diag"
+fi
 echo ""
 echo "devcontainer: $pass passed, $fail failed"
 [[ $fail -eq 0 ]]
