@@ -68,6 +68,10 @@ A profile says who you are in one context:
 - `favicon`, `touch_icon`, `share_image` (optional): the tab icon, iPhone icon and
   link-preview image on published pages. Public https URLs off the share domain, since
   everything under a page's address is behind its passcode
+- `brand_primary`, `brand_secondary`, `brand_tint`, `brand_text`, `font_heading`, `font_body`,
+  `font_url`, `logo_on_dark`, `logo_on_light`, `theme` (optional): the organization's look on
+  noslop pages (rule 8) instead of the upstream Claude style kit. Logos are public https URLs
+- `report_readers` (optional): who gets a formal report (rule 9) instead of a one-page brief
 
 See `profiles/example.conf`.
 

@@ -20,7 +20,8 @@ ai-config profile, so the same skill serves work, volunteer and side projects.
 
 0. **Read the profile first.** Run `~/.claude/skills/noslop/scripts/profile.sh` from the
    project folder. It prints `key=value` lines: `name`, `organization`, `voice`, `spelling`,
-   `share_domain`, `sensitive`, `not_for`, and optionally `favicon`, `touch_icon`, `share_image`. If it prints `profile=none`, ask the user who the
+   `share_domain`, `sensitive`, `not_for`, and optionally `favicon`, `touch_icon`, `share_image`
+   and the brand keys in rule 8. If it prints `profile=none`, ask the user who the
    page is from and where (if anywhere) to publish it, then go on with those answers. Below,
    ⟨key⟩ means that profile value.
 1. **Who it's from.** The header line reads "From ⟨name⟩, ⟨organization⟩ to …" (just
@@ -98,6 +99,43 @@ ai-config profile, so the same skill serves work, volunteer and side projects.
    only in that page's folder and only on the user's yes, never globally.
 7. **Language.** Write in the language of the source material. English prose uses ⟨spelling⟩
    spelling (Canadian: colour, centre, paediatric).
+8. **The organization's brand, not Claude's look,** when the profile sets `brand_primary`.
+   This replaces upstream rule 6 ("Look like Claude") and the style kit's colours and fonts;
+   the kit's sizes, spacing and layout rules still apply.
+   - **Colours.** ⟨brand_primary⟩ for headings, rules and the masthead; ⟨brand_secondary⟩ for
+     the one thing to look at, the final step and positive figures; ⟨brand_tint⟩ (when set)
+     for a callout background. Body text is ⟨brand_text⟩, or near-black when unset. Green,
+     red and amber still mean good, bad and watch, and every status carries a word.
+   - **Fonts.** Headings in ⟨font_heading⟩, everything else in ⟨font_body⟩, loaded from
+     ⟨font_url⟩ when set. Fall back to Georgia and the system sans.
+   - **Logo.** A masthead band in ⟨brand_primary⟩ with ⟨logo_on_dark⟩ (alt text
+     ⟨organization⟩) at about 88px wide, and a 5px rule in ⟨brand_secondary⟩ under it. On a
+     white background use ⟨logo_on_light⟩. Link the logo by its public URL, never a copy in
+     `dist/` (the passcode screen can't load it).
+   - **Theme.** With `theme=light`, set `color-scheme: light` and leave out every
+     `prefers-color-scheme: dark` rule: the page stays white even on a dark device.
+   - **Doesn't look machine-made.** No rows of identical rounded cards with shadows, no icons
+     inside tinted circles, no coloured pills, no dot-separated header line, no numbered badges
+     that carry nothing. Instead: sections divided by ruled lines (a 2px ⟨brand_primary⟩ rule
+     over each heading), statuses as bold coloured words, plain tables, flat callouts with
+     one coloured edge. An icon sits beside its title on the same line, never above it.
+     Section numbers sit one space from their heading, never in a wide column.
+   - **Steps in a sequence** are numbered circles on one thin connecting line, each label
+     centred under its circle and every step the same height; on a phone they stack along a
+     vertical line.
+9. **Reports for management, boards and policy** (⟨report_readers⟩ when set) use a formal
+   report instead of upstream section 2's forms, and rules 7 and 8 of section 3 (two screens,
+   first screen stands alone) don't apply. The rest of section 3 does: plain sentences,
+   short paragraphs, every detail kept, each number once.
+   - **Title block:** the title, then Prepared by, Prepared for, Date and Status.
+   - **Contents** with links, then numbered sections, typically: Summary (two or three
+     sentences and a short Key points list), Background and scope (what is and isn't
+     covered), the substance in numbered subsections (3.1, 3.2 …), figures or coverage,
+     Monitoring and review, Limitations and planned work, and a footer naming who to ask.
+   - **Honest limits.** Say what the page doesn't cover and what isn't done yet. Never claim
+     a date, agreement or practice the source material doesn't support.
+   - **Print.** Add `@media print` styles (page margins, `print-color-adjust: exact` on
+     coloured bands, no page break inside a table or callout), so it saves cleanly as a PDF.
 
 ---
 
