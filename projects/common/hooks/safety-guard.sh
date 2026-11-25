@@ -2030,8 +2030,16 @@ else
   # calls), or by running gh from another folder (cd first, or a shell already elsewhere).
   _gh_other="GitHub write to another repository — ${PUBLISH}"
   ask_rules+=("${GH_LIGHT_RE}([^;&|]*[[:space:]])?((-r[^[:space:]]*|--repo)([[:space:]=]|$)|[^;&|[:space:]]*https?://[^[:space:]]*/(pull|pulls|issues)/)	${_gh_other}")
-  ask_rules+=("(^|[^a-z0-9_])gh_(repo|host|enterprise_token|token)=	GH_REPO/GH_HOST/GH_TOKEN point gh at another repository or account — ${PUBLISH}")
-  ask_rules+=("(^|[;&|(][[:space:]]*)(cd|pushd)[[:space:]].*${GH_LIGHT_RE}	${_gh_other}")
+  _gh_vars='gh_(repo|host|token|enterprise_token|config_dir)|github_(token|enterprise_token)|git_(dir|work_tree)'
+  ask_rules+=("(^|[^a-z0-9_])(${_gh_vars})=	GH_REPO/GH_HOST/GH_TOKEN/GIT_DIR and similar point gh at another repository or account — ${PUBLISH}")
+  # Set without "=": read, printf -v, declare/typeset/local, export of an existing variable.
+  ask_rules+=("(^|[;&|(\`\"'[:space:]])(export|declare|typeset|local|read|printf[[:space:]]+-v)[^;&|]*[^a-z0-9_](${_gh_vars})([^a-z0-9_]|$)	sets a variable that points gh at another repository or account — ${PUBLISH}")
+  # Another folder first: cd/pushd (also inside quotes or \$(…)), env -C/--chdir.
+  ask_rules+=("(^|[^a-z0-9_./-])(cd|pushd)[[:space:]].*${GH_LIGHT_RE}	${_gh_other}")
+  ask_rules+=("(^|[^a-z0-9_])env[[:space:]]([^;&|]*[[:space:]])?(-c|--chdir)([[:space:]=]|[^[:space:]]).*[[:space:]]gh[[:space:]]+(pr|issue)[[:space:]]	${_gh_other}")
+  # Changing which repository later calls reach: gh's default, or the git remotes.
+  ask_rules+=("${S}gh[[:space:]]+repo[[:space:]]+set-default([[:space:]]|$)	changes the repository later gh calls write to — ${PUBLISH}")
+  ask_rules+=("${S}${G}(remote[[:space:]]+(add|set-url|rename)|config[[:space:]]([^;&|]*[[:space:]])?remote\.[^[:space:]]+\.(url|pushurl))([[:space:]]|$)	changes the repository later gh and git calls reach — ${PUBLISH}")
   _gh_cwd="$(json_field .cwd)"
   if [[ -n "${CLAUDE_PROJECT_DIR:-}" && -n "$_gh_cwd" && "$_gh_cwd" != "$CLAUDE_PROJECT_DIR" && "$_gh_cwd" != "$CLAUDE_PROJECT_DIR"/* ]]; then
     ask_rules+=("${GH_LIGHT_RE}	the shell is outside the project folder, so this ${_gh_other}")

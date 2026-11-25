@@ -285,7 +285,7 @@ readable text such as `(brand green: not set)` rather than a fake value.
   fields or `--input` (an implicit POST, attached `-fkey=v` and `--method=` too), and, where
   light writes are allowed (dev container), PR/issue writes aimed at another repository
   (`-R`/`--repo`, attached `-Rowner/repo`, a PR/issue URL, `GH_REPO`/`GH_HOST`, a `cd` first,
-  or a shell outside the project); denies the Doppler commands that print values
+  `GIT_DIR`, `GH_CONFIG_DIR`, `read`/`printf -v` of those, `cd` or `env -C` first, a shell outside the project, or `gh repo set-default`/`git remote set-url` changing the target); denies the Doppler commands that print values
   (`doppler secrets get/download`, `configure get`, `configs tokens create`, `run -- env`) while
   `secrets names` passes; treats `~/.doppler/` as secret; and scans for `dp.st.`/`dp.sa.`/
   `dp.pt.`/`dp.ct.`/`dp.scim.`/`dp.audit.` tokens (also in `okf-check.sh`). Every run (and
@@ -294,7 +294,7 @@ readable text such as `(brand green: not set)` rather than a fake value.
   patterns and lists files and counts, never values. Runbooks: `docs/runbooks/claude-sandbox.md`,
   `docs/runbooks/safety-checkup.md` (monthly: fleet `--doctor`, global/managed `--check`,
   transcripts, Philter, `ignore-scripts`, token scope). Tests: `test-claude-sandbox.sh` (35),
-  `test-safety-guard.sh` (320).
+  `test-safety-guard.sh` (332).
 - **Safety guard: mentions aren't reads; pkill/killall asks** — the guard split every command
   into words and denied when any word looked like a secret file while a reading tool appeared
   anywhere, so it blocked `json.dump(…)`, a sed substitution naming `credentials.conf`,

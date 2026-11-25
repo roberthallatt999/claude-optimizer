@@ -262,6 +262,18 @@ AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'GH_REPO=someone/else gh pr cre
 AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'export GH_REPO=someone/else'
 AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'cd ~/elsewhere && gh pr create --fill'
 AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect none 'gh pr create --fill --body "see https://docs.example.com/guide"'
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'bash -c "cd ~/elsewhere && gh pr create --fill"'
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'echo $(cd ~/elsewhere; gh pr create --fill)'
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'env -C ~/elsewhere gh pr create --fill'
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'GIT_DIR=/srv/other gh pr create --fill'
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'GH_CONFIG_DIR=/srv/other gh pr create --fill'
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'read GH_REPO <<< someone/else'
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'printf -v GH_REPO %s someone/else'
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'gh repo set-default someone/else'
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'git remote set-url origin https://github.com/someone/else'
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'git config remote.origin.url https://github.com/someone/else'
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect none 'git remote -v'
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect none 'gh pr create --fill --title "abcd: tidy"'
 gh_cwd_decision() {
   decision_of "$(jq -n --arg c "$1" '{hook_event_name:"PreToolUse", tool_name:"Bash", cwd:$c, tool_input:{command:"gh pr create --fill"}}' \
     | AI_CONFIG_GH_LIGHT_WRITES=allow CLAUDE_PROJECT_DIR=/work/project bash "$GUARD")"
