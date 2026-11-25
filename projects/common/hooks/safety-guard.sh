@@ -1992,8 +1992,8 @@ fi
 ask_rules=(
   "${S}${G}push([[:space:]]|$)	git push — ${PUBLISH}"
   "${S}gh[[:space:]]+(pr[[:space:]]+merge|release[[:space:]]+(create|upload|delete|edit)|repo[[:space:]]+(create|delete|edit|rename|archive|fork)|issue[[:space:]]+delete|workflow[[:space:]]+run|run[[:space:]]+(rerun|cancel)|secret|variable)([[:space:]]|$)	GitHub write via gh — ${PUBLISH}"
-  "${S}gh[[:space:]]+api[[:space:]].*(-x|--method)[[:space:]]*(post|put|patch|delete)	GitHub API write — ${PUBLISH}"
-  "${S}gh[[:space:]]+api[[:space:]]([^;&|]*[[:space:]])?(-f|-F|--field|--raw-field|--input)([[:space:]=]|$)	GitHub API write (fields or --input make gh api send a POST) — ${PUBLISH}"
+  "${S}gh[[:space:]]+api[[:space:]].*(-[a-z]*x|--method)[[:space:]=]*[\"']?(post|put|patch|delete)	GitHub API write — ${PUBLISH}"
+  "${S}gh[[:space:]]+api[[:space:]]([^;&|]*[[:space:]])?(-[a-z]*f[^[:space:]]*|--field|--raw-field|--input)([[:space:]=]|$)	GitHub API write (fields or --input make gh api send a POST) — ${PUBLISH}"
   "${S}gh[[:space:]]+gist[[:space:]]+(create|edit|rename|delete|clone)([[:space:]]|$)	gist write — a gist publishes text outside the project (Safety Guardrail #2: ${PUBLISH})"
   "${S}(npm|pnpm|yarn|bun)[[:space:]]+publish|${S}(twine[[:space:]]+upload|gem[[:space:]]+push|cargo[[:space:]]+publish|docker[[:space:]]+push)	package/image publish — ${PUBLISH}"
   "${S}${R}vercel(@[^[:space:]]*)?([[:space:]].*)?[[:space:]](--prod|--production|deploy|promote|rollback|redeploy|alias|domains|dns|remove|rm)([[:space:]]|$)|${S}${R}vercel(@[^[:space:]]*)?[[:space:]]*($|[;&|])|${S}${R}vercel(@[^[:space:]]*)?[[:space:]]+env[[:space:]]+(add|rm|remove)	Vercel deploy/config — ${PROD}"
@@ -2024,9 +2024,18 @@ GH_LIGHT_RE="${S}gh[[:space:]]+(pr[[:space:]]+(create|close|reopen|edit|comment|
 if [[ "${AI_CONFIG_GH_LIGHT_WRITES:-}" != allow ]]; then
   ask_rules+=("${GH_LIGHT_RE}	GitHub write via gh — ${PUBLISH}")
 else
-  # Allowed only against this repository: aimed at another one (-R/--repo, a full URL), a PR or
-  # issue is a way to post the project's contents somewhere else.
-  ask_rules+=("${GH_LIGHT_RE}([^;&|]*[[:space:]])?((-r|--repo)([[:space:]=]|$)|[^;&|[:space:]]*https?://github\.com/)	GitHub write to another repository — ${PUBLISH}")
+  # Allowed only against this repository: aimed at another one, a PR or issue is a way to post
+  # the project's contents somewhere else. Another repository can be named by -R/--repo (also
+  # attached: -Rowner/repo), a full URL, GH_REPO/GH_HOST (set inline or exported for later
+  # calls), or by running gh from another folder (cd first, or a shell already elsewhere).
+  _gh_other="GitHub write to another repository — ${PUBLISH}"
+  ask_rules+=("${GH_LIGHT_RE}([^;&|]*[[:space:]])?((-r[^[:space:]]*|--repo)([[:space:]=]|$)|[^;&|[:space:]]*https?://[^[:space:]]*/(pull|pulls|issues)/)	${_gh_other}")
+  ask_rules+=("(^|[^a-z0-9_])gh_(repo|host|enterprise_token|token)=	GH_REPO/GH_HOST/GH_TOKEN point gh at another repository or account — ${PUBLISH}")
+  ask_rules+=("(^|[;&|(][[:space:]]*)(cd|pushd)[[:space:]].*${GH_LIGHT_RE}	${_gh_other}")
+  _gh_cwd="$(json_field .cwd)"
+  if [[ -n "${CLAUDE_PROJECT_DIR:-}" && -n "$_gh_cwd" && "$_gh_cwd" != "$CLAUDE_PROJECT_DIR" && "$_gh_cwd" != "$CLAUDE_PROJECT_DIR"/* ]]; then
+    ask_rules+=("${GH_LIGHT_RE}	the shell is outside the project folder, so this ${_gh_other}")
+  fi
 fi
 
 for rule in "${ask_rules[@]}"; do

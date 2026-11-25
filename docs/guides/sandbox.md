@@ -218,12 +218,18 @@ scripts/install-managed-settings.sh --remove   # prints the command that removes
 It installs a single drop-in, `managed-settings.d/50-ai-config.json` (macOS:
 `/Library/Application Support/ClaudeCode/`, Linux: `/etc/claude-code/`), so an existing
 `managed-settings.json` is never replaced. It holds the shared deny rules,
-`disableBypassPermissionsMode: "disable"` (no `--dangerously-skip-permissions`), and the global
-safety guard as a hook. `--strict` adds `allowManagedHooksOnly` and
+`disableBypassPermissionsMode: "disable"` (no `--dangerously-skip-permissions`), and the safety
+guard as a hook. The hook runs a root-owned copy of this repo's guard, installed next to the
+managed folder (`…/ClaudeCode/ai-config/safety-guard.sh`, with the global `protected-paths.conf`),
+not `~/.claude/hooks/`: a file you can write is one anything running as you can rewrite.
+`--strict` adds `allowManagedHooksOnly` and
 `allowManagedPermissionRulesOnly`: only managed hooks and permission rules load, so every project's
 own hooks and rules are ignored. Use it only where one fixed policy should govern every session.
-The script never writes the system folder itself: it prints the `sudo install …` line for you to
-run. Restart Claude Code afterwards; `/status` lists the managed source.
+The script never writes the system folders itself: it prints one `sudo sh -c '…'` line for you to
+run. That line copies the staged files to root-owned temporary names, checks each against the
+SHA-256 printed by this run, and only then moves them into place, so a staged file changed after
+the build is refused. After pulling a guard update, rerun the script (`--check` says when the
+installed copy is out of date). Restart Claude Code afterwards; `/status` lists the managed source.
 
 ## Doppler
 

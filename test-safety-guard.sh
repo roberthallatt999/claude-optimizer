@@ -251,6 +251,23 @@ AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect none 'gh pr create --fill'
 AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'gh pr create --fill -R someone/else'
 AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'gh issue create --repo other/repo --title x'
 AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'gh issue comment https://github.com/other/repo/issues/1 -b hi'
+# Review-found bypasses: attached values, env vars, another folder, --method=.
+bash_expect ask  'gh api repos/o/r/issues -ftitle=x'
+bash_expect ask  'gh api repos/o/r/issues -Ftitle=@x'
+bash_expect ask  'gh api repos/o/r --method=DELETE'
+bash_expect ask  'gh api repos/o/r -XPATCH'
+bash_expect none 'gh api repos/o/r/pulls --jq .[].title'
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'gh pr create --fill -Rsomeone/else'
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'GH_REPO=someone/else gh pr create --fill'
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'export GH_REPO=someone/else'
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'cd ~/elsewhere && gh pr create --fill'
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect none 'gh pr create --fill --body "see https://docs.example.com/guide"'
+gh_cwd_decision() {
+  decision_of "$(jq -n --arg c "$1" '{hook_event_name:"PreToolUse", tool_name:"Bash", cwd:$c, tool_input:{command:"gh pr create --fill"}}' \
+    | AI_CONFIG_GH_LIGHT_WRITES=allow CLAUDE_PROJECT_DIR=/work/project bash "$GUARD")"
+}
+record ask  "$(gh_cwd_decision /work/other)" "light gh write from a shell outside the project asks"
+record none "$(gh_cwd_decision /work/project/sub)" "light gh write from inside the project passes"
 
 echo -e "${CYAN}=== Doppler ===${NC}"
 bash_expect deny 'doppler secrets'

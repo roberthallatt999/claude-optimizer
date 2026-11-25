@@ -86,16 +86,32 @@ check "managed: the file holds the shared deny rules" \
 check "managed: bypass mode is disabled" 'jq -e ".permissions.disableBypassPermissionsMode == \"disable\"" "$F" >/dev/null'
 check "managed: the global guard is a PreToolUse hook" 'jq -e ".hooks.PreToolUse[0].hooks[0].command | test(\"safety-guard.sh\")" "$F" >/dev/null'
 check "managed: no managed-only switches without --strict" 'jq -e "(.allowManagedHooksOnly // false) == false" "$F" >/dev/null'
-check "managed: it prints the sudo command and runs none" '[[ "$out" == *"sudo install"* && ! -e "$work/managed.d/50-ai-config.json" ]]'
+check "managed: it prints the sudo command and runs none" '[[ "$out" == *"sudo sh -c"* && ! -e "$work/managed.d/50-ai-config.json" ]]'
+check "managed: the hook runs a copy next to the managed settings, not ~/.claude" \
+  'jq -e ".hooks.PreToolUse[0].hooks[0].command | test(\"/ai-config/safety-guard.sh\") and (test(\"[.]claude/hooks\") | not)" "$F" >/dev/null'
 bash "$MANAGED" --check >/dev/null 2>&1; rc=$?
 check "managed: --check fails while not installed" '[[ $rc -ne 0 ]]'
-mkdir -p "$work/managed.d" && cp "$F" "$work/managed.d/"
+mkdir -p "$work/managed.d" "$work/ai-config" && cp "$F" "$work/managed.d/" \
+  && cp "$work/stage/safety-guard.sh" "$work/stage/protected-paths.conf" "$work/ai-config/"
 bash "$MANAGED" --check >/dev/null 2>&1; rc=$?
 check "managed: --check passes once installed" '[[ $rc -eq 0 ]]'
 bash "$MANAGED" --strict >/dev/null 2>&1
 check "managed: --strict adds both managed-only switches" \
   'jq -e ".allowManagedHooksOnly == true and .permissions.allowManagedPermissionRulesOnly == true" "$F" >/dev/null'
 check "managed: --remove only prints the command" '[[ "$(bash "$MANAGED" --remove)" == *"sudo rm"* && -e "$work/managed.d/50-ai-config.json" ]]'
+# Run the printed command without root (AI_CONFIG_MANAGED_SUDO empty): a staged file changed
+# after the build is refused and nothing moves into place; an untouched build installs.
+rm -rf "$work/managed.d" "$work/ai-config"
+inst() { AI_CONFIG_MANAGED_SUDO= bash "$MANAGED" | sed -n 's/^  \(sh -c .*\)$/\1/p'; }
+cmd=$(inst); echo "# changed" >> "$work/stage/safety-guard.sh"
+( eval "$cmd" ) >/dev/null 2>&1; rc=$?
+check "managed: a staged file changed after the build is refused" \
+  '[[ $rc -ne 0 && ! -e "$work/managed.d/50-ai-config.json" && ! -e "$work/ai-config/safety-guard.sh" ]]'
+cmd=$(inst); ( eval "$cmd" ) >/dev/null 2>&1; rc=$?
+check "managed: an untouched build installs settings and the guard copy" \
+  '[[ $rc -eq 0 && -f "$work/managed.d/50-ai-config.json" ]] && cmp -s "$work/ai-config/safety-guard.sh" "$HERE/projects/common/hooks/safety-guard.sh"'
+AI_CONFIG_MANAGED_SUDO= bash "$MANAGED" --check >/dev/null 2>&1; rc=$?
+check "managed: --check passes after the printed command ran" '[[ $rc -eq 0 ]]'
 
 # --- scan-transcripts.sh (fake transcripts; a fake key assembled here) -------------------------
 T="$work/transcripts/-p-site"; mkdir -p "$T"

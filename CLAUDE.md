@@ -277,11 +277,15 @@ readable text such as `(brand green: not set)` rather than a fake value.
   and `deniedDomains`; your own keys are kept, its record lives outside the project, a widening
   asks first. Only Bash is sandboxed and no token is injected; the runbook compares the three.
   `scripts/install-managed-settings.sh` builds `managed-settings.d/50-ai-config.json` (shared
-  deny rules, `disableBypassPermissionsMode`, the global guard hook; `--strict` adds
-  `allowManagedHooksOnly`/`allowManagedPermissionRulesOnly`) and prints the one `sudo install`
-  line for you to run; `--check`, `--remove`. The guard now asks before gists, `gh api` with
-  fields or `--input` (an implicit POST), and, where light writes are allowed (dev container),
-  PR/issue writes aimed at another repository; denies the Doppler commands that print values
+  deny rules, `disableBypassPermissionsMode`, a hook running a root-owned copy of the guard in
+  `…/ClaudeCode/ai-config/`; `--strict` adds
+  `allowManagedHooksOnly`/`allowManagedPermissionRulesOnly`) and prints one `sudo sh -c` line
+  for you to run, which checks each staged file's SHA-256 on its root-owned copy before moving
+  it into place; `--check`, `--remove`. The guard now asks before gists, `gh api` with
+  fields or `--input` (an implicit POST, attached `-fkey=v` and `--method=` too), and, where
+  light writes are allowed (dev container), PR/issue writes aimed at another repository
+  (`-R`/`--repo`, attached `-Rowner/repo`, a PR/issue URL, `GH_REPO`/`GH_HOST`, a `cd` first,
+  or a shell outside the project); denies the Doppler commands that print values
   (`doppler secrets get/download`, `configure get`, `configs tokens create`, `run -- env`) while
   `secrets names` passes; treats `~/.doppler/` as secret; and scans for `dp.st.`/`dp.sa.`/
   `dp.pt.`/`dp.ct.`/`dp.scim.`/`dp.audit.` tokens (also in `okf-check.sh`). Every run (and
@@ -289,8 +293,8 @@ readable text such as `(brand green: not set)` rather than a fake value.
   `scripts/scan-transcripts.sh` checks `~/.claude/projects/*.jsonl` with the guard's credential
   patterns and lists files and counts, never values. Runbooks: `docs/runbooks/claude-sandbox.md`,
   `docs/runbooks/safety-checkup.md` (monthly: fleet `--doctor`, global/managed `--check`,
-  transcripts, Philter, `ignore-scripts`, token scope). Tests: `test-claude-sandbox.sh` (31),
-  `test-safety-guard.sh` (308).
+  transcripts, Philter, `ignore-scripts`, token scope). Tests: `test-claude-sandbox.sh` (35),
+  `test-safety-guard.sh` (320).
 - **Safety guard: mentions aren't reads; pkill/killall asks** — the guard split every command
   into words and denied when any word looked like a secret file while a reading tool appeared
   anywhere, so it blocked `json.dump(…)`, a sed substitution naming `credentials.conf`,
