@@ -6,7 +6,7 @@
 set -uo pipefail
 TOKEN_FILE=/run/ddev-relay/token
 HOST=host.docker.internal
-PORT=${CPS_DDEV_RELAY_PORT:-20090}
+PORT=${AI_DEVCONTAINER_RELAY_PORT:-${CPS_DDEV_RELAY_PORT:-20090}}
 
 if [ ! -r "$TOKEN_FILE" ]; then
   echo "ddev ${1:-}: the DDEV relay isn't set up for this container (no $TOKEN_FILE)." >&2
@@ -21,12 +21,12 @@ done
 
 if ! exec 3<>"/dev/tcp/$HOST/$PORT" 2>/dev/null; then
   echo "ddev ${1:-}: the DDEV relay on the Mac isn't answering on $HOST:$PORT." >&2
-  echo 'Reopen the container (ensure-ddev.sh starts it), or run the command on the Mac.' >&2
+  echo 'Reopen the container (ensure-relay.sh starts it), or run the command on the Mac.' >&2
   exit 1
 fi
 
 {
-  printf 'CPSRELAY1\n%s\n%s\n%s\n' "$(cat "$TOKEN_FILE")" "$PWD" "$#"
+  printf 'AIRELAY1\n%s\n%s\n%s\n' "$(cat "$TOKEN_FILE")" "$PWD" "$#"
   printf '%s\n' "$@"
 } >&3
 

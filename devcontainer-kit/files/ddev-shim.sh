@@ -24,7 +24,7 @@ case "$cmd" in
   mysql|mariadb)
     # `ddev mysql [--project=NAME] [database] [mariadb options…]`. --database only sets the
     # default, so a name given as an argument wins, as with real `ddev mysql` (ee-migrate.sh
-    # runs `ddev mysql admin_cps -N …`). --project reaches another DDEV project's database
+    # runs `ddev mysql admin_site -N …`). --project reaches another DDEV project's database
     # server over ddev_default; its default database is `db`, so name the site's one.
     host=db db_name="${DDEV_DB_NAME:-db}" project="" other_project=false
     case "${1:-}" in

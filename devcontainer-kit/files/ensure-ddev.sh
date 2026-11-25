@@ -2,8 +2,8 @@
 # Runs on the Mac as the dev container's initializeCommand, before the container starts.
 #
 # Starts every DDEV project the container needs: this folder's own project, plus any project
-# docker-compose.yml links to (Statements Studio reads ddev-cps-db; intranet-frontend calls
-# intranet-api through the router).
+# docker-compose.yml links to (one app reading another's ddev-<name>-db, or a front end calling
+# an API project through the router).
 #
 # Then leaves a watcher in the background that stops those projects again once the container
 # stops (VS Code stops it when the window closes). The spec has no host-side "on close" hook,
@@ -17,11 +17,15 @@ set -euo pipefail
 # VS Code launched from the Dock doesn't inherit the shell's PATH, so Homebrew's ddev is invisible.
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-STATE_DIR="$HOME/.cache/cps-devcontainer"
+STATE_DIR="$HOME/.cache/ai-devcontainer"
+# Kit 1.x kept this state in ~/.cache/cps-devcontainer; link to it so 1.x containers keep working.
+if [ ! -e "$STATE_DIR" ] && [ ! -L "$STATE_DIR" ] && [ -d "$HOME/.cache/cps-devcontainer" ]; then
+  ln -s "$HOME/.cache/cps-devcontainer" "$STATE_DIR"
+fi
 # How long a fresh build may take before the container first appears.
-APPEAR_TIMEOUT=${CPS_DDEV_APPEAR_TIMEOUT:-1800}
+APPEAR_TIMEOUT=${AI_DEVCONTAINER_APPEAR_TIMEOUT:-${CPS_DDEV_APPEAR_TIMEOUT:-1800}}
 # A rebuild stops the container and creates a new one; don't mistake that gap for a close.
-CLOSE_GRACE=${CPS_DDEV_CLOSE_GRACE:-90}
+CLOSE_GRACE=${AI_DEVCONTAINER_CLOSE_GRACE:-${CPS_DDEV_CLOSE_GRACE:-90}}
 
 is_running() {
   docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null | grep -q true
@@ -35,7 +39,7 @@ ddev_name() {
 # Prints "project container" pairs a workspace's dev container needs. Links to
 # ddev-<project>-db/web name the project directly; a router link (ddev-router:intranet-api.test)
 # names it as the hostname's first label. ddev-router and ddev-ssh-agent are global.
-# A router link to a site's other-language name (soinsdenosenfants.cps.test) has a first label
+# A router link to a site's other-language name (a second-language name, fr.mysite.test) has a first label
 # that is no project, so router labels count only when DDEV knows a project by that name.
 needed_for() {
   local workspace="$1" compose="$1/.devcontainer/docker-compose.yml" own
@@ -114,60 +118,6 @@ watch() {
   rm -f "$state_file"
 }
 
-relay_version() {
-  sed -n 's/^our \$VERSION = \([0-9][0-9]*\);.*/\1/p' "$1" 2>/dev/null | head -1
-}
-
-# Detached the same way as the watcher (below): VS Code kills this script's process group.
-start_detached() {
-  nohup /usr/bin/perl -MPOSIX -e 'POSIX::setsid() >= 0 or die "setsid: $!\n"; exec @ARGV or die "exec: $!\n"' \
-    "$@" </dev/null >>"$STATE_DIR/relay/relay.log" 2>&1 &
-}
-
-# The relay (ddev-relay.pl) runs allowlisted ddev commands on the Mac for the container. One relay
-# serves every CPS container; each project gets its own token, mounted into its container only.
-# The token is written once and never replaced: the container's bind mount holds the old inode.
-ensure_relay() {
-  local workspace="$1" project="$2" relay_dir="$STATE_DIR/relay" source installed running pid
-  source="$workspace/.devcontainer/ddev-relay.pl"
-  [ -f "$source" ] || return 0
-  mkdir -p "$relay_dir/tokens"
-  chmod 700 "$relay_dir" "$relay_dir/tokens"
-  local token_file="$relay_dir/tokens/$project.token"
-  # Docker creates a directory for a bind-mount source that doesn't exist yet.
-  [ -d "$token_file" ] && rmdir "$token_file" 2>/dev/null
-  if [ ! -s "$token_file" ]; then
-    (umask 077 && openssl rand -hex 32 > "$token_file")
-  fi
-  echo "$workspace" > "$relay_dir/tokens/$project.root"
-
-  installed="$relay_dir/ddev-relay.pl"
-  # Repos may carry different kit versions; only ever move the shared copy forward.
-  if [ ! -f "$installed" ] || [ "$(relay_version "$source")" -gt "$(relay_version "$installed")" ]; then
-    cp "$source" "$installed"
-  fi
-  running=$(/usr/bin/perl "$installed" --ping 2>/dev/null || true)
-  if [ -n "$running" ] && [ "$running" -ge "$(relay_version "$installed")" ]; then
-    return 0
-  fi
-  if [ -n "$running" ]; then
-    pid=$(cat "$relay_dir/relay.pid" 2>/dev/null || true)
-    [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
-    sleep 1
-  fi
-  start_detached /usr/bin/perl "$installed" --serve
-  local tries=0
-  until /usr/bin/perl "$installed" --ping >/dev/null 2>&1; do
-    tries=$((tries + 1))
-    if [ "$tries" -gt 30 ]; then
-      echo "Warning: the DDEV relay did not start, so ddev start/stop/logs won't work inside. Log: $relay_dir/relay.log"
-      return 0
-    fi
-    sleep 0.2
-  done
-  echo "DDEV relay running on 127.0.0.1:20090 (container commands: $relay_dir/relay.log)."
-}
-
 if [ "${1:-}" = '--watch' ]; then
   shift
   watch "$@"
@@ -210,7 +160,11 @@ while read -r project container; do
   echo "Warning: could not start linked DDEV project $project; continuing without it."
 done <<< "$needed"
 
-[ -n "$own_project" ] && ensure_relay "$workspace" "$own_project"
+# The relay (sandbox-domains, and ddev commands from inside), keyed by the project key the
+# generator wrote into devcontainer.json (name plus a hash of the folder: two projects with the
+# same name never share a token). Kit 1.x passed no key and used the DDEV name.
+relay_key="${2:-$own_project}"
+[ -n "$relay_key" ] && /bin/bash "$(dirname "$0")/ensure-relay.sh" "$workspace" "$relay_key"
 
 # A reopen or rebuild replaces the previous watcher and inherits the projects it owned, so
 # sites started on the first open still stop when the container finally closes.

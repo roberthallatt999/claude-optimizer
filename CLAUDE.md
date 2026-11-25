@@ -269,6 +269,79 @@ readable text such as `(brand green: not set)` rather than a fake value.
   majors and CMS versions through the staged upgrade workflow". The shared CPS
   `base-deploy.yml` now runs `composer audit` / `npm audit` (`dependency_audit: warn|block|off`),
   and `--doctor` counts it as covering both.
+- **Claude Code's own sandbox; a managed-settings floor; GitHub and Doppler rules; no writes
+  through outside links** — `--sandbox=claude` writes the `sandbox` block of
+  `.claude/settings.local.json` from the same policy as the other two sandboxes
+  (`devcontainer-kit/claude-sandbox-policy.py`): `enabled`, `failIfUnavailable`,
+  `allowUnsandboxedCommands: false`, `network.allowedDomains` (`.x.org` → `*.x.org` + `x.org`)
+  and `deniedDomains`; your own keys are kept, its record lives outside the project, a widening
+  asks first. Only Bash is sandboxed and no token is injected; the runbook compares the three.
+  `scripts/install-managed-settings.sh` builds `managed-settings.d/50-ai-config.json` (shared
+  deny rules, `disableBypassPermissionsMode`, the global guard hook; `--strict` adds
+  `allowManagedHooksOnly`/`allowManagedPermissionRulesOnly`) and prints the one `sudo install`
+  line for you to run; `--check`, `--remove`. The guard now asks before gists, `gh api` with
+  fields or `--input` (an implicit POST), and, where light writes are allowed (dev container),
+  PR/issue writes aimed at another repository; denies the Doppler commands that print values
+  (`doppler secrets get/download`, `configure get`, `configs tokens create`, `run -- env`) while
+  `secrets names` passes; treats `~/.doppler/` as secret; and scans for `dp.st.`/`dp.sa.`/
+  `dp.pt.`/`dp.ct.`/`dp.scim.`/`dp.audit.` tokens (also in `okf-check.sh`). Every run (and
+  `--doctor`) refuses when a path ai-config writes is a link leading out of the project.
+  `scripts/scan-transcripts.sh` checks `~/.claude/projects/*.jsonl` with the guard's credential
+  patterns and lists files and counts, never values. Runbooks: `docs/runbooks/claude-sandbox.md`,
+  `docs/runbooks/safety-checkup.md` (monthly: fleet `--doctor`, global/managed `--check`,
+  transcripts, Philter, `ignore-scripts`, token scope). Tests: `test-claude-sandbox.sh` (31),
+  `test-safety-guard.sh` (308).
+- **Safety guard: mentions aren't reads; pkill/killall asks** — the guard split every command
+  into words and denied when any word looked like a secret file while a reading tool appeared
+  anywhere, so it blocked `json.dump(…)`, a sed substitution naming `credentials.conf`,
+  `grep '^\.git'`, and heredocs writing config lines. Now: bodies of quoted heredocs that
+  `cat`/`tee` write to a file aren't scanned as paths (never when the command also runs
+  something, pipes on, or uses `>(…)`); a grep/rg/ag/ack pattern is blanked only when every
+  option before it is a known on/off flag, and a sed script only when it is one plain
+  `s/…/…/` with no `w`/`e`; a dotted name followed by `(` is a call only inside
+  `python -c`/`node -e` code (zsh's `cat .env(N)` is a read); `.crt/.cer/.csr` aren't secret
+  paths (`.der` is). The raw command is still scanned for credential shapes. `pkill`/`killall`
+  ask when an option follows the pattern (macOS reads it as another pattern: a test line
+  `pkill -f "…" -u "$(id -u)"` killed VS Code and Chrome), a pattern is under four characters,
+  there's no pattern, or quoting can't be parsed; `kill -1` asks. Tests: `test-safety-guard.sh`
+  (285, each review-found bypass included).
+- **Sandbox trust boundary** — the project folder is writable from inside a sandbox, so nothing
+  in it may widen the sandbox unseen. Settings used in an integration's `[credential]` or
+  `[mount]` come from the profile only (a `[sandbox]` `plausible_host` can't redirect the token);
+  `ai-config.conf` is always mounted read-only (created empty if missing); a refresh that adds a
+  host to reach or send a token to lists it and asks (`--force`/`--yes` applies); project keys
+  carry a hash of the folder, and the relay and egress folders refuse a key another workspace
+  owns; writes into the project never follow links; Enclave's ownership record and backups live
+  next to its config, outside the repo. Runbooks: `docs/runbooks/devcontainer.md`,
+  `docs/runbooks/enclave.md`.
+- **Optional sandbox: `ai-config --devcontainer` (ai-devcontainer 2.0.0)** — the dev container
+  kit is no longer CPS-only. `--devcontainer` (or `--sandbox=devcontainer`) deploys the project's
+  config, then runs `devcontainer-kit/ai-devcontainer.py --update`; it's sticky (the kit's
+  `.ai-devcontainer.manifest`, or `sandbox = devcontainer` in `ai-config.conf`), and
+  `--sandbox=none` stops updating without deleting. Without a flag nothing changes. What a container
+  reaches comes from `devcontainer-kit/sandbox_policy.py`: the profile's `devcontainer_*` keys, the
+  project's `[sandbox]` section (`integrations = +x, -y`, `domains`, `hosts`, `block`), and
+  integration files (`devcontainer-kit/integrations/*.conf`: github, playwright, plausible,
+  google-analytics, cloudflare, doppler, mailtrap, mailchimp, mandrill, moneris, stripe, airtable,
+  flowbite, cleanshot, context7; private ones in `~/.config/ai-config/devcontainer/integrations/`
+  win). Each can add hosts, a Keychain token the egress proxy injects (`token-hosts.conf`: bearer,
+  token or github scheme), a read-only config mount with a placeholder key, skills, deny rules and
+  image blocks (Playwright, wrangler). The CPS lists moved to the private `cps` profile; with it, the
+  allowlist matches 1.16.0's exactly, and the Keychain items and volume names are unchanged.
+  `sandbox-domains allow|block|unblock|list` inside goes through the relay (now for every project):
+  allow and unblock ask in a Mac dialog, block doesn't, all land in `.devcontainer/domains.conf`
+  (never regenerated, read by proxy and firewall, a block beats every allow, Claude Code's own hosts
+  can't be blocked). Tokens live per project in `~/.cache/ai-devcontainer/egress/projects/<key>/`.
+  On a Mac with `~/.cache/cps-devcontainer`, the new path links to it, so 1.x containers keep
+  working; a 1.x `.devcontainer/` is left alone unless `--force` (backed up first).
+  `cps-devcontainer.py` is a one-release wrapper. Guide: `docs/guides/sandbox.md`. Tests:
+  `test-devcontainer.sh`, `test-egress-proxy.sh` (15, Docker), `test-ddev-relay.sh` (42).
+  `--sandbox=enclave` writes the same policy as Eclipse Enclave's project config
+  (`devcontainer-kit/enclave-policy.py`: `allow_domains`, `add_readonly_dirs`, `+github-cli`, and
+  a Claude settings patch with the safety hook and deny rules), outside the repo, merging with your
+  own entries (`.claude/ai-config/enclave.json` records ours), validated by Enclave and rolled back
+  if invalid. Enclave has no block list, injects only the GitHub token and has no approve-from-inside;
+  ai-config reports those gaps.
 - **Philter policy set per project (opt-in)** — `philter = <set>` under `[options]` in
   `ai-config.conf` makes setup and `--refresh` write a committed `.philter` naming the
   [philter-guard](https://github.com/roberthallatt999/philter-guard) policy set for that

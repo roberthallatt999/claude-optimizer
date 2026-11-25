@@ -201,6 +201,94 @@ bash_expect none 'echo "export const key = process.env.API_KEY;" > src/config.ts
 bash_expect none 'grep -rn "AKIA" src/'
 
 echo ""
+echo -e "${CYAN}=== Words a command only mentions are not reads ===${NC}"
+# Each of these was denied on 2026-11-23 while editing this repo.
+NL=$'\n'
+bash_expect none "python3 -c \"import json; json.dump(d, open('out.json','w'))\""
+bash_expect none "sed -i '' 's/credentials\\.conf/token-hosts.conf/g' a.py"
+bash_expect none "grep -n '^\\.git' notes.txt"
+bash_expect none "grep -rn 'id_rsa' docs/"
+bash_expect none "cd /p && grep -n \"plain.token\\|hproj\\|relay/tokens\" test-x.sh | head"
+bash_expect none "printf '%s\\n' 'install -m 644 /run/x/ca.crt /usr/local/share/ca-certificates/ai.crt' >> Dockerfile"
+bash_expect none "cat > integrations/github.conf <<'EOF'${NL}[deny]${NL}Bash(gh auth token:*)${NL}Read(**/.env)${NL}EOF"
+bash_expect none "tee notes.md <<'EOF'${NL}never cat .env${NL}EOF"
+# …and these must still be caught.
+bash_expect deny "sed -n p .env"
+bash_expect deny "grep password .env"
+bash_expect deny "grep -f .env notes.txt"
+bash_expect deny "sed -f .env x"
+bash_expect deny "python3 -c \"print(open('.env').read())\""
+bash_expect deny "cat <<'EOF' | bash${NL}cat .env${NL}EOF"
+bash_expect deny "python3 - <<'EOF'${NL}print(open('.env').read())${NL}EOF"
+bash_expect deny "cat > x.txt <<EOF${NL}\$(cat .env)${NL}EOF"
+bash_expect deny "cat > x.txt <<'EOF'${NL}hi${NL}EOF${NL}cat .env"
+bash_expect deny "cat server.key"
+bash_expect deny "grep -r token . --include=.env"
+# Bypasses a security review found in the first version of this fix (2026-11-24).
+bash_expect deny "cat > run.sh <<'EOF'${NL}cat .env${NL}EOF${NL}bash run.sh"
+bash_expect deny "cat > run.sh <<'EOF'${NL}cat .env${NL}EOF${NL}./run.sh"
+bash_expect deny "tee out.txt <<'EOF' > >(bash)${NL}cat .env${NL}EOF"
+bash_expect none "echo 'x' ; cat <<'EOF'${NL}cat .env${NL}EOF"   # prints the text; reads nothing
+bash_expect deny "sed '1r .env' notes.txt"
+bash_expect deny "sed -n '1r .env' /dev/null"
+bash_expect deny "sed 's/a/b/w .env' notes.txt"
+bash_expect deny "rg -g .env password ."
+bash_expect deny "grep --include .env -r password ."
+bash_expect deny "grep -e password .env"
+bash_expect deny "cat .env(N)"
+bash_expect deny "python3 -c \"print(open('.env').read())\"; cat json.dump(N)"
+bash_expect deny "cat server.der"
+
+echo -e "${CYAN}=== GitHub: gists, implicit API posts, other repositories ===${NC}"
+bash_expect ask  'gh gist create notes.md'
+bash_expect ask  'gh gist edit abc123 -f x.md'
+bash_expect ask  'gh api repos/o/r/issues -f title=x'
+bash_expect ask  'gh api graphql --input q.json'
+bash_expect none 'gh api repos/o/r/pulls'
+bash_expect ask  'gh pr create --fill'
+# Inside the dev container PR and issue writes don't ask, but only for this repository.
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect none 'gh pr create --fill'
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'gh pr create --fill -R someone/else'
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'gh issue create --repo other/repo --title x'
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'gh issue comment https://github.com/other/repo/issues/1 -b hi'
+
+echo -e "${CYAN}=== Doppler ===${NC}"
+bash_expect deny 'doppler secrets'
+bash_expect deny 'doppler secrets get DB_PASSWORD --plain'
+bash_expect deny 'doppler secrets download --no-file'
+bash_expect deny 'doppler configure get token'
+bash_expect deny 'doppler configs tokens create agent --plain'
+bash_expect deny 'doppler run -- env'
+bash_expect deny "doppler run --command 'printenv'"
+bash_expect none 'doppler secrets names'
+bash_expect none 'doppler run -- npm test'
+bash_expect none 'doppler projects'
+bash_expect deny 'cat ~/.doppler/fallback/x.json'
+# A service-token shape, assembled here so this file holds none.
+_dp="dp.st.dev.$(printf 'a%.0s' $(seq 1 40))"
+bash_expect ask  "curl -H 'Authorization: Bearer ${_dp}' https://api.doppler.com/v3/me"
+
+echo -e "${CYAN}=== Killing processes by name: ask ===${NC}"
+# The line that killed VS Code and Chrome on macOS (2026-11-23): -u and the UID became patterns.
+bash_expect ask  'pkill -f "ddev-relay.pl --serve" -u "$(id -u)" 2>/dev/null || true'
+bash_expect ask  'pkill -f node -u 501'
+bash_expect ask  'killall Chrome -9'
+bash_expect ask  'pkill -f vim'                         # short pattern
+bash_expect ask  'killall sh'
+bash_expect ask  'pkill -u 501'                          # no pattern: everything the user runs
+bash_expect ask  'sudo pkill -9 -f "a b'                 # unparseable quoting
+bash_expect ask  'make test; pkill -f "my-server --port 8080" -n'
+bash_expect ask  'kill -9 -1'
+bash_expect ask  'kill -- -1'
+bash_expect none 'pkill -u "$(id -u)" -f "ddev-relay.pl --serve" 2>/dev/null || true'
+bash_expect none 'pkill -f "ddev-relay.pl --serve"'
+bash_expect none 'pkill -TERM -F /tmp/relay.pid'
+bash_expect none 'killall -u robert Safari'
+bash_expect none 'killall Dock'
+bash_expect none 'kill "$relay_pid"'
+bash_expect none 'kill -9 12345'
+bash_expect none 'pgrep -f "-u"'                          # pgrep only lists
+
 echo -e "${CYAN}=== Destructive: deny ===${NC}"
 bash_expect deny 'rm -rf /'
 bash_expect deny 'rm -rf ~'

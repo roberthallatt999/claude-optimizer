@@ -1,149 +1,117 @@
 ---
-name: "cps-devcontainer"
-description: "Convert a CPS project (or all of them) to a sandboxed VS Code dev container for Claude Code: survey, generate, resolve follow-ups, rebuild, verify, commit."
+name: "ai-devcontainer"
+description: "Give a project (or several) a sandboxed VS Code dev container for Claude Code with ai-config --devcontainer: assess, generate, resolve follow-ups, rebuild, verify, commit. Optional; for projects that want egress limits and tokens kept on the Mac."
 ---
 
-# CPS dev container rollout
+# Dev container sandbox rollout
 
-Gives projects under `~/Web/code/github.com/canadian-paediatric-society` the Claude sandbox proven on Statements Studio: Claude runs in a VS Code dev container, DDEV keeps running on the Mac, a default-deny firewall limits egress, and the project's guardrails are mounted read-only.
+Gives a project the Claude sandbox from ai-config's `devcontainer-kit/`: Claude runs in a VS Code dev container, DDEV (if any) keeps running on the Mac, a default-deny firewall and an egress proxy limit what it can reach, tokens stay in the Mac's Keychain, and the project's guardrails are mounted read-only. It's optional: a project without it is set up exactly as before.
 
-The generator lives in `claude-config-repo/devcontainer-kit/` (`cps-devcontainer.py`, `files/`, `README.md`). Read that README once before starting.
+What a container may reach comes from the active ai-config profile (`devcontainer_*` keys), the project's `[sandbox]` section in `ai-config.conf`, and the integrations they switch on. Read `docs/guides/sandbox.md` in the ai-config checkout (`$AI_CONFIG_REPO`) once before starting.
 
 ## Where this runs
 
-Claude on the **Mac**, in a plain terminal at the CPS root. Never inside a dev container: `.devcontainer/` is read-only there and there's no Docker. If the current working directory is `/workspace`, stop and say so.
+Claude on the **Mac**, in a plain terminal. Never inside a dev container: `.devcontainer/` is read-only there and there's no Docker. If the current working directory is `/workspace`, stop and say so.
 
-## 1. Survey
-
-```bash
-cd ~/Web/code/github.com/canadian-paediatric-society
-K=claude-config-repo/devcontainer-kit/cps-devcontainer.py
-python3 $K --root . --list
-```
-
-Show the table. Ask which projects to convert (AskUserQuestion, multi-select). Recommend starting with a simple one (an EE site such as cpsp, or a Laravel app such as expenses) before the complex ones. Skip `claude-config-repo` and `deployment-workflows` unless asked: they're tooling, not apps. Projects marked `HAS .devcontainer` (Statements Studio) are compared, never overwritten (see step 7).
-
-Convert one project fully, through verification, before starting the next.
-
-## 2. Assess the project
+## 1. Assess
 
 ```bash
-python3 $K --project <folder>
-python3 $K --project <folder> --out ~/devcontainer-preview
+K="$AI_CONFIG_REPO/devcontainer-kit/ai-devcontainer.py"
+python3 "$K" --root <folder-of-projects> --list      # several projects
+python3 "$K" --project <folder>                       # one: + handled, ! follow-ups
+python3 "$K" --project <folder> --out ~/devcontainer-preview
 ```
 
-`+` lines are handled automatically. Each `!` line is a follow-up to resolve. Use the project's `CLAUDE.md`, `.ddev/` files, `.env.example` and README for context. Never read `.env`, `.env.php`, `auth.json` or other secrets: the project's own guardrails forbid it, and the values aren't needed.
+If several, ask which to convert (AskUserQuestion, multi-select) and recommend a simple one first. Convert one fully, through verification, before the next. Check the `Profile:` and `Integrations:` lines: if the profile is wrong, fix the folder map (`~/.config/ai-config/folders`) or `profile =` under `[options]`, not the generated files.
 
-## 3. Branch and generate
+Use the project's `CLAUDE.md`, `.ddev/` files, `.env.example` and README for context. Never read `.env`, `auth.json` or other secrets.
+
+## 2. Branch and generate
 
 ```bash
-cd <folder>
-git status --short
-git switch -c chore/claude-devcontainer
-cd .. && python3 $K --project <folder> --write
+cd <folder> && git status --short && git switch -c chore/claude-devcontainer
+ai-config --devcontainer --project=.
 ```
 
-If the working tree is dirty, ask before branching. `--write` refuses to overwrite an existing `.devcontainer/`. Use `--force` only after showing the user what would be lost.
+This deploys or refreshes the project's Claude config, then writes `.devcontainer/`. If the working tree is dirty, ask before branching. A `.devcontainer/` that ai-config didn't write is left alone; `--force` replaces it after backing it up to `.claude/ai-config/backups/`. Show the user what would change first (`--out` preview and a diff).
 
-## 4. Resolve follow-ups
+Change what it reaches through settings, not by editing generated files:
 
-Edit the generated files in `<folder>/.devcontainer/`. Known patterns:
+| Want | Where |
+| --- | --- |
+| A service (Plausible, Cloudflare, Mailtrap, Stripe, Doppler, …) | `integrations = +name` under `[sandbox]`, or `devcontainer_integrations` in the profile |
+| The organization's own domains | `devcontainer_domains` / `devcontainer_hosts` in the profile, or `domains` / `hosts` under `[sandbox]` |
+| Keep a host out | `block = name` under `[sandbox]` |
+| A service not built in | a private integration file in `~/.config/ai-config/devcontainer/integrations/<name>.conf` |
+| A one-off domain | `sandbox-domains allow <name>` inside (asks on the Mac), or `domains.conf` `[allow]` on the Mac |
+
+Then `ai-config --refresh --project=.`: files you haven't edited are rewritten, edited ones are kept and the new version staged in `.claude/ai-config/pending/.devcontainer/`.
+
+## 3. Resolve follow-ups
 
 | Follow-up | Resolution |
 | --- | --- |
-| DDEV mounts something outside the project (a sibling repo) | Mount it read-only in `docker-compose.yml`. Add a writable overlay only for folders the app must write to (Statements Studio: `../../cps:/var/www/cps:ro` + `../../cps/public/uploads:/var/www/cps/public/uploads:rw`). Check the writable folder is gitignored in that repo. |
-| `~/.aws`, `~/.ssh` and other credentials | Never mounted. Anything needing them (S3, deploys, SSH) runs on the Mac. |
-| DDEV `web_environment` variables | Add only the non-secret ones the app reads from the environment (DB hosts, feature flags, bucket names). Never copy passwords, tokens or keys into `docker-compose.yml`; it gets committed. Set write-path kill switches (e.g. `EE_WRITES_ENABLED`) to `false` in the sandbox. |
-| Private Composer repos | Leave them on the allowlist for reads, but `composer install/update` runs on the Mac via DDEV (no auth.json inside). |
-| Host-side DDEV commands | Mac only; note them in the project's `.devcontainer/README.md`. |
-| MCP server that can't run | Leave it; it fails to connect harmlessly. Note it. |
-| Remote MCP server / extra API Claude must reach | Add the host to `allowed-domains.txt` only if the user agrees. |
-| No `safety-guard.sh` | Suggest running ai-config on the project; the managed deny/ask rules still apply. |
-| Git identity | `GIT_*` comes from the repo's git config. Confirm it's the address the user commits with (roberth@cps.ca). |
+| DDEV mounts something outside the project | Mount it read-only in `docker-compose.yml`; a writable overlay only for folders the app must write, and check that folder is gitignored there. |
+| `~/.aws`, `~/.ssh` and other credentials | Never mounted. Anything needing them runs on the Mac. |
+| DDEV `web_environment` variables | Add only non-secret ones the app reads from the environment. Never copy passwords, tokens or keys into `docker-compose.yml`; it's committed. |
+| Private Composer repos | An `auth.json` next to `composer.json` (gitignored) works inside; otherwise run `composer install` on the Mac via DDEV. |
+| Remote MCP server / extra API | Allow its host only if the user agrees (`[sandbox] hosts` or `domains.conf`). |
+| Integration left out ("needs …") | Set the named key in the profile or under `[sandbox]`. |
+| Git identity | `GIT_*` comes from the repo's git config; confirm it's the address the user commits with. |
 
-## 5. Rebuild
+## 4. Rebuild
 
-Ask the user to run, in VS Code with the project open: **Dev Containers: Reopen in Container** (first time) or **Rebuild Container**. For DDEV projects, `ddev start` first.
+The user runs, in VS Code with the project open: **Dev Containers: Reopen in Container** (first time) or **Rebuild Container**. After any kit change to compose, mounts or the Dockerfile, use **Rebuild and Reopen in Container**: plain Reopen restarts the old container with its old mounts.
 
-Upgrading an existing container (any kit change to compose, mounts or the Dockerfile): **Dev Containers: Rebuild and Reopen in Container** from outside the container, or **Rebuild Container** from inside. Plain **Reopen in Container** restarts the old container with its old mounts. On the 1.16.0 pilot that left the claude service on the shared `cps-gh-config` volume and without the proxy CA while the new egress proxy was already intercepting (gh used the old login; Cloudflare and Plausible failed TLS). If in doubt, `docker rm -f <project>_devcontainer-claude-1` on the Mac first; its login and history live on volumes.
+Once per Mac, the GitHub token goes in the Keychain, in the user's own terminal (the README in `.devcontainer/` names the item, `<profile>-devcontainer-github`):
 
-Upgrading to 1.16.0 also needs, once per Mac: the GitHub token in the Keychain (`security add-generic-password -U -s cps-devcontainer-github -a "$USER" -w`, in the user's own terminal). Verify inside: `echo "$GH_TOKEN"` shows `cps-egress-placeholder`; `gh auth status` says "(GH_TOKEN)" with no scopes line; Plausible and Cloudflare (`/accounts/$CLOUDFLARE_ACCOUNT_ID/tokens/verify`) answer with only the placeholder. After every project is on 1.16.0: the user revokes the old login that was on `cps-gh-config` (GitHub → Settings → Applications → GitHub CLI) and removes `cps-gh-config`, `cps-plausible-config`, and the old token file on `cps-cloudflare-config`.
-
-If the Dev Containers CLI is installed (`command -v devcontainer`), Claude can build and check it directly instead:
-
-```bash
-devcontainer up --workspace-folder <folder>
-devcontainer exec --workspace-folder <folder> <command>
+```sh
+security add-generic-password -U -s <item> -a "$USER" -w
 ```
 
-## 6. Verify
+With the Dev Containers CLI (`command -v devcontainer`), Claude can build and check it directly: `devcontainer up --workspace-folder <folder>`, `devcontainer exec --workspace-folder <folder> <command>`.
 
-Run these in the container (via `devcontainer exec`, or ask the user to paste the output). Every row must pass before committing.
+## 5. Verify
 
-| Check | Command | Expected |
+Every row must pass before committing.
+
+| Check | Command (inside) | Expected |
 | --- | --- | --- |
-| Firewall up | last lines of the build log | `Firewall active: example.com blocked, api.anthropic.com reachable.` |
+| Firewall up | last lines of the start log | `Firewall active: example.com blocked, api.anthropic.com reachable.` |
 | Internet blocked | `curl -sS -m 5 https://example.com` | fails |
 | Allowlist works | `curl -s -o /dev/null -w '%{http_code}\n' https://registry.npmjs.org` | `200` |
-| Database (DDEV + PHP) | `mariadb -h db -u db -pdb db -e 'SELECT DATABASE()'` | `db` |
+| Domain request | `sandbox-domains allow example.net "test"`, click Deny on the Mac | refused, nothing written |
+| Block | `sandbox-domains block registry.npmjs.org`, then the curl above | `403`; then remove it from `domains.conf` on the Mac |
+| Database (DDEV + PHP) | `mariadb -h db -u db -pdb db -e 'SELECT DATABASE()'` | the site's database |
 | No sudo escape | `sudo -n iptables -F` | refused |
 | No Mac secrets | `ls ~/.aws ~/.ssh; echo ${SSH_AUTH_SOCK:-none}` | missing, `none` |
-| No Mac git login | in a **VS Code** terminal: `env \| grep -E '^(GIT_ASKPASS\|VSCODE_GIT_IPC_HANDLE)=.'` | prints nothing (blanked variables can exist empty, so don't count names) |
-| GitHub via gh | `gh auth status`, then `git push --dry-run origin HEAD` | logged in to github.com through the egress proxy (1.16.0: the token is the Mac's Keychain item `cps-devcontainer-github`; `echo $GH_TOKEN` shows only `cps-egress-placeholder`); dry run succeeds over HTTPS |
-| Volumes owned | `stat -c %U ~/.config/gh <node_modules path>` | the container user, not `root` |
-| Site reachable (DDEV PHP) | `curl -sk -o /dev/null -w '%{http_code}\n' https://<name>.<tld>` | `200` (or the site's redirect) |
+| Tokens are placeholders | `echo "$GH_TOKEN"` | `ai-egress-placeholder` |
+| GitHub via the proxy | `gh auth status`, then `git push --dry-run origin HEAD` | logged in (GH_TOKEN); dry run succeeds over HTTPS |
 | Guardrails locked | `touch .devcontainer/x .claude/hooks/x` | `Read-only file system` |
-| App runs | the project's test command / build, e.g. `php artisan test`, `npm run build` | same result as on DDEV, apart from expected sandbox differences |
-| Claude settings | in `claude`: `/status` | Setting sources include *Enterprise managed settings (file)*; no claude.ai MCP servers |
-| Hook | in `claude`: `/hooks` | `safety-guard.sh` under PreToolUse (if the project has it) |
+| App runs | the project's tests / build | same result as on the Mac, apart from expected sandbox differences |
+| Claude settings | in `claude`: `/status`, `/hooks` | managed settings listed; `safety-guard.sh` under PreToolUse |
 
-Compare test counts with the same suite on DDEV (`ddev artisan test` etc.). A failure only in the container needs an explanation, either a sandbox restriction or a gap to fix.
-
-### Known fixes (all hit on Statements Studio)
+### Known fixes
 
 | Symptom | Fix |
 | --- | --- |
-| Every rebuild takes 1.5–2 min (Node and Claude Code reinstall) | Kit before 1.6.0 installed both as dev container features, which are never reused from the build cache. Port 1.6.0: Node and the native Claude Code installer in the Dockerfile, above the COPY lines; drop the `node:1` and `claude-code` features. |
-| `claude --version` stuck on an old release | npm installs of Claude Code need Node 22; on Node 18/20 npm silently picks an old one. 1.6.0 uses the native installer. |
-| Claude Code extension never appears in the container | The firewall blocks `<publisher>.gallerycdn.vsassets.io`; regenerate `allowed-domains.txt` (or add the publisher's two hosts), then reopen. If a download fails later, the CDN's addresses rotated: `sudo /usr/local/sbin/sandbox-firewall.sh`. |
-| Firewall dies after `Fetching GitHub IP ranges...`, DNS `EAI_AGAIN` | The image runs a different firewall script. Compare `md5sum /usr/local/sbin/sandbox-firewall.sh` with `.devcontainer/init-firewall.sh`; rebuild without cache. |
-| `SSL is required, but the server does not support it` | The `99-ddev-no-ssl.cnf` line is missing from the Dockerfile. |
-| `Access denied … host=db` for the wrong database | `db` alias points at the wrong container; check `external_links`. |
-| `Allowed memory size of 134217728 bytes exhausted` | The `memory_limit = -1` line is missing. |
-| `Call to undefined function imagewebp()` | GD built without WebP (`libwebp-dev`, `--with-webp`). |
-| Xdebug warning on every command | `XDEBUG_MODE: "off"` missing from the environment. |
-| A test needs to write into a sibling repo | Add a writable overlay for that folder only (step 4). |
-| DB unreachable after `ddev restart`, npm/Composer timing out | `sudo /usr/local/sbin/sandbox-firewall.sh` in the container. |
-| Can't save `.devcontainer/` files in the container window | Expected: edit on the Mac. |
-| `git push` asks for a username, or `gh` says not logged in | Kit 1.16.0: the proxy adds the token. Check the initializeCommand output ("tokens injected for: …"); if `cps-devcontainer-github` is missing, the user stores it in a Mac terminal (`security add-generic-password -U -s cps-devcontainer-github -a "$USER" -w`) and reopens. A TLS error for github.com means the CA isn't trusted: rerun `sudo /usr/local/sbin/sandbox-trust-ca.sh`. Kits 1.3.0–1.15.0 used `gh auth login` on the shared `cps-gh-config` volume. |
-| Dev server page spins forever on the Mac (`localhost:5173`), but `curl` inside works | Vite is listening on `[::1]` only (`ss -ltn`); VS Code forwards to 127.0.0.1. Kit 1.3.0 sets `NODE_OPTIONS=--dns-result-order=ipv4first` in docker-compose.yml; recreate the container. |
-| DDEV didn't start, or didn't stop after closing | `ensure-ddev.sh` runs on the Mac. Read `~/.cache/cps-devcontainer/watch.log`. A project already running at open is left running by design. Kit before 1.5.0 only checked DDEV and failed with `Run: ddev start`; port `files/ensure-ddev.sh` and the `initializeCommand`. |
-| `ddev start` fails: `unable to listen on required ports, port 3000 is already in use` (or 3001/5173) | A container window is holding the port through a static `forwardPorts` (`lsof -nP -iTCP:3000 -sTCP:LISTEN` shows `Code Helper`). Kit 1.4.0 uses `portsAttributes` only; port the change and rebuild, or close that window. |
-| `npm ci` fails with `EACCES` on `node_modules` | The volume is still root-owned: `sudo /usr/local/sbin/sandbox-own-volumes.sh`. |
-| A Mac build breaks after installing in the container (or the reverse) | `node_modules` isn't on its own volume yet; port the 1.3.0 compose change and rebuild. |
+| Claude Code extension never appears | Its publisher's `*.gallerycdn.vsassets.io` hosts are missing: refresh, reopen. If it worked before, the CDN rotated: `sudo /usr/local/sbin/sandbox-firewall.sh`. |
+| `SSL is required, but the server does not support it` | The `99-ddev-no-ssl.cnf` Dockerfile line is missing. |
+| DB unreachable after `ddev restart`, npm/Composer timing out | `sudo /usr/local/sbin/sandbox-firewall.sh`. |
+| `git push` asks for a username, or `gh` isn't logged in | Check the initializeCommand output ("tokens injected for: …"); store the missing Keychain item and reopen. A TLS error for github.com: `sudo /usr/local/sbin/sandbox-trust-ca.sh`. |
+| `sandbox-domains`: relay isn't answering | Reopen the container (`ensure-relay.sh` starts it); log in `~/.cache/ai-devcontainer/relay/relay.log` on the Mac. |
+| Dev server page spins on the Mac, `curl` inside works | Vite on `[::1]` only; `NODE_OPTIONS=--dns-result-order=ipv4first` is in compose: recreate the container. |
+| `npm ci` fails with `EACCES` on `node_modules` | `sudo /usr/local/sbin/sandbox-own-volumes.sh`. |
 
-## 7. Projects that already have a .devcontainer
+## 6. Commit
 
-Don't regenerate. Generate a preview with `--out` and diff it against the existing folder. Port improvements by hand and keep the project's own customisations. At minimum, copy the kit's `files/init-firewall.sh` over `.devcontainer/init-firewall.sh`: the kit's version resets the default policies, so a re-run no longer blocks GitHub.
-
-## 8. Commit
-
-In the project on the Mac:
-
-- If the project uses `.okf/`, add one line under today's date in `.okf/log.md` and run `bash .claude/scripts/okf-check.sh`.
-- `git add .devcontainer` (plus the OKF log, and `.claude/settings.local.json` only if the project tracks it; it's usually gitignored).
-- Commit as `chore: add Claude Code dev container`.
-- **Never push or open a PR without the user's explicit yes for that action.** Every CPS project's guardrails require per-action approval for publishing.
-
-## 9. Report
-
-End with one table: project, status (converted / verified / skipped / blocked), follow-ups left open. Point out anything the user must do on the Mac (rebuild, push, Composer installs).
+On the Mac: `git add .devcontainer` (plus `ai-config.conf` if it changed), commit as `chore: add Claude Code dev container`. **Never push or open a PR without the user's explicit yes for that action.**
 
 ## Rules
 
-- Never leave a `.devcontainer/` change on a branch that a container might check out. Inside the container `.devcontainer/` is read-only, so a checkout or merge between commits that differ there stops halfway (Statements Studio, 2026-10-20: the switch to `main` left a stray `devcontainer.json`). Ship dev container changes to `main` from the Mac straight away (`cps-ship.sh`), and never stack feature work on top of them. To recover a half-done switch: on the Mac, `git checkout -- .devcontainer/<file>` once you've confirmed the branch holds the same content.
+- Ship `.devcontainer/` changes to the main branch from the Mac promptly, and don't stack feature work on them: inside the container `.devcontainer/` is read-only, so a checkout between commits that differ there stops halfway.
 - Never put secret values into `.devcontainer/` files. They're committed.
-- Never mount `~/.aws`, `~/.ssh`, `~/.gitconfig`, the Mac's `~/.config/gh` or the Docker socket. GitHub access comes only through the egress proxy, which holds the token (kit 1.16.0); never mount `~/.cache/cps-devcontainer/egress` into the claude service (only its `ca.crt` and the placeholder folders).
-- Never widen `allowed-domains.txt` without telling the user why.
+- Never mount `~/.aws`, `~/.ssh`, `~/.gitconfig`, the Mac's `~/.config/gh`, the Docker socket, or `~/.cache/ai-devcontainer/egress/projects/*/credentials.env` into the claude service.
+- Never widen what the sandbox reaches without telling the user why; prefer an integration or `[sandbox]` setting over editing generated files.
 - Never loosen the read-only guardrail mounts or the sudoers rule to make something work. Find another way, or ask.
 - Follow each project's own `CLAUDE.md` guardrails while working in it.

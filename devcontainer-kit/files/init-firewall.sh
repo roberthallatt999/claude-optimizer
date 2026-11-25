@@ -7,6 +7,8 @@ IFS=$'\n\t'
 # Read from the project's .devcontainer, which is bind-mounted read-only: edits are made on
 # the Mac and apply at the next start, without rebuilding the image.
 ALLOWLIST=/workspace/.devcontainer/allowed-domains.txt
+# Yours: [allow] adds names, [block] removes them (sandbox-domains writes it through the Mac).
+DOMAINS=/workspace/.devcontainer/domains.conf
 if [ ! -r "$ALLOWLIST" ]; then
   echo "WARNING: $ALLOWLIST not found; only GitHub and the container's network will be allowed."
   ALLOWLIST=/dev/null
@@ -58,9 +60,23 @@ fi
 # 4. Domains from the allowlist file, looked up in parallel ("<domain> <ip>" per answer).
 resolve() { dig +noall +answer A "$1" | awk -v d="$1" '$4 == "A" {print d, $5}'; }
 export -f resolve
-# A leading dot (.cps.ca) means "and every subdomain" to the proxy; here only the name itself
+# A leading dot (.example.org) means "and every subdomain" to the proxy; here only the name itself
 # can be looked up, so the subdomains still go through the proxy.
-domains=$(sed -e 's/#.*//' -e 's/[[:space:]]//g' -e 's/^\.//' "$ALLOWLIST" | grep -v '^$' || true)
+section() { # $1 allow|block: names under [$1] in domains.conf
+  [ -r "$DOMAINS" ] || return 0
+  awk -v want="[$1]" '
+    { sub(/#.*/, ""); gsub(/[[:space:]]+/, " "); sub(/^ /, ""); sub(/ $/, "") }
+    $0 == "" { next }
+    /^\[/ { on = ($0 == want); next }
+    on { split($0, f, " "); print tolower(f[1]) }' "$DOMAINS"
+}
+blocked=$(section block | sed 's/^\.//' || true)
+domains=$( { sed -e 's/#.*//' -e 's/[[:space:]]//g' "$ALLOWLIST"; section allow; } | sed 's/^\.//' | grep -v '^$' \
+  | sort -u | grep -vxF -f <(printf '%s\n' $blocked '') || true)
+# A blocked ".example.org" also drops its subdomains listed by name.
+for b in $blocked; do
+  domains=$(printf '%s\n' $domains | awk -v b="$b" '{ n = length($0) - length(b) } !(n > 0 && substr($0, n) == "." b)')
+done
 resolved=$(printf '%s\n' $domains | xargs -r -P 16 -n 1 bash -c 'resolve "$1"' _ || true)
 for domain in $domains; do
   ips=$(echo "$resolved" | awk -v d="$domain" '$1 == d {print $2}')

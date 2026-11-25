@@ -17,10 +17,11 @@ cleanup() { [ -n "$relay_pid" ] && kill "$relay_pid" 2>/dev/null; rm -rf "$work"
 trap cleanup EXIT
 
 export HOME="$work/home"
-STATE="$HOME/.cache/cps-devcontainer/relay"
+STATE="$HOME/.cache/ai-devcontainer/relay"
 mkdir -p "$STATE/tokens"
 site="$work/site"
-mkdir -p "$site/.admin-scripts/.ee-migrate"
+mkdir -p "$site/.admin-scripts/.ee-migrate" "$site/.ddev" "$site/.devcontainer"
+echo "name: site" > "$site/.ddev/config.yaml"
 site="$(cd "$site" && pwd -P)"
 TOKEN=$(printf '%064d' 7)
 echo "$TOKEN" > "$STATE/tokens/site.token"
@@ -121,6 +122,60 @@ req ee-migrate staging status
 check 'stale lock is taken over' '[[ $RC -eq 0 && "$OUT" == *ARGS:* && ! -d "$STATE/locks/site.ee-migrate" ]]'
 
 check 'audit log records the runs' 'grep -q "site RUN     ddev ee-migrate prod apply --expect=a,b" "$STATE/relay.log"'
+
+# --- sandbox-domains (ai-devcontainer 2.x) -------------------------------------------------
+DC="$site/.devcontainer/domains.conf"
+printf '# mine\n[allow]\n\n[block]\n' > "$DC"
+# The kit 2.x client's protocol line; CPSRELAY1 (above) stays accepted for 1.x containers.
+req2() {
+  local line
+  OUT="" RC=99
+  exec 3<>"/dev/tcp/127.0.0.1/$PORT" || return
+  { printf 'AIRELAY1\n%s\n%s\n%s\n' "$TOKEN" /workspace "$#"; printf '%s\n' "$@"; } >&3
+  while IFS= read -r line <&3; do
+    if [[ "$line" == $'\x1e'EXIT\ * ]]; then RC=${line#$'\x1e'EXIT }; break; fi
+    OUT+="$line"$'\n'
+  done
+  exec 3<&-
+}
+start_relay deny
+req2 sandbox-domains allow api.example.com 'webhook test'
+check 'allow, dialog denied -> exit 3, file unchanged' '[[ $RC -eq 3 ]] && ! grep -q api.example.com "$DC"'
+req2 sandbox-domains block ads.example.com ''
+check 'block needs no dialog' '[[ $RC -eq 0 ]] && sed -n "/^\[block\]/,\$p" "$DC" | grep -q "^ads.example.com"'
+req2 sandbox-domains block claude.ai ''
+check 'Claude Code hosts cannot be blocked' '[[ $RC -eq 2 && "$OUT" == *"can'"'"'t be blocked"* ]]'
+for bad in 1.2.3.4 '*.example.com' 'https://x.example.com' com 'a b.example.com' 'x.example.com/path'; do
+  req2 sandbox-domains allow "$bad" ''
+  check "invalid name refused: $bad" '[[ $RC -eq 2 ]]'
+done
+start_relay allow
+req2 sandbox-domains allow API.Example.com 'webhook test'
+check 'allow, dialog allowed -> saved in [allow], lower-case, with the reason' \
+  '[[ $RC -eq 0 ]] && sed -n "/^\[allow\]/,/^\[block\]/p" "$DC" | grep -q "^api.example.com .*webhook test"'
+req2 sandbox-domains allow api.example.com ''
+check 'allowing twice changes nothing' '[[ $RC -eq 0 && "$OUT" == *"nothing to change"* ]] && [[ $(grep -c "^api.example.com" "$DC") -eq 1 ]]'
+req2 sandbox-domains allow ads.example.com ''
+check 'a blocked name must be unblocked first' '[[ $RC -eq 2 && "$OUT" == *unblock* ]]'
+req2 sandbox-domains unblock ads.example.com ''
+check 'unblock (dialog allowed) removes it from [block]' '[[ $RC -eq 0 ]] && ! grep -q "^ads.example.com" "$DC"'
+req2 sandbox-domains block api.example.com ''
+check 'block moves a name out of [allow]' \
+  '[[ $RC -eq 0 ]] && ! sed -n "/^\[allow\]/,/^\[block\]/p" "$DC" | grep -q "^api.example.com" && sed -n "/^\[block\]/,\$p" "$DC" | grep -q "^api.example.com"'
+check 'comments in domains.conf are kept' 'grep -q "^# mine" "$DC"'
+req2 sandbox-domains list
+check 'list prints domains.conf' '[[ $RC -eq 0 && "$OUT" == *"[block]"* ]]'
+check 'domain requests are logged' 'grep -q "site BLOCKED sandbox-domains block ads.example.com" "$STATE/relay.log"'
+mv "$DC" "$DC.real"; ln -s "$DC.real" "$DC"
+req2 sandbox-domains block x.example.com ''
+check 'a symlinked domains.conf is refused' '[[ $RC -eq 1 && "$OUT" == *link* ]]'
+rm "$DC"; mv "$DC.real" "$DC"
+# A project without DDEV still gets domain requests, but no ddev commands.
+rm "$site/.ddev/config.yaml"
+req2 logs
+check 'ddev commands refused for a project without DDEV' '[[ $RC -eq 2 && "$OUT" == *"no DDEV config"* ]]'
+req2 sandbox-domains block y.example.com ''
+check 'domain requests still work without DDEV' '[[ $RC -eq 0 ]]'
 
 [[ $fail -eq 0 ]] && echo "All $pass tests passed" || echo "ddev-relay: $pass passed, $fail failed"
 [[ $fail -eq 0 ]]

@@ -218,7 +218,10 @@ is_secret_path() {
     process.env|*meta.env) return 1 ;;   # JS identifiers, not files
     .env*|*.env) return 0 ;;
     id_rsa|id_rsa.pub|id_dsa|id_ecdsa|id_ed25519|id_ed25519.pub) return 0 ;;
-    *.pem|*.key|*.p12|*.pfx|*.jks|*.keystore|*.priv|*.cer|*.crt|*.der|*.csr) return 0 ;;
+    # Not .crt/.cer/.csr: certificates and requests are public, and a PEM private key pasted into
+    # one is still caught when it's read (BEGIN … PRIVATE KEY). .der stays: binary DER private
+    # keys use it, and the text scan can't see inside them.
+    *.pem|*.key|*.p12|*.pfx|*.jks|*.keystore|*.priv|*.der) return 0 ;;
     *.secret|*.secrets|*.token|*.password) return 0 ;;
     credentials.json|*-credentials.json|*service-account*.json|application_default_credentials.json) return 0 ;;
     secrets.json|secrets.yml|secrets.yaml|vault.yml|vault.yaml|auth.json) return 0 ;;
@@ -228,6 +231,7 @@ is_secret_path() {
   esac
   case "$p" in
     .ssh/*|*/.ssh/*|.aws/*|*/.aws/credentials|*/.aws/config|.azure/*|*/.azure/*) return 0 ;;
+    .doppler/*|*/.doppler/*|.doppler|*/.doppler) return 0 ;;   # the CLI's offline copy of fetched secrets
     user/config/config.php|*/user/config/config.php|*.ddev/db_snapshots/*|*.ddev/import-db/*) return 0 ;;
   esac
   matches_protected "$p"
@@ -252,7 +256,7 @@ DESTRUCTIVE="This is irreversible; confirm it is intended."
 
 # High-confidence credential shapes — keep in sync with projects/common/okf/okf-check.sh.
 # Vendor token shapes. Case-sensitive: the casing IS part of the signal.
-SECRET_CONTENT_RE='-----BEGIN [A-Z ]*PRIVATE KEY-----|(AKIA|ASIA)[0-9A-Z]{16}|sk-(ant|proj)-[A-Za-z0-9_-]{20,}|sk_live_[0-9A-Za-z]{16,}|rk_live_[0-9A-Za-z]{16,}|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{40,}|glpat-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}|SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}|npm_[A-Za-z0-9]{36}|dop_v1_[a-f0-9]{64}|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}'
+SECRET_CONTENT_RE='-----BEGIN [A-Z ]*PRIVATE KEY-----|(AKIA|ASIA)[0-9A-Z]{16}|sk-(ant|proj)-[A-Za-z0-9_-]{20,}|sk_live_[0-9A-Za-z]{16,}|rk_live_[0-9A-Za-z]{16,}|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{40,}|glpat-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}|SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}|npm_[A-Za-z0-9]{36}|dop_v1_[a-f0-9]{64}|dp\.(st|sa|pt|ct|scim|audit)(\.[a-z0-9_-]{2,35})?\.[A-Za-z0-9]{40,44}|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}'
 
 # Database and service credentials, matched case-insensitively: a connection URI with an
 # inline password, a secret-ish key assigned a concrete value, or the same key quoted in a
@@ -282,7 +286,7 @@ SCAN_BIG_TAIL="Read a bounded, checked excerpt instead (for a log: the specific 
 # or it becomes dead code — test-secret-scanning.sh has a case per class to catch that.
 # One compiled regex, not a loop of index() calls: on BSD awk the loop costs 929ms on a
 # 4MB log where this costs 126ms, which is awk's floor for reading the file at all.
-SECRET_ANCHORS_RE='akia|asia|sk-ant-|sk-proj-|sk_live_|rk_live_|gh[pousr]_|github_pat_|glpat-|xox|aiza|sg\.|npm_|dop_v1_|eyj|-----begin|mysql://|mariadb://|postgres|mongodb|rediss?://|amqp|mssql://|sqlserver://|ftp://|https?://|password|passwd|_pwd|secret|token|api_?key|app_key|access_key|encryption_key|auth_?key|private_key'
+SECRET_ANCHORS_RE='akia|asia|sk-ant-|sk-proj-|sk_live_|rk_live_|gh[pousr]_|github_pat_|glpat-|xox|aiza|sg\.|npm_|dop_v1_|dp.st.|dp.sa.|dp.pt.|dp.ct.|dp.scim.|dp.audit.|eyj|-----begin|mysql://|mariadb://|postgres|mongodb|rediss?://|amqp|mssql://|sqlserver://|ftp://|https?://|password|passwd|_pwd|secret|token|api_?key|app_key|access_key|encryption_key|auth_?key|private_key'
 
 # secret_scan <path> — echo a finding; 0 = credential found, 1 = clean/not applicable,
 # 2 = could not be scanned. Fail closed: callers deny on both 0 and 2.
@@ -733,7 +737,50 @@ esac
 # ---------------------------------------------------------------------------
 cmd="$(json_field .tool_input.command)"
 [[ -n "$cmd" ]] || exit 0
-lc="$(lower "$cmd")"
+
+# strip_data_heredocs — drop the bodies of quoted heredocs (<<'EOF', <<"EOF") that cat or tee
+# writes to a file. The shell doesn't expand a quoted heredoc and cat/tee don't run it, so its
+# words are file contents, not paths or commands: `cat > x.conf <<'EOF'` holding
+# "Bash(gh auth token:*)" is a config line, not a token print. Kept: unquoted heredocs ($(…)
+# runs), heredocs piped on (cat <<'EOF' | bash), and any fed to an interpreter (python3 - <<'EOF'
+# can open files). The credential-shape check below still reads the full command.
+strip_data_heredocs() {
+  awk '
+    BEGIN { q = sprintf("%c", 39) }
+    skip != "" {
+      t = $0
+      if (dash) sub(/^\t+/, "", t)
+      if (t == skip) skip = ""
+      next
+    }
+    {
+      print
+      if (match($0, "<<-?[ \t]*[" q "\"][A-Za-z_][A-Za-z0-9_]*[" q "\"]")) {
+        pre = substr($0, 1, RSTART - 1)
+        tag = substr($0, RSTART, RLENGTH)
+        post = substr($0, RSTART + RLENGTH)
+        # The segment that owns the << must start with cat or tee; the quotes before the tag must
+        # balance; nothing after it may pipe on or feed a process substitution.
+        nq = gsub(q, q, pre); nd = gsub("\"", "\"", pre)
+        if (pre ~ /(^|[;&|])[ \t]*(cat|tee)[ \t][^;&|]*$/ && nq % 2 == 0 && nd % 2 == 0 \
+            && post !~ /[|]|[<>]\(/) {
+          dash = (tag ~ /^<<-/)
+          gsub("^<<-?[ \t]*[" q "\"]|[" q "\"]$", "", tag)
+          skip = tag
+        }
+      }
+    }'
+}
+cmd_scan="$(printf '%s\n' "$cmd" | strip_data_heredocs)"
+[[ -n "$cmd_scan" ]] || cmd_scan="$cmd"
+# Fail closed: a command that also runs something (cat > run.sh <<'EOF' … EOF; bash run.sh)
+# may execute what the heredoc wrote, so then nothing is stripped.
+_runs_re='(^|[;&|(`[:space:]])(bash|sh|zsh|dash|ksh|fish|source|\.|eval|exec|python[0-9.]*|node|deno|bun|perl|ruby|php|osascript|make|npm|npx|pnpm|yarn|composer)([[:space:]]|$)|(^|[;&|(`])[[:space:]]*\.{1,2}/'
+_scan_flat="$(lower "$cmd_scan")"; _scan_flat="${_scan_flat//$'\n'/;}"
+if [[ "$cmd_scan" != "$cmd" ]] && [[ "$_scan_flat" =~ $_runs_re ]]; then
+  cmd_scan="$cmd"
+fi
+lc="$(lower "$cmd_scan")"
 lc="${lc//$'\n'/;}"
 
 m() { [[ "$lc" =~ $1 ]]; }
@@ -815,10 +862,66 @@ bare_word_exists() {
   return $found
 }
 
+# lc_paths — the command with each grep/rg/sed pattern or script argument blanked: in
+# `grep -n '^\.git' f` or `sed 's/credentials/x/' f` the first argument is a pattern, and the
+# files come after it. Not when the pattern is read from a file (-f, --file), and an argument
+# the parser can't place stays in, so a misparse can only over-match.
+lc_paths="$lc"
+# pattern_arg_blankable <tool> <options text> <argument> — true only when the argument is surely
+# a pattern or a plain substitution: every option before it is a known on/off flag (anything
+# that takes a value, like rg -g/-t/--pre, grep -e/-f/-d/--include X, keeps it in), and a sed
+# script is one s/…/…/ with no w or e flag (r, w, e and the rest can read or run files).
+# Lowercased input: -E reads as -e here, which only keeps more in (fails closed).
+pattern_arg_blankable() {
+  local tool="$1" opts="$2" arg="$3" o prev=""
+  # shellcheck disable=SC2086
+  for o in $opts; do
+    if [[ "$prev" =~ ^-[abcm]$ && "$o" =~ ^[0-9]+$ ]]; then prev=""; continue; fi
+    prev="$o"
+    case "$tool" in
+      sed)
+        [[ "$o" =~ ^(-[inrus]+|--in-place(=[^[:space:]]*)?|--quiet|--silent|''|\"\")$ ]] || return 1 ;;
+      *)
+        [[ "$o" =~ ^-[rnilvwcoqshxzu]+$ || "$o" =~ ^-[abcm]$ \
+           || "$o" =~ ^--(colou?r(=[a-z]+)?|line-number|ignore-case|recursive|count|files-with-matches|files-without-match|extended-regexp|fixed-strings|word-regexp|invert-match|no-filename|with-filename|hidden|no-ignore|smart-case|only-matching|quiet|no-messages|null|(include|exclude|exclude-dir)=[^[:space:]]+)$ ]] || return 1 ;;
+    esac
+  done
+  [[ "$prev" =~ ^-[abcm]$ ]] && return 1
+  if [[ "$tool" == sed ]]; then
+    local script="${arg#[\'\"]}"; script="${script%[\'\"]}"
+    [[ "$script" =~ ^[0-9,\$]*s/[^/]*/[^/]*/[gip0-9]*$ ]] || return 1
+  fi
+  return 0
+}
+_pat_re="${S}(grep|egrep|fgrep|rg|ag|ack|sed)((([[:space:]]+-[a-z][a-z-]*(=[^[:space:]]*)?)|([[:space:]]+-[abcm][[:space:]]+[0-9]+)|([[:space:]]+-i[[:space:]]+(''|\"\")))*)[[:space:]]+('[^']*'|\"[^\"]*\"|[^-[:space:];&|'\"][^[:space:];&|'\"]*)"
+_guard=0
+while [[ "$lc_paths" =~ $_pat_re ]] && (( _guard++ < 20 )); do
+  # ${S} has its own groups, so take the pattern argument as the last group, and the tool and
+  # options from the matched text itself.
+  _full="${BASH_REMATCH[0]}"; _arg="${BASH_REMATCH[${#BASH_REMATCH[@]}-1]}"
+  [[ "$_full" =~ (grep|egrep|fgrep|rg|ag|ack|sed) ]]; _tool="${BASH_REMATCH[1]}"
+  _opts="${_full%"$_arg"}"
+  if ! pattern_arg_blankable "$_tool" "${_opts#*"$_tool"}" "$_arg"; then
+    _new="${_full/"$_tool"/"${_tool}_"}"
+  else
+    _new="${_full%"$_arg"}"; _new="${_new/"$_tool"/"${_tool}_"} __pattern__"
+  fi
+  lc_paths="${lc_paths/"$_full"/"$_new"}"
+done
+
 secret=""
 while IFS= read -r tok; do
   [[ -n "$tok" ]] || continue
   if is_secret_path "$tok"; then
+    # json.dump(…) in `python3 -c "…"`: a method call, not a file. Only a dotted identifier
+    # (no leading dot, no slash), only called, and only inside an interpreter's inline code:
+    # under zsh `cat .env(N)` is a glob qualifier, a real read.
+    if [[ "$tok" =~ ^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)+$ ]]; then
+      _tok_re="${tok//./\\.}"
+      _inline_re="(python[0-9.]*|node|deno|bun|ruby|perl|php)[[:space:]]+(-[a-z]+[[:space:]]+)*-[ce][[:space:]]*(\"[^\"]*|'[^']*)(^|[^a-z0-9_.])${_tok_re}\("
+      _rest="${lc_paths//"$tok("/}"
+      [[ "$lc_paths" =~ $_inline_re && "$_rest" != *"$tok"* ]] && continue
+    fi
     # A bare word ("credentials", "secrets") is prose in an echo or a commit message far more
     # often than a file name: only an existing file by that name counts. Key names still do.
     if [[ "$tok" != */* && "$tok" != *.* ]] && ! bare_word_exists "$tok" \
@@ -857,7 +960,7 @@ while IFS= read -r tok; do
     break
   fi
 done <<EOF
-$(printf '%s' "$lc" | tr -c 'a-z0-9._/~*@+:%-' '\n')
+$(printf '%s' "$lc_paths" | tr -c 'a-z0-9._/~*@+:%-' '\n')
 EOF
 
 READ_VERBS="${S}(cat|zcat|gzcat|bzcat|xzcat|zless|zmore|zgrep|gunzip|unzip|less|more|head|tail|bat|batcat|nl|tac|strings|xxd|od|hexdump|base64|source|\.|grep|egrep|fgrep|rg|ag|ack|awk|gawk|sed|cut|sort|uniq|diff|cmp|jq|yq|cp|scp|rsync|curl|wget|nc|ncat|openssl|gpg|vi|vim|nvim|nano|emacs|code|open|pbcopy|xclip|python|python3|node|deno|php|ruby|perl|export|dotenv|tee|zip|tar|echo|printf|eval|read)([[:space:]]|$)"
@@ -926,7 +1029,7 @@ fi
 # gh auth token, a Keychain lookup with -w, op read … put the secret itself on stdout.
 # Inside $( ) the value usually flows into another command (GH_TOKEN=$(gh auth token) gh api),
 # which is fine, unless that command echoes it.
-PRINTS_SECRET_RE="${S}(gh[[:space:]]+auth[[:space:]]+token|security[[:space:]]+find-(generic|internet)-password([[:space:]][^;&|]*)?[[:space:]]-[a-z]*[wg]([[:space:]]|$)|op[[:space:]]+read[[:space:]]|op[[:space:]]+document[[:space:]]+get[[:space:]]|op[[:space:]]+signin[^;&|]*--raw|op[[:space:]]+item[[:space:]]+get[^;&|]*--reveal|aws[[:space:]]+configure[[:space:]]+(get|export-credentials)|gcloud[[:space:]]+auth[[:space:]]+(application-default[[:space:]]+)?print-(access|identity)-token|heroku[[:space:]]+auth:token|doppler[[:space:]]+secrets|vault[[:space:]]+(kv[[:space:]]+get|read)[[:space:]]|${G}credential[[:space:]]+fill|npm[[:space:]]+token[[:space:]]+create|bw[[:space:]]+(get[[:space:]]+(password|item|notes|totp|attachment)|list[[:space:]]+items|export)|bws[[:space:]]+(secret|secrets)[[:space:]]+(get|list))"
+PRINTS_SECRET_RE="${S}(gh[[:space:]]+auth[[:space:]]+token|security[[:space:]]+find-(generic|internet)-password([[:space:]][^;&|]*)?[[:space:]]-[a-z]*[wg]([[:space:]]|$)|op[[:space:]]+read[[:space:]]|op[[:space:]]+document[[:space:]]+get[[:space:]]|op[[:space:]]+signin[^;&|]*--raw|op[[:space:]]+item[[:space:]]+get[^;&|]*--reveal|aws[[:space:]]+configure[[:space:]]+(get|export-credentials)|gcloud[[:space:]]+auth[[:space:]]+(application-default[[:space:]]+)?print-(access|identity)-token|heroku[[:space:]]+auth:token|doppler[[:space:]]+(secrets([[:space:]]+(get|download)|[[:space:]]*($|[;&|>])|[[:space:]]+--?[a-z-]*(plain|raw|json|only-names=false))|configure[[:space:]]+get|configs[[:space:]]+tokens[[:space:]]+create|run[[:space:]][^;&|]*(--command[= ][\"']?[[:space:]]*(env|printenv)|--[[:space:]]+(env|printenv)([[:space:]]|$)))|vault[[:space:]]+(kv[[:space:]]+get|read)[[:space:]]|${G}credential[[:space:]]+fill|npm[[:space:]]+token[[:space:]]+create|bw[[:space:]]+(get[[:space:]]+(password|item|notes|totp|attachment)|list[[:space:]]+items|export)|bws[[:space:]]+(secret|secrets)[[:space:]]+(get|list))"
 if m "$PRINTS_SECRET_RE"; then
   _top="$lc"
   # No exemption for op document get --out-file: /dev/stdout, a later cat, or a second call
@@ -1127,6 +1230,51 @@ if m "${S}rm([[:space:]]+-[a-z-]+)*[[:space:]]+-[a-z-]*r[a-z-]*([[:space:]]+-[a-
 fi
 if m "${S}(mkfs(\.[a-z0-9]+)?|fdisk|diskutil[[:space:]]+(erase|zero|partition))([[:space:]]|$)" || m "${S}dd[[:space:]].*of=/dev/" || m ':\(\)[[:space:]]*\{[[:space:]]*:\|:&'; then
   decide deny "Blocked by ai-config safety guard: disk-level destructive command."
+fi
+
+# --- Killing processes by name -------------------------------------------------
+# pkill/killall match by pattern, so a slip kills unrelated apps. macOS pkill stops reading
+# options at the first pattern: `pkill -f "x --serve" -u "$(id -u)"` searches for "-u" and the
+# UID too, which matched VS Code's and Chrome's helpers (--user-data-dir) and killed them
+# (2026-11-23). Linux reorders the arguments, so the same line looked fine there. Ask when an
+# option comes after a pattern, when a pattern is under four characters, when there is no
+# pattern (pkill -u <uid>: everything the user runs), or the arguments can't be parsed.
+# `kill -1` / `kill -- -1` signals every process the user owns. Killing one PID is not checked.
+kill_risk() { # $1 = pkill|killall, $2 = its arguments (original case); prints a reason or nothing
+  local tool="$1" args="$2" tok saw_pattern=false want_value=false patterns=0 short=""
+  # Options that take a value (pkill on macOS and Linux; killall on macOS and Linux).
+  local value_opts=' -F -G -g -P -s -t -U -u -j '
+  [[ "$tool" == killall ]] && value_opts=' -u -t -c -s -o -y '
+  local toks
+  toks=$(printf '%s\n' "$args" | xargs -n1 printf '%s\n' 2>/dev/null) || { printf 'its arguments could not be parsed'; return; }
+  while IFS= read -r tok; do
+    [[ -z "$tok" ]] && continue
+    if [[ "$want_value" == true ]]; then want_value=false; continue; fi
+    if [[ "$tok" == -* && "$tok" != - ]]; then
+      if [[ "$saw_pattern" == true ]]; then
+        printf "an option (%s) comes after the pattern; on macOS %s reads it as another pattern" "$tok" "$tool"; return
+      fi
+      [[ "$value_opts" == *" $tok "* ]] && want_value=true
+      continue
+    fi
+    saw_pattern=true; patterns=$((patterns + 1))
+    (( ${#tok} < 4 )) && short="$tok"
+  done <<< "$toks"
+  if [[ -n "$short" ]]; then printf "the pattern '%s' is under four characters and can match unrelated processes" "$short"; return; fi
+  # -F <pidfile> names its target through the file; otherwise no pattern means "everything".
+  (( patterns == 0 )) && [[ " $args " != *" -F "* ]] && printf 'it names no process, so it can signal everything the user runs'
+}
+# $(…) and `…` become one placeholder value, so their parentheses and quotes don't cut the arguments.
+kill_src=$(printf '%s\n' "${cmd//$'\n'/;}" | sed -E 's/\$\([^()]*\)/SUBST/g; s/`[^`]*`/SUBST/g')
+kill_segs=$(printf '%s\n' "$kill_src" | grep -oE "(^|[;&|({\`]|\\\$\\()[[:space:]]*((sudo|command|exec|nohup)[[:space:]]+)*(pkill|killall)([[:space:]]+[^;&|)]*)?" || true)
+while IFS= read -r seg; do
+  [[ -z "$seg" ]] && continue
+  [[ "$seg" =~ (pkill|killall)([[:space:]]+(.*))?$ ]] || continue
+  why=$(kill_risk "${BASH_REMATCH[1]}" "${BASH_REMATCH[3]:-}")
+  [[ -n "$why" ]] && decide ask "This ${BASH_REMATCH[1]} command kills processes by name, and ${why}. Put every option before the pattern, use a pattern specific to one program (or kill the PID your own script started), and approve only if that is what you mean."
+done <<< "$kill_segs"
+if m "${S}kill([[:space:]]+-[a-z0-9]+)*[[:space:]]+(--[[:space:]]+)?-1([[:space:]]|$|[;&|])"; then
+  decide ask "kill -1 sends the signal to every process you own (VS Code, the browser, this shell). Name the PID instead, and approve only if you really mean all of them."
 fi
 
 # --- EE migration runner -----------------------------------------------------
@@ -1845,6 +1993,8 @@ ask_rules=(
   "${S}${G}push([[:space:]]|$)	git push — ${PUBLISH}"
   "${S}gh[[:space:]]+(pr[[:space:]]+merge|release[[:space:]]+(create|upload|delete|edit)|repo[[:space:]]+(create|delete|edit|rename|archive|fork)|issue[[:space:]]+delete|workflow[[:space:]]+run|run[[:space:]]+(rerun|cancel)|secret|variable)([[:space:]]|$)	GitHub write via gh — ${PUBLISH}"
   "${S}gh[[:space:]]+api[[:space:]].*(-x|--method)[[:space:]]*(post|put|patch|delete)	GitHub API write — ${PUBLISH}"
+  "${S}gh[[:space:]]+api[[:space:]]([^;&|]*[[:space:]])?(-f|-F|--field|--raw-field|--input)([[:space:]=]|$)	GitHub API write (fields or --input make gh api send a POST) — ${PUBLISH}"
+  "${S}gh[[:space:]]+gist[[:space:]]+(create|edit|rename|delete|clone)([[:space:]]|$)	gist write — a gist publishes text outside the project (Safety Guardrail #2: ${PUBLISH})"
   "${S}(npm|pnpm|yarn|bun)[[:space:]]+publish|${S}(twine[[:space:]]+upload|gem[[:space:]]+push|cargo[[:space:]]+publish|docker[[:space:]]+push)	package/image publish — ${PUBLISH}"
   "${S}${R}vercel(@[^[:space:]]*)?([[:space:]].*)?[[:space:]](--prod|--production|deploy|promote|rollback|redeploy|alias|domains|dns|remove|rm)([[:space:]]|$)|${S}${R}vercel(@[^[:space:]]*)?[[:space:]]*($|[;&|])|${S}${R}vercel(@[^[:space:]]*)?[[:space:]]+env[[:space:]]+(add|rm|remove)	Vercel deploy/config — ${PROD}"
   "${S}${R}netlify(-cli)?(@[^[:space:]]*)?[[:space:]]+(deploy|env:set|env:unset|env:import|sites:delete|link)	Netlify deploy/config — ${PROD}"
@@ -1870,8 +2020,13 @@ ask_rules=(
 # settings set AI_CONFIG_GH_LIGHT_WRITES=allow: the CPS dev containers do, in root-owned
 # managed settings, so a command inside can't switch it on. Merges, releases and workflow
 # runs (the deploying writes) always ask.
+GH_LIGHT_RE="${S}gh[[:space:]]+(pr[[:space:]]+(create|close|reopen|edit|comment|review|ready)|issue[[:space:]]+(create|close|comment|edit))([[:space:]]|$)"
 if [[ "${AI_CONFIG_GH_LIGHT_WRITES:-}" != allow ]]; then
-  ask_rules+=("${S}gh[[:space:]]+(pr[[:space:]]+(create|close|reopen|edit|comment|review|ready)|issue[[:space:]]+(create|close|comment|edit))([[:space:]]|$)	GitHub write via gh — ${PUBLISH}")
+  ask_rules+=("${GH_LIGHT_RE}	GitHub write via gh — ${PUBLISH}")
+else
+  # Allowed only against this repository: aimed at another one (-R/--repo, a full URL), a PR or
+  # issue is a way to post the project's contents somewhere else.
+  ask_rules+=("${GH_LIGHT_RE}([^;&|]*[[:space:]])?((-r|--repo)([[:space:]=]|$)|[^;&|[:space:]]*https?://github\.com/)	GitHub write to another repository — ${PUBLISH}")
 fi
 
 for rule in "${ask_rules[@]}"; do
