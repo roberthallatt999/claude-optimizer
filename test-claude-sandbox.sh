@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034  # variables are read inside the check strings, which check() evals
 # Tests for --sandbox=claude (devcontainer-kit/claude-sandbox-policy.py) and the machine-wide
 # managed settings (scripts/install-managed-settings.sh). No sandbox is started and nothing is
 # installed: HOME, AI_CONFIG_HOME and the managed folder are throwaway; sudo is never run.
@@ -102,7 +103,7 @@ check "managed: --remove only prints the command" '[[ "$(bash "$MANAGED" --remov
 # Run the printed command without root (AI_CONFIG_MANAGED_SUDO empty): a staged file changed
 # after the build is refused and nothing moves into place; an untouched build installs.
 rm -rf "$work/managed.d" "$work/ai-config"
-inst() { AI_CONFIG_MANAGED_SUDO= bash "$MANAGED" | sed -n 's/^  \(sh -c .*\)$/\1/p'; }
+inst() { AI_CONFIG_MANAGED_SUDO='' bash "$MANAGED" | sed -n 's/^  \(sh -c .*\)$/\1/p'; }
 cmd=$(inst); echo "# changed" >> "$work/stage/safety-guard.sh"
 ( eval "$cmd" ) >/dev/null 2>&1; rc=$?
 check "managed: a staged file changed after the build is refused" \
@@ -110,7 +111,7 @@ check "managed: a staged file changed after the build is refused" \
 cmd=$(inst); ( eval "$cmd" ) >/dev/null 2>&1; rc=$?
 check "managed: an untouched build installs settings and the guard copy" \
   '[[ $rc -eq 0 && -f "$work/managed.d/50-ai-config.json" ]] && cmp -s "$work/ai-config/safety-guard.sh" "$HERE/projects/common/hooks/safety-guard.sh"'
-AI_CONFIG_MANAGED_SUDO= bash "$MANAGED" --check >/dev/null 2>&1; rc=$?
+AI_CONFIG_MANAGED_SUDO='' bash "$MANAGED" --check >/dev/null 2>&1; rc=$?
 check "managed: --check passes after the printed command ran" '[[ $rc -eq 0 ]]'
 
 # --- scan-transcripts.sh (fake transcripts; a fake key assembled here) -------------------------

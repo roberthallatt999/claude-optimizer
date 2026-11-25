@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034  # variables are read inside the check strings, which check() evals
 # Tests for ee-migrate-install.sh (config-block preservation, cleanup, gitignore).
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -65,6 +65,17 @@ jobs:
           test-global-skills.sh
           test-design-skills.sh
           test-leak-guards.sh
+          test-ddev-relay.sh
+          test-devcontainer.sh
+          test-egress-proxy.sh
+          test-engineering-practices.sh
+          test-gitignore-safety.sh
+          test-philter.sh
+          test-project-policy.sh
+          test-token-budget.sh
+          test-claude-sandbox.sh
+          test-ddev-shim.sh
+          test-ee-migrate-install.sh
 
       - name: Run test suites
         # /bin/bash: on macOS this is the stock bash 3.2 the scripts must support;

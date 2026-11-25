@@ -24,7 +24,7 @@ expect() {
 
 DB=admin_cps expect 'default database from DDEV_DB_NAME' \
   '-h db -u db -pdb --database=admin_cps -N -e SELECT 1' mysql -N -e 'SELECT 1'
-DB= expect 'no DDEV_DB_NAME falls back to db' \
+DB='' expect 'no DDEV_DB_NAME falls back to db' \
   '-h db -u db -pdb --database=db' mysql
 # ee-migrate.sh form: the database as the first argument must reach mariadb as its only positional.
 DB=admin_cps expect 'named database stays a single positional' \
@@ -35,9 +35,9 @@ DB=admin_cps expect '--project=NAME targets that project, default db' \
 DB=admin_cps expect '--project NAME (two words)' \
   '-h ddev-members-db -u db -pdb --database=db cpsca_6' mysql --project members cpsca_6
 
-DB= shim mysql '--project=../x'
+DB='' shim mysql '--project=../x'
 [[ $rc -eq 2 && "$out" == *"needs a DDEV project name"* ]] && ok 'bad project name refused' || ko "bad project name: rc=$rc [$out]"
-DB= shim mysql --project
+DB='' shim mysql --project
 [[ $rc -eq 2 ]] && ok 'missing project name refused' || ko "missing project name: rc=$rc [$out]"
 
 # The mariadb client rejects two positionals; a real client proves the default is not one.
