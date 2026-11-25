@@ -161,7 +161,12 @@ printf 'GITHUB_TOKEN\tt-gh\tgithub\tgithub.com api.github.com\nPLAUSIBLE_API_KEY
 printf 'plausible\t~/.config/plausible\tconfig\tapi-key\n' > "$H/.devcontainer/mounts.conf"
 mkdir -p "$HOME/.config/plausible" && echo "site=x" > "$HOME/.config/plausible/config"
 printf 't-gh=fake.gh.1\nother=never.copied\n' > "$work/keychain"
-out=$(AI_DEVCONTAINER_FAKE_KEYCHAIN="$work/keychain" bash "$KIT/files/egress-credentials.sh" "$H" hproj 2>&1)
+# A hostname as long as GitHub's macOS runners': the CA's common name must still fit in 64.
+mkdir -p "$work/long-host-bin"
+printf '#!/bin/sh\necho dsm12-dh249-ac27c7cb-a29d-4e74-bd30-b8dc46599682-0123456789\n' > "$work/long-host-bin/hostname"
+chmod 755 "$work/long-host-bin/hostname"
+out=$(PATH="$work/long-host-bin:$PATH" AI_DEVCONTAINER_FAKE_KEYCHAIN="$work/keychain" \
+  bash "$KIT/files/egress-credentials.sh" "$H" hproj 2>&1)
 E="$HOME/.cache/ai-devcontainer/egress/projects/hproj"
 egress_diag=""
 [[ -f "$E/credentials.env" ]] || egress_diag="${out:-(no output)}"

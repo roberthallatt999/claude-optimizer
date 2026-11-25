@@ -55,8 +55,11 @@ chmod 755 "$OUT/mounts"
 if [ ! -s "$DIR/ca.crt" ] || [ ! -s "$DIR/ca.key" ]; then
   # openssl's progress dots are noise; its error is shown only when it fails (set -e would
   # otherwise stop the script with no reason given).
+  # A common name may hold 64 characters at most; OpenSSL refuses a longer one, and some
+  # hostnames (GitHub's macOS runners) are long. 31 for the text, at most 32 for the host.
+  ca_host=$(hostname -s 2>/dev/null | cut -c1-32)
   if ! ca_err=$(openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days "$CA_DAYS" \
-    -subj "/CN=ai-devcontainer egress proxy ($(hostname -s))" \
+    -subj "/CN=ai-devcontainer egress proxy (${ca_host:-unknown host})" \
     -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign" \
     -keyout "$DIR/ca.key.new" -out "$DIR/ca.crt.new" 2>&1 >/dev/null); then
     echo "Egress proxy: could not create the interception CA with $(command -v openssl) ($(openssl version 2>&1)):" >&2
