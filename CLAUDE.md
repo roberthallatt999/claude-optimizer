@@ -240,6 +240,28 @@ readable text such as `(brand green: not set)` rather than a fake value.
 
 ## Recent Changes
 
+- **Claude Code's own sandbox; a managed-settings floor; GitHub and Doppler rules; no writes
+  through outside links** — `--sandbox=claude` writes the `sandbox` block of
+  `.claude/settings.local.json` from the same policy as the other two sandboxes
+  (`devcontainer-kit/claude-sandbox-policy.py`): `enabled`, `failIfUnavailable`,
+  `allowUnsandboxedCommands: false`, `network.allowedDomains` (`.x.org` → `*.x.org` + `x.org`)
+  and `deniedDomains`; your own keys are kept, its record lives outside the project, a widening
+  asks first. Only Bash is sandboxed and no token is injected; the runbook compares the three.
+  `scripts/install-managed-settings.sh` builds `managed-settings.d/50-ai-config.json` (shared
+  deny rules, `disableBypassPermissionsMode`, the global guard hook; `--strict` adds
+  `allowManagedHooksOnly`/`allowManagedPermissionRulesOnly`) and prints the one `sudo install`
+  line for you to run; `--check`, `--remove`. The guard now asks before gists, `gh api` with
+  fields or `--input` (an implicit POST), and, where light writes are allowed (dev container),
+  PR/issue writes aimed at another repository; denies the Doppler commands that print values
+  (`doppler secrets get/download`, `configure get`, `configs tokens create`, `run -- env`) while
+  `secrets names` passes; treats `~/.doppler/` as secret; and scans for `dp.st.`/`dp.sa.`/
+  `dp.pt.`/`dp.ct.`/`dp.scim.`/`dp.audit.` tokens (also in `okf-check.sh`). Every run (and
+  `--doctor`) refuses when a path ai-config writes is a link leading out of the project.
+  `scripts/scan-transcripts.sh` checks `~/.claude/projects/*.jsonl` with the guard's credential
+  patterns and lists files and counts, never values. Runbooks: `docs/runbooks/claude-sandbox.md`,
+  `docs/runbooks/safety-checkup.md` (monthly: fleet `--doctor`, global/managed `--check`,
+  transcripts, Philter, `ignore-scripts`, token scope). Tests: `test-claude-sandbox.sh` (31),
+  `test-safety-guard.sh` (308).
 - **Safety guard: mentions aren't reads; pkill/killall asks** — the guard split every command
   into words and denied when any word looked like a secret file while a reading tool appeared
   anywhere, so it blocked `json.dump(…)`, a sed substitution naming `credentials.conf`,

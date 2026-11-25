@@ -329,7 +329,9 @@ mkdir -p "$s/.okf/concepts"
 ln -s "$outside/planted.md" "$s/.okf/concepts/architecture.md"
 run "$s" --okf-memory --force
 assert_false "dangling symlinked concept: its target is never created" test -e "$outside/planted.md"
-assert_true "dangling symlinked concept: other sections still migrate" test -f "$s/.okf/concepts/design-system.md"
+# A link out of the project stops the whole run (every path ai-config writes is checked first),
+# rather than skipping one file and carrying on: a planted link is a sign of tampering.
+assert_false "dangling symlinked concept: the run stops before writing anything" test -f "$s/.okf/concepts/design-system.md"
 
 secret_dir=$(tmp_dir)
 printf '## Architecture\n\nOUTSIDE-SECRET\n' > "$secret_dir/notes.md"

@@ -350,8 +350,8 @@ apply_project_policy() {
       sandbox)
         if ! cli_flag_seen --sandbox && ! cli_flag_seen --devcontainer && ! cli_flag_seen --no-devcontainer; then
           case "$val" in
-            devcontainer|enclave|none) SANDBOX="$val" ;;
-            *) echo -e "  ${YELLOW}⚠${NC}  $POLICY_FILE_NAME: sandbox = '$val' (devcontainer, enclave or none) — ignored" ;;
+            devcontainer|enclave|claude|none) SANDBOX="$val" ;;
+            *) echo -e "  ${YELLOW}⚠${NC}  $POLICY_FILE_NAME: sandbox = '$val' (devcontainer, enclave, claude or none) — ignored" ;;
           esac
         fi ;;
       design-skills)
@@ -570,8 +570,8 @@ while [[ $# -gt 0 ]]; do
     --sandbox=*)
       SANDBOX="${1#*=}"
       case "$SANDBOX" in
-        devcontainer|enclave|none) ;;
-        *) echo -e "${RED}--sandbox: devcontainer, enclave or none (got '$SANDBOX')${NC}"; exit 1 ;;
+        devcontainer|enclave|claude|none) ;;
+        *) echo -e "${RED}--sandbox: devcontainer, enclave, claude or none (got '$SANDBOX')${NC}"; exit 1 ;;
       esac
       shift
       ;;
@@ -658,7 +658,8 @@ while [[ $# -gt 0 ]]; do
       echo "Sandbox (optional; nothing changes without one of these):"
       echo "  --devcontainer          Also write a sandboxed VS Code dev container (.devcontainer/): egress"
       echo "                          firewall + proxy, tokens kept on the Mac, guardrails read-only. Sticky"
-      echo "  --sandbox=<kind>        devcontainer, enclave (Eclipse Enclave project policy) or none (stop"
+      echo "  --sandbox=<kind>        devcontainer, enclave (Eclipse Enclave project policy), claude (Claude"
+      echo "                          Code's own Bash sandbox, no Docker) or none (stop"
       echo "                          updating it; nothing is deleted). What it may reach: the profile's"
       echo "                          devcontainer_* keys and [sandbox] in ai-config.conf (docs/guides/sandbox.md)"
       echo "  --design-skills         Front-end design skills (Impeccable, web-design-guidelines, GSAP when"
@@ -3186,6 +3187,59 @@ check_prerequisites() {
   exit 1
 }
 
+# outside_links — links among the paths ai-config writes that lead outside the project. A
+# sandbox (dev container, Enclave, Claude Code's own) can write the project folder, so it could
+# swap .claude/ai-config/manifest.tsv or CLAUDE.md for a link to a file on this Mac, and the
+# next run here would write through it. Links that stay inside the project (CLAUDE.md ->
+# AGENTS.md) are fine. Prints one path per line.
+outside_links() {
+  perl -MCwd=abs_path -MFile::Find -e '
+    my $root = abs_path($ARGV[0]) or exit 0;
+    my @check;
+    # Not .philter: ai-config never writes through a linked one (it warns and leaves it alone).
+    for my $top (qw(CLAUDE.md AGENTS.md MEMORY.md .gitignore .claudeignore ai-config.conf .mcp.json .claude .okf .vscode .devcontainer)) {
+      push @check, "$ARGV[0]/$top" if -l "$ARGV[0]/$top" || -e _;
+    }
+    for my $dir ("$ARGV[0]/.claude", "$ARGV[0]/.okf", "$ARGV[0]/.vscode", "$ARGV[0]/.devcontainer") {
+      next unless -d $dir && !-l $dir;
+      find({ no_chdir => 1, wanted => sub { push @check, $File::Find::name if -l $File::Find::name } }, $dir);
+    }
+    # Where a link points, even when the target is missing (a write would create it there).
+    sub target_of {
+      my ($p) = @_;
+      my $t = abs_path($p);
+      return $t if defined $t;
+      my $dest = readlink($p);
+      return undef unless defined $dest;
+      (my $dir = $p) =~ s{/[^/]*$}{};
+      my $base = $dest =~ m{^/} ? "" : (abs_path($dir) // return undef);
+      my @parts;
+      for my $seg (split m{/}, "$base/$dest") {
+        next if $seg eq "" || $seg eq ".";
+        if ($seg eq "..") { pop @parts; next; }
+        push @parts, $seg;
+      }
+      return "/" . join("/", @parts);
+    }
+    for my $p (@check) {
+      next unless -l $p;
+      my $t = target_of($p);
+      print "$p\n" unless defined $t && ($t eq $root || index($t, "$root/") == 0);
+    }' "$PROJECT_DIR" 2>/dev/null
+}
+
+check_project_links() {
+  local links
+  links=$(outside_links)
+  [[ -z "$links" ]] && return 0
+  echo -e "${RED}✗ These project paths are links that lead outside the project:${NC}"
+  while IFS= read -r _l; do printf '    %s\n' "$_l"; done <<< "$links"
+  echo "  ai-config writes to them, so it would write wherever they point. A sandbox can create"
+  echo "  such a link, so nothing was changed. Check each one, replace it with a real file (or"
+  echo "  a link inside the project), and run again."
+  exit 1
+}
+
 HC_FAILURES=0
 HC_WARNINGS=0
 HC_VERBOSE=false   # --doctor lists passing checks too; deploy/refresh show only problems
@@ -3246,6 +3300,10 @@ verify_deployment() {
   missing=$(missing_required_tools)
   if [[ -z "$missing" ]]; then
     hc_ok "Required tools present ($REQUIRED_TOOLS, shasum)"
+    _out_links=$(outside_links)
+    if [[ -n "$_out_links" ]]; then
+      hc_fail "Paths ai-config writes are links out of the project: $(echo $_out_links | tr '\n' ' ')— replace them before the next run"
+    fi
   else
     hc_fail "Missing required tools: $missing"
   fi
@@ -3552,8 +3610,16 @@ verify_deployment() {
     hc_ok "Sandbox: dev container ($(sed -n 's/^# Generated by ai-devcontainer \([0-9.]*\).*/\1/p' "$PROJECT_DIR/.devcontainer/docker-compose.yml" 2>/dev/null | head -1))"
   elif [[ -f "$PROJECT_DIR/.devcontainer/devcontainer.json" ]]; then
     hc_info "A .devcontainer/ ai-config didn't write (refresh with --devcontainer --force to replace it, backed up)"
+  elif [[ -f "$PROJECT_DIR/.claude/ai-config/claude-sandbox.json" ]]; then
+    if jq -e '.sandbox.enabled == true' "$PROJECT_DIR/.claude/settings.local.json" >/dev/null 2>&1; then
+      hc_ok "Sandbox: Claude Code sandbox (enabled in .claude/settings.local.json)"
+    else
+      hc_warn "Sandbox: Claude Code sandbox chosen, but .claude/settings.local.json doesn't enable it — run --refresh"
+    fi
+  elif [[ -f "$PROJECT_DIR/.claude/ai-config/enclave.json" ]]; then
+    hc_ok "Sandbox: Enclave project policy (outside the repo)"
   else
-    hc_info "No sandbox (optional: --devcontainer or --sandbox=enclave)"
+    hc_info "No sandbox (optional: --devcontainer, --sandbox=enclave or --sandbox=claude)"
   fi
   count=$(find "$PENDING_DIR" -type f 2>/dev/null | wc -l | tr -d ' ')
   if [[ "$count" != "0" ]]; then
@@ -4679,6 +4745,15 @@ run_sandbox_step() {
     echo -e "  ${YELLOW}⚠${NC}  Sandbox ($SANDBOX) skipped: python3 isn't installed"
     return 0
   fi
+  if [[ "$SANDBOX" == claude ]]; then
+    echo -e "${CYAN}Sandbox: Claude Code sandbox (Bash in Seatbelt/bubblewrap, network allowlist)...${NC}"
+    local cargs=(--project "$PROJECT_DIR")
+    [[ "$DRY_RUN" == true ]] || cargs+=(--write)
+    # New hosts are confirmed on a terminal (sandboxed commands can write the project); --force says yes.
+    [[ "$FORCE" == true ]] && cargs+=(--yes)
+    python3 "$SANDBOX_KIT/claude-sandbox-policy.py" "${cargs[@]}" 2>&1 | sed 's/^/  /'
+    return 0
+  fi
   if [[ "$SANDBOX" == enclave ]]; then
     echo -e "${CYAN}Sandbox: Eclipse Enclave project policy...${NC}"
     local eargs=(--project "$PROJECT_DIR")
@@ -5179,6 +5254,8 @@ install_dependencies
 # Stop before changing anything if a required tool is missing
 if [[ "$DOCTOR" != true ]]; then
   check_prerequisites
+  # …or if a path it writes has been swapped for a link out of the project.
+  check_project_links
 fi
 
 # --uninstall: remove ai-config from the project (everything removed is backed up), then exit
@@ -5281,6 +5358,8 @@ if [[ -z "$SANDBOX" && -f "$PROJECT_DIR/.devcontainer/.ai-devcontainer.manifest"
   SANDBOX=devcontainer
 elif [[ -z "$SANDBOX" && -f "$PROJECT_DIR/.claude/ai-config/enclave.json" ]]; then
   SANDBOX=enclave
+elif [[ -z "$SANDBOX" && -f "$PROJECT_DIR/.claude/ai-config/claude-sandbox.json" ]]; then
+  SANDBOX=claude
 fi
 CODE_INDEX=false
 if code_index_ready && command -v claude &>/dev/null; then

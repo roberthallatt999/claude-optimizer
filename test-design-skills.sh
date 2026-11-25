@@ -22,6 +22,11 @@ TMPS=()
 tmp_dir() { local d; d="$(mktemp -d)"; TMPS+=("$d"); echo "$d"; }
 cleanup_all() { local d; for d in "${TMPS[@]:-}"; do [[ -n "$d" && -d "$d" ]] && rm -rf "$d"; done; }
 trap cleanup_all EXIT
+# Keep the developer's global git config out of the fixture repos: commit signing through a
+# password manager's SSH agent (1Password) failed these commits whenever the agent was locked.
+GITCFG=$(tmp_dir)/gitconfig
+printf '[user]\n\tname = ai-config test\n\temail = test@example.invalid\n[commit]\n\tgpgsign = false\n[tag]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n' > "$GITCFG"
+export GIT_CONFIG_GLOBAL="$GITCFG" GIT_CONFIG_NOSYSTEM=1
 
 assert_true() {
   local name="$1"; shift

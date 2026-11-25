@@ -238,6 +238,17 @@ sandbox:
 - Skip Doppler's MCP server: it returns secret values to the model.
 - Keep the Keychain as the egress proxy's token source; Doppler is an option alongside it.
 
+The safety guard knows Doppler everywhere, sandbox or not:
+
+| Command | Guard |
+| --- | --- |
+| `doppler secrets`, `secrets get`, `secrets download`, `--plain`/`--raw`/`--json` | Denied (prints values) |
+| `doppler configure get`, `doppler configs tokens create` | Denied (prints a token) |
+| `doppler run -- env`, `doppler run --command 'printenv'` | Denied (prints every injected secret) |
+| `doppler secrets names`, `doppler run -- npm test`, `doppler projects`, `--help` | Allowed |
+| `~/.doppler/` (the CLI's offline copy of fetched secrets) | A secret path |
+| `dp.st.…`, `dp.sa.…`, `dp.pt.…`, `dp.ct.…`, `dp.scim.…`, `dp.audit.…` token shapes | Caught by the content and commit scans |
+
 ## Mac-side state
 
 | Path | What |

@@ -239,6 +239,35 @@ bash_expect deny "cat .env(N)"
 bash_expect deny "python3 -c \"print(open('.env').read())\"; cat json.dump(N)"
 bash_expect deny "cat server.der"
 
+echo -e "${CYAN}=== GitHub: gists, implicit API posts, other repositories ===${NC}"
+bash_expect ask  'gh gist create notes.md'
+bash_expect ask  'gh gist edit abc123 -f x.md'
+bash_expect ask  'gh api repos/o/r/issues -f title=x'
+bash_expect ask  'gh api graphql --input q.json'
+bash_expect none 'gh api repos/o/r/pulls'
+bash_expect ask  'gh pr create --fill'
+# Inside the dev container PR and issue writes don't ask, but only for this repository.
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect none 'gh pr create --fill'
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'gh pr create --fill -R someone/else'
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'gh issue create --repo other/repo --title x'
+AI_CONFIG_GH_LIGHT_WRITES=allow bash_expect ask  'gh issue comment https://github.com/other/repo/issues/1 -b hi'
+
+echo -e "${CYAN}=== Doppler ===${NC}"
+bash_expect deny 'doppler secrets'
+bash_expect deny 'doppler secrets get DB_PASSWORD --plain'
+bash_expect deny 'doppler secrets download --no-file'
+bash_expect deny 'doppler configure get token'
+bash_expect deny 'doppler configs tokens create agent --plain'
+bash_expect deny 'doppler run -- env'
+bash_expect deny "doppler run --command 'printenv'"
+bash_expect none 'doppler secrets names'
+bash_expect none 'doppler run -- npm test'
+bash_expect none 'doppler projects'
+bash_expect deny 'cat ~/.doppler/fallback/x.json'
+# A service-token shape, assembled here so this file holds none.
+_dp="dp.st.dev.$(printf 'a%.0s' $(seq 1 40))"
+bash_expect ask  "curl -H 'Authorization: Bearer ${_dp}' https://api.doppler.com/v3/me"
+
 echo -e "${CYAN}=== Killing processes by name: ask ===${NC}"
 # The line that killed VS Code and Chrome on macOS (2026-11-23): -u and the UID became patterns.
 bash_expect ask  'pkill -f "ddev-relay.pl --serve" -u "$(id -u)" 2>/dev/null || true'

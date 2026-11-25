@@ -231,6 +231,7 @@ is_secret_path() {
   esac
   case "$p" in
     .ssh/*|*/.ssh/*|.aws/*|*/.aws/credentials|*/.aws/config|.azure/*|*/.azure/*) return 0 ;;
+    .doppler/*|*/.doppler/*|.doppler|*/.doppler) return 0 ;;   # the CLI's offline copy of fetched secrets
     user/config/config.php|*/user/config/config.php|*.ddev/db_snapshots/*|*.ddev/import-db/*) return 0 ;;
   esac
   matches_protected "$p"
@@ -255,7 +256,7 @@ DESTRUCTIVE="This is irreversible; confirm it is intended."
 
 # High-confidence credential shapes — keep in sync with projects/common/okf/okf-check.sh.
 # Vendor token shapes. Case-sensitive: the casing IS part of the signal.
-SECRET_CONTENT_RE='-----BEGIN [A-Z ]*PRIVATE KEY-----|(AKIA|ASIA)[0-9A-Z]{16}|sk-(ant|proj)-[A-Za-z0-9_-]{20,}|sk_live_[0-9A-Za-z]{16,}|rk_live_[0-9A-Za-z]{16,}|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{40,}|glpat-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}|SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}|npm_[A-Za-z0-9]{36}|dop_v1_[a-f0-9]{64}|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}'
+SECRET_CONTENT_RE='-----BEGIN [A-Z ]*PRIVATE KEY-----|(AKIA|ASIA)[0-9A-Z]{16}|sk-(ant|proj)-[A-Za-z0-9_-]{20,}|sk_live_[0-9A-Za-z]{16,}|rk_live_[0-9A-Za-z]{16,}|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{40,}|glpat-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}|SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}|npm_[A-Za-z0-9]{36}|dop_v1_[a-f0-9]{64}|dp\.(st|sa|pt|ct|scim|audit)(\.[a-z0-9_-]{2,35})?\.[A-Za-z0-9]{40,44}|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}'
 
 # Database and service credentials, matched case-insensitively: a connection URI with an
 # inline password, a secret-ish key assigned a concrete value, or the same key quoted in a
@@ -285,7 +286,7 @@ SCAN_BIG_TAIL="Read a bounded, checked excerpt instead (for a log: the specific 
 # or it becomes dead code — test-secret-scanning.sh has a case per class to catch that.
 # One compiled regex, not a loop of index() calls: on BSD awk the loop costs 929ms on a
 # 4MB log where this costs 126ms, which is awk's floor for reading the file at all.
-SECRET_ANCHORS_RE='akia|asia|sk-ant-|sk-proj-|sk_live_|rk_live_|gh[pousr]_|github_pat_|glpat-|xox|aiza|sg\.|npm_|dop_v1_|eyj|-----begin|mysql://|mariadb://|postgres|mongodb|rediss?://|amqp|mssql://|sqlserver://|ftp://|https?://|password|passwd|_pwd|secret|token|api_?key|app_key|access_key|encryption_key|auth_?key|private_key'
+SECRET_ANCHORS_RE='akia|asia|sk-ant-|sk-proj-|sk_live_|rk_live_|gh[pousr]_|github_pat_|glpat-|xox|aiza|sg\.|npm_|dop_v1_|dp.st.|dp.sa.|dp.pt.|dp.ct.|dp.scim.|dp.audit.|eyj|-----begin|mysql://|mariadb://|postgres|mongodb|rediss?://|amqp|mssql://|sqlserver://|ftp://|https?://|password|passwd|_pwd|secret|token|api_?key|app_key|access_key|encryption_key|auth_?key|private_key'
 
 # secret_scan <path> — echo a finding; 0 = credential found, 1 = clean/not applicable,
 # 2 = could not be scanned. Fail closed: callers deny on both 0 and 2.
@@ -1028,7 +1029,7 @@ fi
 # gh auth token, a Keychain lookup with -w, op read … put the secret itself on stdout.
 # Inside $( ) the value usually flows into another command (GH_TOKEN=$(gh auth token) gh api),
 # which is fine, unless that command echoes it.
-PRINTS_SECRET_RE="${S}(gh[[:space:]]+auth[[:space:]]+token|security[[:space:]]+find-(generic|internet)-password([[:space:]][^;&|]*)?[[:space:]]-[a-z]*[wg]([[:space:]]|$)|op[[:space:]]+read[[:space:]]|op[[:space:]]+document[[:space:]]+get[[:space:]]|op[[:space:]]+signin[^;&|]*--raw|op[[:space:]]+item[[:space:]]+get[^;&|]*--reveal|aws[[:space:]]+configure[[:space:]]+(get|export-credentials)|gcloud[[:space:]]+auth[[:space:]]+(application-default[[:space:]]+)?print-(access|identity)-token|heroku[[:space:]]+auth:token|doppler[[:space:]]+secrets|vault[[:space:]]+(kv[[:space:]]+get|read)[[:space:]]|${G}credential[[:space:]]+fill|npm[[:space:]]+token[[:space:]]+create|bw[[:space:]]+(get[[:space:]]+(password|item|notes|totp|attachment)|list[[:space:]]+items|export)|bws[[:space:]]+(secret|secrets)[[:space:]]+(get|list))"
+PRINTS_SECRET_RE="${S}(gh[[:space:]]+auth[[:space:]]+token|security[[:space:]]+find-(generic|internet)-password([[:space:]][^;&|]*)?[[:space:]]-[a-z]*[wg]([[:space:]]|$)|op[[:space:]]+read[[:space:]]|op[[:space:]]+document[[:space:]]+get[[:space:]]|op[[:space:]]+signin[^;&|]*--raw|op[[:space:]]+item[[:space:]]+get[^;&|]*--reveal|aws[[:space:]]+configure[[:space:]]+(get|export-credentials)|gcloud[[:space:]]+auth[[:space:]]+(application-default[[:space:]]+)?print-(access|identity)-token|heroku[[:space:]]+auth:token|doppler[[:space:]]+(secrets([[:space:]]+(get|download)|[[:space:]]*($|[;&|>])|[[:space:]]+--?[a-z-]*(plain|raw|json|only-names=false))|configure[[:space:]]+get|configs[[:space:]]+tokens[[:space:]]+create|run[[:space:]][^;&|]*(--command[= ][\"']?[[:space:]]*(env|printenv)|--[[:space:]]+(env|printenv)([[:space:]]|$)))|vault[[:space:]]+(kv[[:space:]]+get|read)[[:space:]]|${G}credential[[:space:]]+fill|npm[[:space:]]+token[[:space:]]+create|bw[[:space:]]+(get[[:space:]]+(password|item|notes|totp|attachment)|list[[:space:]]+items|export)|bws[[:space:]]+(secret|secrets)[[:space:]]+(get|list))"
 if m "$PRINTS_SECRET_RE"; then
   _top="$lc"
   # No exemption for op document get --out-file: /dev/stdout, a later cat, or a second call
@@ -1992,6 +1993,8 @@ ask_rules=(
   "${S}${G}push([[:space:]]|$)	git push — ${PUBLISH}"
   "${S}gh[[:space:]]+(pr[[:space:]]+merge|release[[:space:]]+(create|upload|delete|edit)|repo[[:space:]]+(create|delete|edit|rename|archive|fork)|issue[[:space:]]+delete|workflow[[:space:]]+run|run[[:space:]]+(rerun|cancel)|secret|variable)([[:space:]]|$)	GitHub write via gh — ${PUBLISH}"
   "${S}gh[[:space:]]+api[[:space:]].*(-x|--method)[[:space:]]*(post|put|patch|delete)	GitHub API write — ${PUBLISH}"
+  "${S}gh[[:space:]]+api[[:space:]]([^;&|]*[[:space:]])?(-f|-F|--field|--raw-field|--input)([[:space:]=]|$)	GitHub API write (fields or --input make gh api send a POST) — ${PUBLISH}"
+  "${S}gh[[:space:]]+gist[[:space:]]+(create|edit|rename|delete|clone)([[:space:]]|$)	gist write — a gist publishes text outside the project (Safety Guardrail #2: ${PUBLISH})"
   "${S}(npm|pnpm|yarn|bun)[[:space:]]+publish|${S}(twine[[:space:]]+upload|gem[[:space:]]+push|cargo[[:space:]]+publish|docker[[:space:]]+push)	package/image publish — ${PUBLISH}"
   "${S}${R}vercel(@[^[:space:]]*)?([[:space:]].*)?[[:space:]](--prod|--production|deploy|promote|rollback|redeploy|alias|domains|dns|remove|rm)([[:space:]]|$)|${S}${R}vercel(@[^[:space:]]*)?[[:space:]]*($|[;&|])|${S}${R}vercel(@[^[:space:]]*)?[[:space:]]+env[[:space:]]+(add|rm|remove)	Vercel deploy/config — ${PROD}"
   "${S}${R}netlify(-cli)?(@[^[:space:]]*)?[[:space:]]+(deploy|env:set|env:unset|env:import|sites:delete|link)	Netlify deploy/config — ${PROD}"
@@ -2017,8 +2020,13 @@ ask_rules=(
 # settings set AI_CONFIG_GH_LIGHT_WRITES=allow: the CPS dev containers do, in root-owned
 # managed settings, so a command inside can't switch it on. Merges, releases and workflow
 # runs (the deploying writes) always ask.
+GH_LIGHT_RE="${S}gh[[:space:]]+(pr[[:space:]]+(create|close|reopen|edit|comment|review|ready)|issue[[:space:]]+(create|close|comment|edit))([[:space:]]|$)"
 if [[ "${AI_CONFIG_GH_LIGHT_WRITES:-}" != allow ]]; then
-  ask_rules+=("${S}gh[[:space:]]+(pr[[:space:]]+(create|close|reopen|edit|comment|review|ready)|issue[[:space:]]+(create|close|comment|edit))([[:space:]]|$)	GitHub write via gh — ${PUBLISH}")
+  ask_rules+=("${GH_LIGHT_RE}	GitHub write via gh — ${PUBLISH}")
+else
+  # Allowed only against this repository: aimed at another one (-R/--repo, a full URL), a PR or
+  # issue is a way to post the project's contents somewhere else.
+  ask_rules+=("${GH_LIGHT_RE}([^;&|]*[[:space:]])?((-r|--repo)([[:space:]=]|$)|[^;&|[:space:]]*https?://github\.com/)	GitHub write to another repository — ${PUBLISH}")
 fi
 
 for rule in "${ask_rules[@]}"; do
