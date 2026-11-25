@@ -182,8 +182,10 @@ whether or not a session remembers:
 | tests | `php artisan test`, `vendor/bin/phpunit`, `vendor/bin/pest`, `npm test` |
 | PHPStan / Larastan config | `vendor/bin/phpstan analyse` |
 
-`ai-config --doctor` reports which of these a project's workflows don't run. When you add a
-dependency, change CI, or finish a security fix, check the list and say what's missing. Don't
+`ai-config --doctor` reports which of these a project's workflows don't run. A project with no
+CI (it only runs under DDEV) sets `ci-checks = false` in `ai-config.conf` to skip that check.
+When you add a dependency, change CI, or finish a security fix, check the list and say what's
+missing. Don't
 add or change a deploy workflow without asking: a push to a deploy branch deploys.
 
 ## Review with fresh eyes on a schedule

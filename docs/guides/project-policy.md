@@ -85,6 +85,7 @@ one run.
 | `superpowers` | `true`/`false` | `--no-superpowers` |
 | `eager-libraries` | `true`/`false` | `--eager-libraries` |
 | `engineering-practices` | `false` | `--no-engineering-practices` |
+| `ci-checks` | `false` | none: for a project with no CI (DDEV only), `--doctor` stops warning about CI steps |
 | `response-style` | `false` | `--no-response-style` |
 | `claudeignore` | `false` | `--no-claudeignore` |
 | `skip-vscode` | `true`/`false` | `--skip-vscode` |

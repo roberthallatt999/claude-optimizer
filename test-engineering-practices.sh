@@ -198,6 +198,20 @@ touch "$p/tests/Feature/Auth/LoginTest.php"
 out=$(doctor "$p")
 assert_true "a test file anywhere under tests/ is" contains "$out" "php-tests"
 
+# A project that only ever runs under DDEV has no CI to add steps to; it opts out of this
+# check alone and keeps the rest of Engineering Practices.
+p=$(make_nuxt_project)
+deploy "$p"
+echo '{}' > "$p/composer.lock"
+mkdir -p "$p/tests/Feature"
+touch "$p/tests/Feature/LoginTest.php"
+printf '[options]\nci-checks = false\n' > "$p/ai-config.conf"
+out=$(doctor "$p")
+assert_false "ci-checks = false silences the CI warning" contains "$out" "CI doesn't run"
+assert_true "ci-checks = false is reported as info" contains "$out" "CI checks off"
+assert_eq "ci-checks = false keeps the Engineering Practices block" "1" "$(block_count "$p" "ENGINEERING PRACTICES")"
+assert_false "ci-checks is a known option" contains "$out" "unknown key 'ci-checks'"
+
 p=$(make_nuxt_project)
 deploy "$p"
 strip_block "$p"
