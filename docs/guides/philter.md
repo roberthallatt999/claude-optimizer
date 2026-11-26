@@ -1,188 +1,151 @@
-# Philter (redacting personal data)
+# Hide personal data (Philter)
 
-[philter-guard](https://github.com/roberthallatt999/philter-guard) runs a local
-[Philter](https://github.com/philterd/philter) server that redacts personal and customer data
-before it reaches Claude. Names, emails, phone numbers, addresses and similar details in logs,
-command output, query results and data files arrive as placeholders such as
-`{{{REDACTED-email-address}}}`. Source code reads are not scrubbed, so Claude can still edit code.
+[philter-guard](https://github.com/roberthallatt999/philter-guard) runs [Philter](https://github.com/philterd/philter)
+on your computer. It replaces names, emails, phone numbers, addresses and similar details before Claude sees
+them, in logs, command output, database results and data files. Claude sees a placeholder such as
+`{{{REDACTED-email-address}}}` instead. Source code isn't changed, so Claude can still edit it.
 
-It is optional. ai-config works the same without it.
+It's optional. ai-config works the same without it.
 
-## How the pieces fit
+## Who does what
 
-| Layer | Where it lives | Set up by | Applies to |
-|---|---|---|---|
-| Philter server + `philter` MCP server | Docker on your computer | philter-guard's `setup.sh`, once per computer | Every Claude Code session |
-| `philter-scrub` plugin (`/scrub`) | Your user-level Claude Code plugins | `/plugin install`, once per computer | Every Claude Code session |
-| Policy set for one codebase | `.philter` at the project root (committed) | ai-config, from `philter = <set>` in `ai-config.conf` | Sessions started in that project |
-| The set's rules | `sets/<name>.json` in the philter-guard repo | You, then `./sync-policy.sh` | Every computer that pulls and syncs |
+| Part | Set up by | How often |
+|---|---|---|
+| The Philter server (runs in Docker) | philter-guard's `setup.sh` | Once per computer |
+| The `/scrub` plugin for Claude Code | You, inside Claude Code | Once per computer |
+| Which rule set a project uses | ai-config, from a line in `ai-config.conf` | Once per project |
 
-**ai-config does not install Philter, and `--refresh` does not add it.** ai-config's only job is
-the third row: writing `.philter` when the project asks for a set. It never calls Philter and never
-reads its keys.
+ai-config doesn't install Philter. Its only job is to write the rule set's name into a `.philter` file in the
+project.
 
-## 1. Set up the computer (once)
+## 1. Set up your computer (once)
 
-You need Docker (Docker Desktop or OrbStack), `jq` and Claude Code.
+You need Docker (Docker Desktop or OrbStack), `jq` and Claude Code. Run these one at a time:
 
 ```bash
 git clone https://github.com/roberthallatt999/philter-guard.git ~/docker/philter-mcp
+```
+
+```bash
 cd ~/docker/philter-mcp
+```
+
+```bash
 ./setup.sh
 ```
 
-`setup.sh` creates `.env` with keys for this computer, starts the containers, uploads the
-policies and registers the `philter` MCP server with Claude Code. **Back up `.env`** (a password
-manager is fine): Philter can't read its stored data without the encryption key.
+`setup.sh` creates the keys, starts Philter, loads the rules and connects it to Claude Code.
 
-### What runs in Docker
+**Back up the `.env` file it creates** (a password manager is fine). Philter can't read its stored data without
+it.
 
-`docker-compose.yaml` in philter-guard starts two containers (compose project `philter-mcp`):
+Then install the plugin. Inside Claude Code, type:
 
-| Container | Image | Job |
-|---|---|---|
-| `philter` | `philterd/philter:4.0.1` | The redaction engine. Stores policies in SQLite on the `philter-data` volume |
-| `philter-mcp` | `philterd/philter-mcp:latest` | The MCP server Claude Code talks to. Calls `philter` over the private Docker network |
-
-Both use `restart: always`, so they come back after a reboot once Docker is running. Only amd64
-images are published; on Apple Silicon they run under emulation, and `philter` can take a minute
-to start.
-
-To start them without `setup.sh` (for example after writing `.env` by hand):
-
-```bash
-cd ~/docker/philter-mcp
-docker compose up -d
-./sync-policy.sh                     # upload the policies
-claude mcp add --transport http --scope user philter http://127.0.0.1:27840/mcp
-```
-
-Check they're up:
-
-```bash
-docker ps --format '{{.Names}}\t{{.Status}}\t{{.Ports}}' | grep philter
-curl -s  http://127.0.0.1:27840/health        # MCP server
-curl -sk https://127.0.0.1:27843/api/health   # Philter
-```
-
-Update the images with `docker compose pull && docker compose up -d`. The data volume and `.env`
-are kept. Stop them with `docker compose down` (add `-v` only if you mean to delete the stored
-data).
-
-### Install the plugin
-
-In a Claude Code session:
-
-```
+```text
 /plugin install philter-scrub --marketplace roberthallatt999/philter-guard
 ```
 
-Pick the **user** scope. Run `/scrub` to check it's on.
+Choose the **user** scope. Then type `/scrub` to confirm it's on.
 
-### Ports
+## 2. Choose a rule set for a project
 
-The containers listen on `127.0.0.1` only, on uncommon ports so they don't collide with dev
-servers or SSH port forwards:
-
-| Service | URL |
-|---|---|
-| MCP server | `http://127.0.0.1:27840/mcp` (health: `/health`) |
-| Philter API | `https://127.0.0.1:27843` (self-signed certificate) |
-
-To use other ports, set `PHILTER_MCP_HOST_PORT` and/or `PHILTER_API_HOST_PORT` in philter-guard's
-`.env` and rerun `./setup.sh`. It recreates the containers and re-registers the MCP server at the
-new URL.
-
-A computer set up before these ports (on `8000`/`8080` or `18000`/`18443`) moves over when you
-pull philter-guard and rerun `./setup.sh`.
-
-Use `127.0.0.1` in the MCP URL, not `localhost`. `localhost` can resolve to the IPv6 address
-`::1`, and if anything else listens there (an SSH `LocalForward` does by default) Claude Code
-reaches that instead of Philter.
-
-## 2. Configure a codebase
-
-Choose the policy set in the project's committed `ai-config.conf`:
+Add this to the project's `ai-config.conf`:
 
 ```ini
 [options]
 philter = comprehensive
 ```
 
-Then run setup or refresh:
+`comprehensive` is the standard set. Use a different name only if you've made a set for this project (step 3).
+Then refresh:
 
 ```bash
-ai-config --refresh --project=/path/to/project
+ai-config --refresh --project=.
 ```
 
-ai-config writes `.philter` at the project root (a comment line, then the set name). **Commit
-`.philter`** so everyone who clones the project gets the same policy.
+ai-config writes a `.philter` file in the project. **Commit it**, so everyone who clones the project gets the
+same rules.
 
-| Set name | Meaning |
-|---|---|
-| `comprehensive` | The base policy: built-in filters, Canadian and US identifiers, credential rules |
-| `<name>` | `sets/<name>.json` in philter-guard: the base plus the rule pieces that set includes |
+Start a new Claude Code session afterwards. The plugin reads `.philter` only when a session starts.
 
-Set names are lowercase letters, digits and hyphens, starting with a letter or digit. Anything
-else gets a warning and no file. Projects with no `.philter` use `comprehensive`.
+## 3. Rules for one project's own data (optional)
 
-What refresh does with `.philter`:
+Make your own set when a project has identifiers the standard set doesn't know, such as member numbers, account
+codes or client names. philter-guard's README explains each step under "Adding rules for a new project". In
+short:
 
-- No `philter` option: the file is never touched.
-- The option changed: the file is rewritten and the change is reported.
-- A `.philter` you wrote yourself (without ai-config's comment line), or a symlink: left alone,
-  with a warning. Delete it to let ai-config manage it.
-- `--clean` and `--uninstall` leave `.philter` in place.
+1. Copy `library/_example.json.disabled` to `library/<name>.json` and add the patterns.
+2. Add tests in `tests/cases/` and run `python3 tests/test_patterns.py`.
+3. Copy `sets/_example.json.disabled` to `sets/<client>.json` and list your pieces.
+4. Upload it with `./sync-policy.sh`, then commit. Other computers run `git pull`, then `./sync-policy.sh`.
+5. Set `philter = <client>` in the project's `ai-config.conf`, and refresh.
 
-Full option reference: [Project Policy](project-policy.md#philter--set).
+## Check it works
 
-## 3. Give a codebase its own rules (optional)
-
-Use a set when the project has its own identifiers the base doesn't know: customer numbers,
-member IDs, internal account codes, a list of client names. The steps are in philter-guard's
-README under "Adding rules for a new project". In short:
-
-1. Copy `library/_example.json.disabled` to `library/<piece>.json` and add regex `identifiers`
-   and word-list `dictionaries` for the client's data.
-2. Add tests in `tests/cases/<piece>.py` and run `python3 tests/test_patterns.py`.
-3. Copy `sets/_example.json.disabled` to `sets/<client>.json` and list the pieces in `include`.
-4. Run `./sync-policy.sh --dry-run`, then `./sync-policy.sh` to upload. Commit the change; other
-   computers run `git pull && ./sync-policy.sh`.
-5. Set `philter = <client>` in the project's `ai-config.conf` and refresh.
-
-The set must exist on the server. If `.philter` names one that hasn't been synced, the plugin falls
-back to the base policy and the status line says `⚠ policy "<name>" not found, using base`.
-
-## 4. Check it works
-
-| Check | Expect |
+| Check | You should see |
 |---|---|
 | `ai-config --doctor --project=.` | `Philter guard installed; policy set '<name>' from .philter` |
-| `/scrub` in a session started in the project | `Philter scrubbing is ON … Policy: <name> (set-<name>)` |
-| Status line | `🛡 Philter: N redacted · set <name>` |
+| `/scrub` in Claude Code | `Philter scrubbing is ON` and the set's name |
+| The status line | `🛡 Philter: N redacted` |
 
-The plugin reads `.philter` once, when the session starts, from the starting folder upward to the
-repository root. **Start a new session after changing `.philter`**, and start sessions from inside
-the project. Changing directory mid-session doesn't change the policy.
+## Everyday commands
 
-## Troubleshooting
+Run these from the philter-guard folder:
 
-| Symptom | Cause and fix |
+```bash
+cd ~/docker/philter-mcp
+```
+
+Is it running?
+
+```bash
+docker ps | grep philter
+```
+
+Start it:
+
+```bash
+docker compose up -d
+```
+
+Update it:
+
+```bash
+docker compose pull
+```
+
+```bash
+docker compose up -d
+```
+
+Stop it:
+
+```bash
+docker compose down
+```
+
+Philter starts again on its own after a restart, once Docker is running. On Apple Silicon Macs it can take a
+minute.
+
+## Problems
+
+| What you see | What to do |
 |---|---|
-| `philter` failed to connect: endpoint not found | The MCP URL points at something else on that port. Use `127.0.0.1` and the port from the table above: `claude mcp remove -s user philter && claude mcp add --transport http -s user philter http://127.0.0.1:27840/mcp` |
-| `ECONNREFUSED` | The containers aren't running, or the MCP URL has an old port. `cd ~/docker/philter-mcp && docker compose up -d`, then check `curl -s http://127.0.0.1:27840/health` |
-| Messages not sent, tool output withheld | Philter is down; the plugin fails closed. Start the containers, then `/mcp` to reconnect |
-| `⚠ policy "<name>" not found, using base` | The set isn't on the server. Run `./sync-policy.sh` in philter-guard |
-| `⚠ .philter unreadable or invalid, using base` | The first line isn't a valid set name. Fix `philter =` in `ai-config.conf` and refresh |
-| `--doctor`: `Philter guard not installed (optional)` | The `philter` MCP server isn't registered on this computer. Run philter-guard's `setup.sh` |
-| A new set doesn't apply | `.philter` is read at session start. Start a new session |
+| Messages aren't sent, or tool output is withheld | Philter is stopped. The plugin blocks rather than send data unfiltered. Start it with `docker compose up -d`, then type `/mcp` in Claude Code to reconnect |
+| `ECONNREFUSED` | Philter isn't running. Start it as above |
+| `policy "<name>" not found, using base` | The set isn't uploaded. Run `./sync-policy.sh` in the philter-guard folder |
+| `.philter unreadable or invalid` | Fix the `philter =` line in `ai-config.conf`, then refresh |
+| A new set doesn't apply | Start a new Claude Code session |
+| `philter failed to connect` | It's connected to the wrong address. Run `./setup.sh` again |
 
-## Limits
+Philter listens on `127.0.0.1` only, on ports 27840 and 27843. To change them, edit philter-guard's `.env` and run
+`./setup.sh` again.
 
-- Some inputs never go through Philter: `CLAUDE.md`, memory files (`MEMORY.md`, `.okf/`),
-  slash-command arguments, and images you choose to send. Keep personal data out of them; the
-  [memory protocol](memory-system.md) already says so.
-- Philter is a backstop for ai-config's safety guard, not a replacement. Secret files are still
-  denied by the guard before Philter would see them.
-- Pattern matching over-redacts some ordinary numbers and misses unusual formats. If something
-  slips through, add a rule to the project's set.
+## What it doesn't cover
+
+- `CLAUDE.md`, `MEMORY.md`, the `.okf/` folder, slash-command text and images you send never go through Philter.
+  Keep personal data out of them.
+- It backs up the safety guard; it doesn't replace it. Secret files are still blocked before Philter would see
+  them.
+- Pattern matching sometimes hides ordinary numbers and sometimes misses unusual formats. If something gets
+  through, add a rule to the project's set.

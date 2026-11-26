@@ -1,65 +1,60 @@
 # Documentation
 
-Complete documentation for Claude Optimizer.
+New here? Read these three pages in order:
 
-## Overview
+1. [Install](getting-started/installation.md): put `ai-config` on your computer.
+2. [Set up a project](getting-started/quick-start.md): run it on your first site.
+3. [Keep projects up to date](guides/updating-projects.md): what to do after that.
 
-This repository provides automated Claude Code configuration deployment across **19 technology stacks** with:
+## How to read these pages
 
-- Automatic stack detection (frameworks, front-end tooling, template engines)
-- Memory bank for persistent context, or an OKF `.okf/` bundle with `--okf-memory`
-- A shared safety policy (deny/ask rules + a PreToolUse hook) merged into every project
-- Stack-aware protected paths: secrets and dumps blocked, build noise kept out of context
-- Content scanning: credentials are caught before a read, whatever the file is called
-- Additive, non-destructive `--refresh` — edits are kept, backed up, and staged for review
-- Token optimization and sensitive file protection rules
-- 16 Superpowers workflow skills
-- Optional code intelligence (codegraph, php-lsp) and a fleet runner for many projects
+- **Every command is in its own box** with a **Copy** button. Paste it into Terminal and press Return.
+- **Most commands run from inside the project folder.** `cd` into the project first. `--project=.` means "this
+  folder".
+- **Words in `<angle brackets>` are placeholders.** Replace them, brackets included, before you run the command.
+- **Boxes marked `ini` or `json` are file contents, not commands.** Put them in the file the page names.
 
-## Deployed Configuration
+## Everyday use
 
-| Component | Files |
-|-----------|-------|
-| Claude Code | `CLAUDE.md`, `MEMORY.md` (or `.okf/`), `.claude/` |
-| Permissions & safety | `.claude/settings.local.json` (stack permissions + shared safety policy), `.claude/hooks/safety-guard.sh`, `.claude/hooks/protected-paths.conf` |
-| Update state | `.claude/ai-config/` (manifest, backups, pending, version) |
-| VSCode | `.vscode/settings.json`, `launch.json`, `tasks.json` |
+| Page | What it covers |
+|---|---|
+| [Keep projects up to date](guides/updating-projects.md) | Refresh a project, review changes, update many projects at once |
+| [All ai-config options](guides/setup-script.md) | Every option, grouped by what you're trying to do |
+| [The project settings file](guides/project-policy.md) | `ai-config.conf`: settings one project keeps, even on a fresh clone |
+| [How it keeps you safe](guides/safety.md) | What Claude can't read or do, and why |
+| [How Claude remembers](guides/memory-system.md) | `MEMORY.md` and the alternative `.okf/` folder |
 
-## Getting Started
+## Extras
 
-- **[Installation](getting-started/installation.md)** - Install and set up the repository
-- **[Quick Start](getting-started/quick-start.md)** - Deploy configurations in 5 minutes
-- **[Configuration](getting-started/configuration.md)** - Understand the configuration structure
+| Page | What it covers |
+|---|---|
+| [Workflow skills](guides/superpowers.md) | Planning, debugging and testing skills that come with every project |
+| [How it detects a project](guides/conditional-deployment.md) | What it looks for, and what each finding adds |
+| [Profiles and skills](guides/profiles.md) | Who you are in each context (work, volunteer, side work) |
+| [Connect outside services](guides/mcp-integration.md) | Give Claude access to GitHub, databases and other services |
+| [Hide personal data (Philter)](guides/philter.md) | Replace names, emails and phone numbers before Claude sees them |
+| [Sandboxes](guides/sandbox.md) | Run Claude where it can only reach the sites you allow |
 
-## Guides
+## Step by step
 
-- **[Setup Script](guides/setup-script.md)** - Comprehensive ai-config usage
-- **[Memory System](guides/memory-system.md)** - Persistent context and token optimization
-- **[Superpowers](guides/superpowers.md)** - Workflow skills for systematic development
-- **[Conditional Deployment](guides/conditional-deployment.md)** - Technology detection and smart deployment
-- **[Updating Projects](guides/updating-projects.md)** - Refresh and update existing configurations
-- **[Project Policy](guides/project-policy.md)** - `ai-config.conf`: a project's committed say over its own config
-- **[MCP Integration](guides/mcp-integration.md)** - Connecting Supabase, GitHub, Cloudflare, and other MCP servers
-- **[Philter](guides/philter.md)** - Redact personal data before it reaches Claude; choose a policy set per codebase (opt-in)
-- **[Sandbox](guides/sandbox.md)** - Optional dev container, Enclave or Claude Code sandbox: what it reaches, integrations, per-project VS Code extensions and settings, container reviews
-- **[Profiles](guides/profiles.md)** - Who you are per context (work, volunteer, side work), from a private repo
+| Page | When to use it |
+|---|---|
+| [Dev container](runbooks/devcontainer.md) | Run Claude for one project inside a locked-down VS Code container |
+| [Enclave](runbooks/enclave.md) | The same idea, using Eclipse Enclave |
+| [Claude Code sandbox](runbooks/claude-sandbox.md) | The lightest option: no Docker needed |
+| [Monthly safety check](runbooks/safety-checkup.md) | Ten minutes to confirm the protections still work |
 
 ## Reference
 
-- **[Supported Stacks](reference/stacks.md)** - Complete stack details and features
-- **[File Structure](reference/file-structure.md)** - Configuration file organization
-- **[Commands](reference/commands.md)** - Available commands and skills
-- **[Scripts](reference/scripts.md)** - Every command-line tool: fleet, guard installers, skill tools, the dev container kit, tests
-- **[Environment Variables](reference/environment.md)** - Settings read from the environment
+| Page | What it lists |
+|---|---|
+| [Supported stacks](reference/stacks.md) | The 19 project types and how each is recognized |
+| [Slash commands](reference/commands.md) | Commands like `/project-analyze` that you type inside Claude Code |
+| [Other scripts](reference/scripts.md) | Every other tool in this repository |
+| [Environment variables](reference/environment.md) | Settings you can change from the shell |
+| [Repository layout](reference/file-structure.md) | Where things live in this repository |
 
-## Runbooks
+## Working on ai-config
 
-- **[Dev container sandbox](runbooks/devcontainer.md)** - Set up, rebuild and verify a project's dev container
-- **[Enclave sandbox](runbooks/enclave.md)** - Run a project in Eclipse Enclave with the same allow lists
-- **[Claude Code sandbox](runbooks/claude-sandbox.md)** - Claude Code's own OS sandbox for Bash, and how the three compare
-- **[Monthly safety check-up](runbooks/safety-checkup.md)** - Ten minutes to confirm the safeguards are still on
-
-## Development
-
-- **[Project Status](development/project-status.md)** - Current implementation status
-- **[Contributing](development/contributing.md)** - How to contribute to this repository
+[Contributing](development/contributing.md) covers tests and adding a stack. [Project status](development/project-status.md)
+says what's finished.

@@ -1,246 +1,108 @@
 # Contributing
 
-Contributions to improve Claude Optimizer are welcome!
+How to change ai-config itself and check you haven't broken anything.
 
-## Ways to Contribute
-
-### Report Issues
-
-Found a bug or have a suggestion?
-- Open an issue on GitHub
-- Include your stack, command used, and error output
-- Provide minimal reproduction steps
-
-### Improve Documentation
-
-- Fix typos or clarify instructions
-- Add examples or use cases
-- Translate documentation
-
-### Add Stack Support
-
-Want to add a new stack?
-
-1. Create `projects/{stack-name}/` directory
-2. Add templates:
-   - `CLAUDE.md.template`
-   - `.claude/rules/` - Stack-specific rules
-   - `.vscode/settings.json` - IDE configuration
-3. Update detection logic in `setup-project.sh`
-4. Test with real project
-5. Submit pull request
-
-### Improve Detection Logic
-
-Enhance technology detection:
-
-1. Edit `setup-project.sh` functions:
-   - `detect_frontend_tools()`
-   - `detect_template_group()`
-   - `detect_addons()`
-2. Test with various project structures
-3. Update documentation
-4. Submit pull request
-
-### Extend Front-End Detection
-
-`projects/common/detect-frontend.sh` holds the catalog (50+ entries) of CSS/JS frameworks, UI kits, and build tools it scans for in `package.json`, vendored assets, CDN/enqueue references, and markup (`x-data`, `hx-*`).
-
-1. Add the detection signal (package name, file, or pattern) to the catalog
-2. Add a matching test case in `test-frontend-detection.sh`
-3. If the technology warrants a rule or library reference, add it under `projects/common/rules/` or `libraries/`
-
-### Change the Safety Hook
-
-`.claude/hooks/safety-guard.sh` is deployed from `projects/common/hooks/safety-guard.sh` — the PreToolUse hook that denies secret reads and catastrophic deletes, and asks before pushes, PRs, deploys, and other destructive or outward-acting actions (including MCP tools). Any change needs a matching case in `test-safety-guard.sh`, and must keep passing `shellcheck -S warning`.
-
-### Add or Change a Managed CLAUDE.md Block
-
-Blocks such as SAFETY GUARDRAILS, MEMORY PROTOCOL, RESPONSE STYLE, FRONTEND STACK, CODE INDEX, and ORCHESTRATOR POLICY are sourced from `projects/common/*.md` files (e.g. `safety-guardrails.md`, `memory-protocol.md`, `response-style.md`) wrapped in `<!-- BEGIN <NAME> -->` / `<!-- END <NAME> -->` markers, and inserted/refreshed in place by `append_managed_block()` in `setup-project.sh`. Keep the marker name identical between the source file and every place in `setup-project.sh` that references it (block detection, `--doctor` checks, `--uninstall`).
-
-### Ship Files the Additive Way
-
-Never `cp` a file directly over a project's deployed config — that breaks `--refresh`'s guarantee that edited files are preserved. Ship new or updated stack files through `install_file` / `install_rendered` (they check `.claude/ai-config/manifest.tsv`, back up changed files, and stage edited ones in `pending/` instead of overwriting them); use `do_copy` for simpler copies that don't need that tracking. See `test-refresh-additive.sh` for the behavior these functions must preserve.
-
-## Development Setup
-
-### Clone Repository
+## Get the code
 
 ```bash
-git clone https://github.com/roberthallatt/claude-optimizer.git
+git clone https://github.com/roberthallatt999/claude-optimizer.git
+```
+
+```bash
 cd claude-optimizer
 ```
 
-### Create Test Projects
+## Run the tests
+
+Run every suite, several at once (a full run takes about as long as the slowest suite, around 6 minutes):
 
 ```bash
-mkdir -p ~/test-projects/{ee,craft,nextjs}
+./run-tests.sh
 ```
 
-### Test Changes
-
-Run the automated suites (the same command CI runs on macOS and Ubuntu via
-`.github/workflows/tests.yml`):
+Run only the suites you name. The `test-` and `.sh` parts are optional:
 
 ```bash
-./run-tests.sh                      # every test-*.sh, in parallel (one per CPU, at most 8)
-./run-tests.sh -j 1                 # one at a time
-./run-tests.sh lifecycle safety-guard   # selected suites ("test-" and ".sh" optional)
-./run-tests.sh --list
+./run-tests.sh safety-guard refresh-additive
 ```
 
-A full run takes about as long as the slowest suite (around 6 minutes). Suites start slowest
-first, from the timings each run saves in `~/.cache/ai-config/test-times.tsv`. Every suite gets
-`AI_CONFIG_SKIP_SUPERPOWERS_UPDATE=1` and a run-scoped `AI_CONFIG_CLAUDE_DIR`, so a suite must not
-depend on the real `~/.claude`, and must keep its own state in `mktemp -d` folders: suites run side
-by side. A suite's last line should be `name: N passed, M failed` (or `All N tests passed`) so the
-runner can count it.
-
-Then try a change against a scratch project:
+The same tests run on GitHub, on macOS and Ubuntu, for every push. Shell scripts must also pass:
 
 ```bash
-ai-config \
-  --dry-run \
-  --stack=expressionengine \
-  --project=~/test-projects/ee
-ai-config --doctor --project=~/test-projects/ee
+shellcheck -S warning setup-project.sh
 ```
 
-New behavior needs a test in the matching `test-*.sh` suite; shell scripts must pass
-`shellcheck -S warning`.
+**Every change needs a test** in the matching `test-*.sh` file. A bug fix needs a test that would have caught the
+bug.
 
-## Code Style
+## Try a change on a scratch project
 
-### Bash Scripts
+Make an empty folder:
 
-- Use `set -e` for error handling
-- Quote all variable expansions: `"$VAR"`
-- Use descriptive function names
-- Add comments for complex logic
-- Follow existing patterns
-
-### Markdown
-
-- Use ATX-style headers (`#`)
-- Include code examples
-- Link to related documentation
-- Use fenced code blocks with language identifiers
-
-### Templates
-
-- Use `{{VARIABLE}}` syntax for substitutions
-- Keep formatting consistent across stacks
-- Test variable substitution works
-- Don't hardcode project-specific values
-
-## Testing Checklist
-
-Before submitting pull request:
-
-- [ ] Test with `--dry-run`
-- [ ] Test actual deployment
-- [ ] Test `--refresh` on existing project
-- [ ] Verify VSCode settings work
-- [ ] Check syntax highlighting
-- [ ] Verify MCP configuration (if applicable)
-- [ ] Update relevant documentation
-- [ ] No broken links in docs
-
-## Documentation Standards
-
-### File Organization
-
-```
-docs/
-├── getting-started/  # Installation and setup
-├── guides/           # How-to guides
-├── reference/        # Technical reference
-└── development/      # Contributing and status
+```bash
+mkdir -p ~/test-projects/ee
 ```
 
-### Writing Style
+Preview a setup in it:
 
-- Be concise and direct
-- Use examples liberally
-- Link to related content
-- Include troubleshooting sections
-- Use tables for comparisons
-- Use code blocks for commands
-
-### Update Documentation
-
-When making changes:
-
-1. Update relevant guide in `docs/guides/`
-2. Update reference if needed
-3. Update `docs/README.md` if new section added
-4. Update root `README.md` if major feature added
-
-## Pull Request Process
-
-1. **Fork the repository**
-2. **Create feature branch**
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
-3. **Make changes**
-4. **Test thoroughly**
-5. **Update documentation**
-6. **Commit with clear messages**
-   ```bash
-   git commit -m "feat: add WordPress Multisite support"
-   ```
-7. **Push to your fork**
-   ```bash
-   git push origin feature/your-feature-name
-   ```
-8. **Open pull request**
-   - Describe changes
-   - Link related issues
-   - Include testing notes
-
-## Commit Message Format
-
-Follow conventional commits:
-
-```
-<type>(<scope>): <description>
-
-[optional body]
-
-[optional footer]
+```bash
+./setup-project.sh --dry-run --stack=expressionengine --project=$HOME/test-projects/ee
 ```
 
-**Types:**
-- `feat:` - New feature
-- `fix:` - Bug fix
-- `docs:` - Documentation only
-- `refactor:` - Code refactoring
-- `test:` - Testing changes
-- `chore:` - Maintenance
+Then set it up for real and check it:
 
-**Examples:**
-```
-feat(craftcms): add Craft 5 support
-fix(setup): correct Alpine.js detection in nested dirs
-docs(vscode): add troubleshooting section
-refactor(setup): extract detection to separate functions
+```bash
+./setup-project.sh --stack=expressionengine --project=$HOME/test-projects/ee
 ```
 
-## Getting Help
+```bash
+./setup-project.sh --doctor --project=$HOME/test-projects/ee
+```
 
-- **Questions:** Open GitHub discussion
-- **Bugs:** Open GitHub issue
-- **Ideas:** Open GitHub issue with "enhancement" label
+## Common changes
 
-## Code of Conduct
+| You want to | Where | Remember |
+|---|---|---|
+| Change what a stack gets | `projects/<stack>/` | No script change needed: stack files win over `projects/common/` |
+| Add a stack | A new `projects/<stack>/` folder, plus detection in `setup-project.sh` | Add cases to `test-stack-detection.sh`, and a row to the [stacks page](../reference/stacks.md) |
+| Detect a new front-end tool | The list in `projects/common/detect-frontend.sh` | Add a case to `test-frontend-detection.sh` |
+| Change the safety guard | `projects/common/hooks/safety-guard.sh` | Add a case to `test-safety-guard.sh`, including one that tries to get round your change |
+| Change a `CLAUDE.md` section | `projects/common/<section>.md` | Keep the `BEGIN`/`END` marker name the same everywhere `setup-project.sh` uses it |
+| Ship a new file to projects | Use `install_file` or `install_rendered` in `setup-project.sh` | Never copy straight over a project's file. These functions keep the user's edits and make backups. `test-refresh-additive.sh` checks it |
 
-Be respectful, constructive, and professional. This is a collaborative project to help developers work more effectively.
+## Style
 
-## License
+- **Bash:** `set -e`, quote every variable (`"$VAR"`), clear function names. Comments say *why*, not what.
+- **Templates:** `{{UPPERCASE}}` placeholders. Nothing specific to one real project.
+- **Commits:** conventional format, such as `fix(detect): skip Python virtual environments`. Types: `feat`, `fix`,
+  `docs`, `refactor`, `test`, `chore`.
 
-By contributing, you agree that your contributions will be licensed under the same license as the project (MIT).
+## Writing these docs
 
-## Thank You!
+These pages are read in a browser, and their commands are copied straight into Terminal. So:
 
-Every contribution, no matter how small, helps improve this project for everyone.
+- **One command per box.** Don't chain commands with `&&` or add `\` line breaks.
+- **No comments inside command boxes.** zsh, the Mac's default shell, doesn't treat a pasted `# note` as a comment,
+  so the command fails. Put the explanation in the sentence above the box.
+- **No `$` prompt** in front of commands.
+- **Commands should work as pasted.** Use `cd` and then `--project=.`, rather than a path the reader has to edit.
+  If a placeholder can't be avoided, write it `<like-this>` and say what to put there.
+- **Mark file contents by type:** `ini`, `json` or `yaml`. Use `bash` only for things to run, and `text` for
+  things typed inside Claude Code.
+- **Plain words.** Short sentences, "you", and the result before the detail. If a page needs a term like "hook"
+  or "MCP", say what it means the first time.
+
+Add a new page to the menu in `index.html` and to the list in `docs/README.md`. To see your changes:
+
+```bash
+./serve-docs.sh
+```
+
+## Reporting a problem
+
+Open an [issue](https://github.com/roberthallatt999/claude-optimizer/issues) with the stack, the command you ran
+and what it printed.
+
+## Licence
+
+Contributions are licensed under the project's MIT licence.

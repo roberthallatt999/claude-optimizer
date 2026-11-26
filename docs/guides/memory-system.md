@@ -1,294 +1,91 @@
-# Memory System Guide
+# How Claude remembers
 
-The memory system provides persistent context across Claude Code sessions, reducing token usage and improving response consistency.
+Claude Code forgets everything when a session ends. ai-config gives each project a notes file, `MEMORY.md`, and
+tells Claude when to read it and when to add to it.
 
-## Overview
+## What Claude does with it
 
-The memory system consists of three components:
+| When | Claude… |
+|---|---|
+| Before real work (a design choice, a core change, an architecture question) | Reads `MEMORY.md`. Quick questions skip it |
+| After a meaningful change (a feature, fix, refactor or config change) | Adds one line under **Recent Changes**: date, what changed, which files |
+| After an architectural decision | Adds a short entry under **Decision Log**: the situation, the decision, the reason |
+| When you say you're done for now | Updates **Session Handoff**: what's unfinished and what's next |
 
-| Component | File | Purpose |
-|-----------|------|---------|
-| Memory Bank | `MEMORY.md` | Persistent project context |
-| Memory Rules | `.claude/rules/memory-management.md` | Update protocols |
-| Token Rules | `.claude/rules/token-optimization.md` | Efficiency guidelines |
-| Memory Protocol | `CLAUDE.md` managed block | Always-on read/update instructions |
+Entries stay short. Claude never writes a password or key in it. It writes the variable's name, never its value.
+The safety guard blocks it if it tries.
 
-## MEMORY.md Structure
+## What's in the file
 
-The memory bank template (`projects/common/MEMORY.md.template`) includes these core
-sections, plus Design System, Third-Party Integrations, and Knowledge Base for web
-projects:
+The template starts with these sections. Claude fills them in as it learns the project:
 
-### Project Identity
-```markdown
-## Project Identity
+- **Project Identity**: name, type, language, framework
+- **Architecture**: the main pieces, patterns and where they live
+- **Decision Log**: decisions and why they were made
+- **Active Context**: current focus, blockers, recent changes
+- **Session Handoff**: where the last session stopped
+- For websites, also **Design System**, **Third-Party Integrations** and **Knowledge Base**
 
-### Overview
-- **Name:** Project Name
-- **Type:** Web app / API / Library
-- **Primary Language:** TypeScript / PHP
-- **Framework:** Next.js / Laravel
-```
+You can edit it too. It's a plain Markdown file.
 
-### Architecture
-```markdown
-## Architecture
+## It's never overwritten
 
-### Tech Stack
-| Layer | Technology | Notes |
-|-------|------------|-------|
-| Frontend | React | Next.js App Router |
-| Backend | Node.js | Express API |
-| Database | PostgreSQL | Prisma ORM |
+ai-config creates `MEMORY.md` only when the project doesn't have one. Refresh, clean setup and uninstall all
+leave it alone. The only way to reset it is to edit or delete it yourself.
 
-### Key Patterns
-1. **Repository Pattern**
-   - Where: `src/repositories/`
-   - Why: Decouple data access from business logic
-```
+When it passes about 500 lines, Claude moves finished sections to `MEMORY-ARCHIVE.md`.
 
-### Decision Log
-```markdown
-## Decision Log
+## Keep decisions in git
 
-### DEC-001: JWT vs Session Tokens
-- **Date:** 2024-01-25
-- **Context:** Needed stateless auth for API scalability
-- **Decision:** JWT with refresh tokens
-- **Rationale:** Enables horizontal scaling
-- **Consequences:** Must handle token refresh
-```
-
-### Active Context
-```markdown
-## Active Context
-
-### Current Focus
-- [ ] Implementing user authentication
-- [ ] Adding rate limiting
-
-### Blockers
-- Waiting on OAuth provider credentials
-
-### Recent Changes
-| Date | Change | Files |
-|------|--------|-------|
-| 2024-01-25 | Added login endpoint | auth.ts |
-```
-
-### Session Handoff
-```markdown
-## Session Handoff
-
-### Last Session Summary
-Implemented login endpoint, started logout.
-
-### Next Steps
-1. Complete logout endpoint
-2. Add refresh token logic
-
-### Temporary State
-- Debug logging enabled in auth.ts (remove before PR)
-
-### Open Questions
-- Should refresh tokens be stored in Redis or DB?
-```
-
-## Memory Behaviors
-
-This is the always-on **Project Memory Protocol** block ai-config appends to
-`CLAUDE.md` (source: `projects/common/memory-protocol.md`), kept in sync with
-`.claude/rules/memory-management.md` for formats:
-
-### Before Substantive Work
-
-Read `MEMORY.md` before design decisions, core changes, or architecture questions.
-Quick, self-contained questions don't need it.
-
-### After a Meaningful Change
-
-Not trivial edits — a feature, fix, refactor, or config change gets one row in
-**Recent Changes**: `Date | Change | Files`.
-
-### After an Architectural Decision
-
-Add a short **Decision Log** entry: context, decision, rationale.
-
-Decisions are the one part of project memory that is usually worth version-controlling: they
-are not reproducible from the code, and `MEMORY.md` / `.okf/` are gitignored in most projects.
-To keep them in a tracked file instead, set `[decisions] path` in `ai-config.conf`:
+`MEMORY.md` isn't committed. To keep decisions in a file you commit instead, add this to `ai-config.conf`:
 
 ```ini
 [decisions]
 path = docs/decisions.md
 ```
 
-The managed Memory Protocol block and the memory rules are re-rendered from that path on every
-run, so the redirect can't drift back. See [Project Policy](project-policy.md#decisions).
+Then refresh. See [The project settings file](project-policy.md#decisions-where-decisions-are-written-down).
 
-### When the Developer Signals They're Done
+## The alternative: a `.okf/` folder
 
-Update **Session Handoff** with unfinished work and next steps.
+`MEMORY.md` is one file that grows. With `--okf-memory`, Claude keeps its notes in a folder instead, one small
+file per topic. It reads a short index first and opens only the topics a task needs, which saves tokens on big
+projects. The format is Google's
+[Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md), so other
+AI tools can read it too.
 
-Entries stay terse and never record secret values (variable names only). Past ~500
-lines, archive completed sections to `MEMORY-ARCHIVE.md`.
-
-## Token Optimization
-
-`.claude/rules/token-optimization.md` is always loaded (unlike the path-scoped rules)
-and kept compact for that reason:
-
-### Context (input tokens)
-- Grep/Glob before reading; read targeted ranges of large files, not whole files
-- Don't re-read a file already read this session unless it changed
-- Skip generated/vendored content (lockfiles, `node_modules/`, build output, logs)
-- Filter noisy command output instead of dumping it in full
-- Read a `.claude/libraries/*.md` reference only when the task involves that library
-- Hand broad exploration or large-output triage to a subagent
-- `/compact` at natural breakpoints in long sessions
-
-### Output tokens
-- Follow the **Response Style** block in `CLAUDE.md`
-- Prefer small targeted edits over full-file rewrites
-- Batch independent tool calls into a single turn
-
-### Memory
-- Check `MEMORY.md` before rediscovering context; keep new entries to one line
-
-## Memory Compression
-
-When `MEMORY.md` exceeds 500 lines:
-
-1. Create `MEMORY-ARCHIVE.md`
-2. Move old Decision Log entries (>30 days)
-3. Summarize archived work
-4. Keep only recent context in main file
-
-```markdown
-## Historical Context (Archived)
-
-### Q4 2023: Authentication System
-- Implemented JWT auth (DEC-001 through DEC-005)
-- Added OAuth providers
-- See MEMORY-ARCHIVE.md for details
-```
-
-## Deployment
-
-Memory files are deployed automatically with every stack:
+Turn it on for a project:
 
 ```bash
-# Full deployment includes memory
-ai-config --project=. 
-
-# MEMORY.md is never modified once it exists
-ai-config --refresh --project=.
-ai-config --clean --force --project=.
+ai-config --refresh --okf-memory --project=.
 ```
 
-`MEMORY.md` is created only if it doesn't already exist. No flag combination
-overwrites, recreates, or deletes it: `--refresh` leaves it untouched, and `--clean`
-moves aside `CLAUDE.md` and `.claude/` (to a timestamped backup under
-`.claude/ai-config/backups/`) without touching `MEMORY.md` at all. The only way to
-reset it is to delete or edit the file yourself. `--uninstall` also leaves it in place.
+The first run copies what `MEMORY.md` already holds into the folder. Nothing is rewritten by AI, and `MEMORY.md`
+itself is kept unchanged as history. After that the project stays in this mode without the option.
 
-## Files in .gitignore
-
-`ai-config` maintains these entries automatically; add them yourself if you manage
-`.gitignore` differently:
-
-```
-CLAUDE.md
-MEMORY.md
-MEMORY-ARCHIVE.md
-.claude/
-```
-
-`.claude/` already covers `.claude/ai-config/` (manifest, backups, staged updates) and,
-with `--okf-memory`, `.okf/` is added as its own entry since it lives at the project
-root. Memory and update-state files are personal/local context and shouldn't be
-committed — the exception is `--shared-policy`, which carves `.claude/settings.json`
-and `.claude/hooks/safety-guard.sh` back out of `.claude/` so teammates get the safety
-policy too (see [Setup Script → --shared-policy](setup-script.md#--shared-policy)).
-
-## OKF Memory Bundle (`--okf-memory`)
-
-Opt-in alternative to `MEMORY.md` that stores project memory in Google's
-[Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
-(v0.2): a `.okf/` folder with one markdown file per concept, each with YAML frontmatter.
-It works for every stack.
-
-```bash
-ai-config --project=. --okf-memory             # new project
-ai-config --refresh --okf-memory --project=.   # existing project (MEMORY.md is migrated, then kept)
-```
-
-Where Claude records each kind of knowledge in the bundle:
-
-| MEMORY.md section | OKF bundle |
+| In `MEMORY.md` | In `.okf/` |
 |---|---|
-| Recent Changes | `.okf/log.md` (`## YYYY-MM-DD`) |
-| Decision Log | `.okf/decisions/*.md` (`type: Decision`) |
-| Architecture / Directory Map | `.okf/architecture/*.md` |
-| Integrations, env var names, MCP servers | `.okf/integrations/*.md` |
-| Component Registry, patterns, design tokens | `.okf/conventions/*.md` |
-| Common Issues | `.okf/issues/*.md` |
-| Session Handoff | `.okf/handoff.md` |
+| Recent Changes | `log.md` |
+| Decision Log | `decisions/`, one file per decision |
+| Architecture | `architecture/` |
+| Integrations | `integrations/` |
+| Conventions and patterns | `conventions/` |
+| Common Issues | `issues/` |
+| Session Handoff | `handoff.md` |
 
-**Migrating an existing MEMORY.md.** Switching mode swaps the MEMORY.md protocol block in
-`CLAUDE.md` for the OKF one, so the first `--okf-memory` run copies what `MEMORY.md` already
-knows into the bundle; otherwise nothing would read it any more. The mapping is deterministic,
-keyed on the template's `## ` headings, and no model rewrites the content:
+Each file records who wrote it and whether a person has checked it, so you can tell trusted notes from
+guesses.
 
-- Project Identity, Architecture, Design System, Third-Party Integrations, Knowledge Base →
-  one concept each in `.okf/concepts/`, linked from `index.md`; any other heading becomes a
-  `concepts/<slug>.md` note
-- Decision Log → one `.okf/decisions/<id>.md` per `### ` entry
-- Active Context and Session Handoff → appended to `.okf/handoff.md`
-- Memory Maintenance, and sections that hold only template placeholders → skipped
+**Template map.** On ExpressionEngine, Coilpack, Craft and Bedrock (WordPress) sites, headless ones included, `--okf-memory` also builds
+`.okf/architecture/templates.md`. It lists which templates include or extend which, and which channels or
+sections each one uses. It's built by plain pattern matching, so it costs no tokens, and it updates on every
+refresh.
 
-It is create-only: a concept that already exists (or that you have since edited) is never
-rewritten, index links are never duplicated, and re-running finds nothing new. Each migrated
-file records `source: MEMORY.md`, the run is logged in `log.md`, and `MEMORY.md` itself is
-left unchanged as history.
+## Saving tokens
 
-**Why use it**
+One rule, `.claude/rules/token-optimization.md`, loads in every session. It tells Claude to:
 
-- **Fewer tokens** — Claude reads the short `index.md` and opens only the concepts a task
-  needs, instead of the whole `MEMORY.md`.
-- **Trust signals** — `generated` (which agent wrote it), `verified` (`human:<id>` once you
-  confirm it), `status`, and `stale_after` for facts that drift.
-- **Portable** — plain files any agent can read (Claude Code, Codex via `AGENTS.md`, Cursor).
-
-**What gets deployed**
-
-- `.okf/index.md`, `log.md`, `handoff.md` — created only when missing, never overwritten
-- An **OKF Memory Protocol** block in `CLAUDE.md` (replaces the MEMORY.md protocol block)
-- `.claude/rules/okf-memory.md` — formats; loads only when Claude works in `.okf/`
-- `.claude/scripts/okf-check.sh` — conformance errors (frontmatter, `type`, log dates) and
-  hygiene warnings (stale concepts, broken links, credential-looking text); also runs on refresh
-- `.okf/` added to `.gitignore`
-
-**Template map (ExpressionEngine, Coilpack, Craft, Sage).** No code index parses EE tags,
-Twig, or Blade, so for these stacks `--okf-memory` also generates
-`.okf/architecture/templates.md` on every deploy and refresh: which templates extend, include,
-embed, or use partials/components; the channels, sections, and add-ons each queries; a
-reverse "included by" index; and Craft section → entry-template routes from
-`config/project/sections/*.yaml`. It is plain pattern matching (no LLM tokens), multi-line tags
-are handled, and `?` marks targets with no matching template file. The map is only rewritten
-when relationships change, previous versions are backed up, and a map you edited is kept with
-the new version staged. It is linked from `.okf/index.md` once.
-
-Once a project has `.okf/index.md`, refreshes stay in OKF mode without the flag. Claude
-maintains the bundle as it works; there is deliberately no per-commit LLM pipeline, which
-would spend tokens on every commit and send source code to an API from a git hook.
-
-## Integration with CLAUDE.md
-
-| File | Type | Content |
-|------|------|---------|
-| `CLAUDE.md` | Static | Commands, structure, rules |
-| `MEMORY.md` | Dynamic | Decisions, progress, state |
-
-`CLAUDE.md` is always loaded; `MEMORY.md` is read before substantive work (see
-[Memory Behaviors](#memory-behaviors) above). Update only `MEMORY.md` during work.
+- search before reading, and read only the part of a big file it needs
+- skip generated files: lockfiles, `node_modules/`, build output
+- read a library note only when the task involves that library
+- keep answers short (the **Response Style** section of `CLAUDE.md`)

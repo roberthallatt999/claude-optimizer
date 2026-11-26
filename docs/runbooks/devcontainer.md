@@ -1,111 +1,150 @@
-# Runbook: dev container sandbox
+# Dev container, step by step
 
-Run Claude Code for one project inside a VS Code dev container. The container reaches only the
-sites you allow, holds no real tokens, and can't edit its own guardrails. Background and settings:
-[Sandbox guide](../guides/sandbox.md).
+This runs Claude Code for one project inside a VS Code container. The container reaches only the sites you
+allow, holds no real tokens, and can't change its own safety rules. Background: [Sandboxes](../guides/sandbox.md).
 
-## Before you start (once per Mac)
+## Once per Mac
 
-| Need | Check |
-| --- | --- |
-| Docker Desktop, running | `docker info` |
-| VS Code + Dev Containers extension | `code --list-extensions \| grep ms-vscode-remote.remote-containers` |
-| `python3` | `python3 --version` |
-| ai-config installed | `ai-config --help` |
-| Your profile set (optional, recommended) | `~/.claude/skills/noslop/scripts/profile.sh` |
+**1. Check you have what's needed.** Each command should print something, not an error.
 
-Store the GitHub token the sandbox uses, in **your own terminal** (it asks for the token without
-showing it). Use a fine-grained token limited to the repos you work on: Contents, Pull requests and
-Actions read/write.
+Docker Desktop, running:
 
-```sh
+```bash
+docker info
+```
+
+The VS Code Dev Containers extension:
+
+```bash
+code --list-extensions | grep ms-vscode-remote.remote-containers
+```
+
+Python 3:
+
+```bash
+python3 --version
+```
+
+**2. Store a GitHub token in your Mac's Keychain.** The container uses it to push and open pull requests, but
+never sees it: it's added on the way out.
+
+Create a **fine-grained** token on GitHub, limited to the repositories you work on, with read and write access
+to Contents, Pull requests and Actions. Then run this in your own Terminal, not through Claude. Replace
+`<profile>` with your [profile](../guides/profiles.md) name, or `ai` if you don't use profiles:
+
+```bash
 security add-generic-password -U -s <profile>-devcontainer-github -a "$USER" -w
 ```
 
-`<profile>` is the project's profile name, or `ai` when no profile applies (item
-`ai-devcontainer-github`). The project's `.devcontainer/README.md` names the exact item.
+It asks for the token and doesn't show what you type. The project's `.devcontainer/README.md` names the exact
+Keychain item once it's created.
 
-Tokens for other services come from the Keychain items their integrations name (`plausible-api`,
-`cloudflare-api-<profile>`). Set those up the way each skill describes; skip any you don't use.
+Other services' tokens (Plausible, Cloudflare) are set up the way each skill describes. Skip any you don't use.
 
 ## Set up a project
 
-```sh
-cd ~/sites/my-project
+**1. Go to the project folder** (change the path):
+
+```bash
+cd ~/sites/my-site
+```
+
+**2. Write the container:**
+
+```bash
 ai-config --devcontainer --project=.
 ```
 
-1. Read the `Sandbox:` lines: `+` is handled, `!` needs you (a missing setting, a mount outside
-   the project, a private Composer repo).
-2. Commit `.devcontainer/` and `ai-config.conf` (created if the project had none).
-3. In VS Code: **Dev Containers: Reopen in Container**. The first build takes a few minutes.
-4. In the container terminal: `claude`, and sign in once (it persists).
+**3. Read the lines that start with `Sandbox:`.** `+` means handled. `!` means it needs you, for example a missing
+setting.
+
+**4. Commit** `.devcontainer/` and `ai-config.conf` (it's created if the project had none).
+
+**5. Open it.** In VS Code, press `Cmd+Shift+P` and choose **Dev Containers: Reopen in Container**. The first
+build takes a few minutes.
+
+**6. Start Claude** in the container's terminal, and sign in once (it remembers you):
+
+```bash
+claude
+```
 
 ## Choose what it can reach
 
-| Want | Do |
-| --- | --- |
+| You want | Do this |
+|---|---|
 | A service for every project in a context | Add it to `devcontainer_integrations` in your profile |
 | A service for this project only | `integrations = +stripe` under `[sandbox]` in `ai-config.conf` |
-| Drop one the profile adds | `integrations = -mailtrap` |
-| Your organization's sites | `devcontainer_domains` / `devcontainer_hosts` in the profile |
-| One client domain | `domains = .client.example` or `hosts = api.client.example` under `[sandbox]` |
-| Keep a host out | `block = ads.example.com` under `[sandbox]` |
+| Drop a service the profile adds | `integrations = -mailtrap` under `[sandbox]` |
+| Your organization's sites | `devcontainer_domains` in your profile |
+| One client's site | `domains = .client.example` under `[sandbox]` |
+| Keep a site out | `block = ads.example.com` under `[sandbox]` |
 
-Then `ai-config --refresh --project=.`. If the change lets the sandbox reach a new host, or send a
-token to one, the refresh lists it and asks; answer `y`. Then **Rebuild Container**.
+Then refresh. If the change reaches a new site, it lists it and asks; type `y`:
 
-## Daily use
+```bash
+ai-config --refresh --project=.
+```
+
+Then, in VS Code, choose **Dev Containers: Rebuild Container**.
+
+## Everyday use
 
 | Task | Where | How |
-| --- | --- | --- |
+|---|---|---|
 | Edit, test, build, commit | Container | As usual |
-| Allow a site for now | Container | `sandbox-domains allow api.example.com "why"`, then click Allow on the Mac |
-| Block a site | Container | `sandbox-domains block ads.example.com` (no dialog) |
+| Allow a site | Container | `sandbox-domains allow api.example.com "why"`, then click Allow on the Mac |
+| Block a site | Container | `sandbox-domains block ads.example.com` |
 | See the lists | Container | `sandbox-domains list` |
-| `ddev start/stop/logs/snapshot` | Container | As usual: the relay runs them on the Mac |
-| `ddev ssh`, deploys, anything with SSH or production | Mac terminal | Never from inside |
-| `git push`, `gh pr merge` | Container | Claude asks first, every time |
+| `ddev start`, `stop`, `logs`, `snapshot` | Container | As usual. They run on the Mac for you |
+| `ddev ssh`, deploys, anything touching production | **Mac** Terminal | Never from inside the container |
+| `git push`, `gh pr merge` | Container | Claude asks you first, every time |
 
 ## Keep it current
 
-| When | Do |
-| --- | --- |
-| ai-config was updated | `ai-config --refresh --project=.`, then **Rebuild and Reopen in Container** |
-| A file in `.devcontainer/` was edited by hand | The refresh keeps it; the new version is in `.claude/ai-config/pending/.devcontainer/` to compare |
-| Claude Code needs updating | **Rebuild Container** without cache |
+After you update ai-config, refresh the project:
 
-Plain **Reopen in Container** keeps the old container and its old mounts; use Rebuild after any
-kit change.
+```bash
+ai-config --refresh --project=.
+```
+
+Then choose **Dev Containers: Rebuild and Reopen in Container**. A plain Reopen keeps the old container.
+
+To get a newer Claude Code, choose **Dev Containers: Rebuild Container Without Cache**.
+
+A file in `.devcontainer/` you edited by hand is kept. The new version waits in
+`.claude/ai-config/pending/.devcontainer/` for you to compare.
 
 ## Check it works
 
-Inside the container:
+Run these in the container's terminal:
 
-```sh
-curl -sS -m 5 https://example.com                      # fails: not allowed
-curl -s -o /dev/null -w '%{http_code}\n' https://registry.npmjs.org   # 200
-echo "$GH_TOKEN"                                       # ai-egress-placeholder
-gh auth status                                         # logged in (GH_TOKEN)
-touch .devcontainer/x                                  # Read-only file system
-```
+| Command | Expected result |
+|---|---|
+| `curl -sS -m 5 https://example.com` | Fails: the site isn't allowed |
+| `curl -s -o /dev/null -w '%{http_code}\n' https://registry.npmjs.org` | `200` |
+| `echo "$GH_TOKEN"` | `ai-egress-placeholder`, not a real token |
+| `gh auth status` | Logged in |
+| `touch .devcontainer/x` | `Read-only file system` |
 
-## Troubleshooting
+## Problems
 
-| Symptom | Fix |
-| --- | --- |
-| A site is blocked | `sandbox-domains allow <name>`, or add it to `.devcontainer/domains.conf` on the Mac |
-| `sandbox-domains`: relay isn't answering | Reopen the container; Mac log: `~/.cache/ai-devcontainer/relay/relay.log` |
-| `gh`/`git push` not logged in | The container's start log lists missing Keychain items; store it, reopen |
-| An integration "left out" | It needs a setting from the profile (`requires`); set it there |
-| "This refresh widens the sandbox" with nobody to answer | Rerun in a terminal, or with `--force` once you've checked the list |
-| Relay "key already belongs to …" | Two folders shared a key (a `.devcontainer/` from before project keys carried a hash): refresh this project to get its own |
-| Philter withholds output | Philter runs on the Mac: `/scrub` shows its state |
+| What you see | What to do |
+|---|---|
+| A site is blocked | `sandbox-domains allow <site>`, or add it to `.devcontainer/domains.conf` on the Mac |
+| `sandbox-domains` gets no answer | Reopen the container. Log: `~/.cache/ai-devcontainer/relay/relay.log` |
+| `gh` or `git push` isn't logged in | The container's start-up output lists missing Keychain items. Add it, then reopen |
+| An integration is "left out" | It needs a setting from your profile. Add it there |
+| "This refresh widens the sandbox" and no one to answer | Run the refresh in a Terminal, or add `--force` once you've checked the list |
+| "key already belongs to …" | Two folders shared a key. Refresh this project to give it its own |
+| Philter withholds output | Philter runs on the Mac. Type `/scrub` to see its state |
 
 ## Stop using it
 
-```sh
-ai-config --refresh --sandbox=none --project=.    # stops updating it; deletes nothing
+This stops updating the container. It deletes nothing:
+
+```bash
+ai-config --refresh --sandbox=none --project=.
 ```
 
-Delete `.devcontainer/` yourself if you no longer want it, then reopen the folder locally.
+If you no longer want the container, delete `.devcontainer/` yourself, then reopen the folder normally in VS Code.

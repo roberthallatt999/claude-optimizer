@@ -1,248 +1,127 @@
-# Installation
+# Install
 
-## Quick Install (Recommended)
+You do this once per computer. It takes about a minute.
 
-One command to install:
+## What you need
+
+- A Mac, Linux, or Windows with WSL.
+- `git`.
+- A few standard tools: `jq`, `perl`, `awk`, `sed`, `find`, `cmp`, `mktemp` and `shasum` (or `sha256sum`). Most
+  computers already have them except `jq`. If one is missing, ai-config stops before changing anything and tells
+  you which. To install them for you, see [Missing tools](#missing-tools) below.
+
+## Install it
+
+Run these one at a time in Terminal.
+
+**1. Download it:**
 
 ```bash
-git clone https://github.com/roberthallatt/claude-optimizer.git ~/.ai-config && \
+git clone https://github.com/roberthallatt999/claude-optimizer.git ~/.ai-config
+```
+
+**2. Run the installer:**
+
+```bash
 ~/.ai-config/install.sh
 ```
 
-Then reload your shell:
+The installer:
+
+- adds three commands to your shell: `ai-config`, `ai-config-docs` and `ai-config-fleet`
+- turns on the safety guard for every Claude Code session on this computer, not only in ai-config projects
+- links the shared skills (`noslop`, `humanizer`) into `~/.claude/skills/`
+
+**3. Load the new commands** (zsh, the Mac default):
 
 ```bash
-source ~/.zshrc  # or ~/.bashrc
+source ~/.zshrc
 ```
 
-Now use `ai-config` from anywhere:
+If you use bash, run this instead:
 
 ```bash
-ai-config --project=/path/to/project 
+source ~/.bashrc
 ```
 
----
+Opening a new Terminal window works too.
 
-## What the Installer Does
-
-1. **Detects your shell** (zsh, bash, fish)
-2. **Makes scripts executable**
-3. **Adds aliases** to your shell config:
-   - `ai-config` → Main deployment command
-   - `ai-config-docs` → Documentation server
-   - `ai-config-fleet` → Health-check or refresh every ai-config project under a folder
-4. **Installs global Claude config**
-   - Copies `stacks/*.md` (stack knowledge files) to `~/.claude/stacks/`.
-   - Installs `~/.claude/CLAUDE.md` only if a global one is shipped and none exists yet.
-   - Project-specific library references are deployed during each `ai-config` run.
-
----
-
-## Manual Installation
-
-If you prefer to install manually or to a custom location:
-
-### 1. Clone Repository
-
-```bash
-git clone https://github.com/roberthallatt/claude-optimizer.git ~/path/to/ai-config
-cd ~/path/to/ai-config
-```
-
-### 2. Make Scripts Executable
-
-```bash
-chmod +x setup-project.sh
-chmod +x serve-docs.sh
-chmod +x ai-config-fleet.sh
-```
-
-### 3. Add Shell Aliases
-
-Edit your shell configuration file:
-
-| Shell | File |
-|-------|------|
-| Zsh (macOS default) | `~/.zshrc` |
-| Bash | `~/.bashrc` or `~/.bash_profile` |
-| Fish | `~/.config/fish/config.fish` |
-
-**For Zsh/Bash:**
-
-```bash
-# AI Config
-export AI_CONFIG_REPO="$HOME/path/to/ai-config"
-alias ai-config="$AI_CONFIG_REPO/setup-project.sh"
-alias ai-config-docs="$AI_CONFIG_REPO/serve-docs.sh"
-alias ai-config-fleet="$AI_CONFIG_REPO/ai-config-fleet.sh"
-```
-
-**For Fish:**
-
-```fish
-# AI Config
-set -gx AI_CONFIG_REPO "$HOME/path/to/ai-config"
-alias ai-config "$AI_CONFIG_REPO/setup-project.sh"
-alias ai-config-docs "$AI_CONFIG_REPO/serve-docs.sh"
-alias ai-config-fleet "$AI_CONFIG_REPO/ai-config-fleet.sh"
-```
-
-### 4. Reload Shell
-
-```bash
-source ~/.zshrc  # or your shell's config file
-```
-
----
-
-## Verify Installation
+## Check it worked
 
 ```bash
 ai-config --help
-type ai-config-fleet
 ```
 
-You should see the usage documentation and the `ai-config-fleet` alias resolving.
+You should see a list of options. If you see `command not found`, open a new Terminal window and try again.
 
-Check an actual project (existing or new) end-to-end:
+## Missing tools
+
+ai-config can install what's missing. It uses Homebrew on a Mac, or your Linux package manager. It shows you
+the commands first and asks before running them. Run it from inside a project folder:
 
 ```bash
-ai-config --doctor --project=/path/to/project
+ai-config --project=. --install-deps
 ```
 
-This is read-only — it checks prerequisites, the deployed safety policy, and CLAUDE.md
-without changing anything.
-
----
-
-## Updating
-
-To update the tool itself:
+To see what it would install without installing anything:
 
 ```bash
-cd ~/.ai-config  # or your install location
-git pull
-./install.sh     # re-run to refresh aliases and ~/.claude/stacks/
+ai-config --project=. --install-deps --dry-run
 ```
 
-Your aliases will continue to work; re-running `install.sh` picks up any new alias (like
-`ai-config-fleet`) and asks before overwriting existing ones.
+## Update ai-config
 
-To update projects that were already configured, re-run `ai-config --refresh` per project,
-or refresh every project at once:
+Get the latest version:
 
 ```bash
-ai-config-fleet --root=~/sites --refresh
+git -C ~/.ai-config pull
 ```
 
-See [Updating Projects](../guides/updating-projects.md) for what `--refresh` changes.
-
----
-
-## Uninstalling
-
-There are two different things you might want to undo: ai-config's own configuration
-in a project, or the ai-config tool itself.
-
-### Remove ai-config From a Project
-
-Use the script's own uninstaller — it keeps anything you edited and backs up everything
-it removes:
+Then re-run the installer. It picks up any new commands and asks before replacing old ones:
 
 ```bash
-ai-config --uninstall --project=/path/to/project     # add --dry-run to preview first
+~/.ai-config/install.sh
 ```
 
-See [Setup Script → --uninstall](../guides/setup-script.md#--uninstall) for exactly
-what's removed, stripped, and kept (`MEMORY.md`, the `.okf/` bundle, and files you
-edited are always kept).
+Updating ai-config doesn't change your projects. To update them too, see
+[Keep projects up to date](../guides/updating-projects.md).
 
-### Remove the Tool Itself
+## Installed somewhere else?
 
-#### 1. Remove Aliases
+The commands on these pages assume ai-config lives in `~/.ai-config`. If you cloned it somewhere else, use that
+folder instead. If you move it later, re-run its `install.sh` from the new place. That also re-links the safety
+guard and the skills.
 
-Edit your shell config file and remove the AI Config section:
+## Remove it
+
+**From one project.** This keeps every file you edited, keeps `MEMORY.md`, and backs up everything it removes.
+Run it from inside the project folder:
 
 ```bash
-# Remove these lines from ~/.zshrc or ~/.bashrc:
-# AI Config
-export AI_CONFIG_REPO="..."
-alias ai-config="..."
-alias ai-config-docs="..."
-alias ai-config-fleet="..."
+ai-config --uninstall --project=.
 ```
 
-#### 2. Remove Repository
+**From your computer.** First turn off the computer-wide safety guard:
 
 ```bash
-rm -rf ~/.ai-config  # or your install location
+~/.ai-config/scripts/install-global-guard.sh --remove
 ```
 
-#### 3. Remove Global Config (Optional)
+Then delete the downloaded folder:
 
 ```bash
-rm -rf ~/.claude/stacks
+rm -rf ~/.ai-config
 ```
 
-This does not touch any project you already deployed to — use `ai-config --uninstall`
-per project first if you want those cleaned up too.
+Last, open `~/.zshrc` (or `~/.bashrc`) and delete the lines under `# AI Config`. Projects you already set up keep
+their files. Run `--uninstall` in each one first if you want them cleaned up too.
 
----
+## Problems
 
-## Requirements
+| What you see | What to do |
+|---|---|
+| `command not found: ai-config` | Open a new Terminal window, or run `source ~/.zshrc` |
+| `Permission denied` | Run `chmod +x ~/.ai-config/*.sh`, then try again |
+| `Missing required tools: jq` (or another tool) | Run `ai-config --project=. --install-deps` |
 
-| Requirement | Notes |
-|-------------|-------|
-| **Bash** | macOS, Linux, or WSL |
-| **Git** | To clone the repository |
-| **jq, perl, awk, sed, find, cmp, mktemp, shasum/sha256sum** | Required; every run checks for them first and stops before changing anything if one is missing |
-| **Intelephense** | Optional, PHP stacks: enables the `php-lsp` plugin |
-| **codegraph** | Optional, JS stacks: local code index (install it yourself, then `codegraph init`) |
-| **VSCode** | Optional, for IDE integration |
-| **VSCode CLI** | Optional, for `--install-extensions` flag |
-
-Missing tools can be installed for you: `ai-config --project=/path/to/project --install-deps`
-uses Homebrew on macOS or apt-get/dnf/yum/pacman/zypper/apk on Linux (and npm for Intelephense),
-shows the commands, and asks before installing unless `--force`. Check a machine and project any
-time with `ai-config --doctor --project=/path/to/project`.
-
----
-
-## Troubleshooting
-
-### "command not found: ai-config"
-
-Your shell config hasn't been reloaded:
-
-```bash
-source ~/.zshrc  # or ~/.bashrc
-```
-
-Or open a new terminal window.
-
-### Aliases Not Working
-
-Check if aliases were added:
-
-```bash
-grep "ai-config" ~/.zshrc
-```
-
-If not found, run the installer again or add manually.
-
-### Permission Denied
-
-Make scripts executable:
-
-```bash
-chmod +x ~/.ai-config/setup-project.sh
-chmod +x ~/.ai-config/serve-docs.sh
-chmod +x ~/.ai-config/ai-config-fleet.sh
-```
-
----
-
-## Next Steps
-
-- **[Quick Start](quick-start.md)** - Configure your first project
-- **[Configuration](configuration.md)** - What gets deployed
+Next: [Set up a project](quick-start.md).

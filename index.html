@@ -133,6 +133,38 @@
             padding: 0;
         }
 
+        /* Copy button: the wrapper holds the button so it doesn't scroll away with long lines. */
+        .code-block {
+            position: relative;
+        }
+
+        .code-block pre {
+            padding-inline-end: 80px;
+        }
+
+        .copy-button {
+            position: absolute;
+            inset-block-start: 8px;
+            inset-inline-end: 8px;
+            padding: 4px 10px;
+            font: inherit;
+            font-size: 13px;
+            color: var(--heading);
+            background: var(--border);
+            border: 1px solid #484f58;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        .copy-button:hover {
+            background: #484f58;
+        }
+
+        .copy-button:focus-visible {
+            outline: 2px solid var(--link);
+            outline-offset: 2px;
+        }
+
         #markdown-content table {
             width: 100%;
             border-collapse: collapse;
@@ -205,9 +237,17 @@
             opacity: 1;
         }
 
+        /* Small screens: the menu sits above the page instead of disappearing. */
         @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+            }
             .sidebar {
-                display: none;
+                position: static;
+                width: auto;
+                height: auto;
+                border-right: none;
+                border-bottom: 1px solid var(--border);
             }
             .content {
                 margin-left: 0;
@@ -221,40 +261,43 @@
         <nav class="sidebar">
             <div class="logo">AI <span>Config</span></div>
 
-            <h2>Overview</h2>
+            <h2>Start here</h2>
             <a href="#" data-file="README.md" class="active">Home</a>
+            <a href="#" data-file="docs/getting-started/installation.md">Install</a>
+            <a href="#" data-file="docs/getting-started/quick-start.md">Set up a project</a>
+            <a href="#" data-file="docs/getting-started/configuration.md">What it adds to a project</a>
 
-            <h2>Getting Started</h2>
-            <a href="#" data-file="docs/getting-started/installation.md">Installation</a>
-            <a href="#" data-file="docs/getting-started/quick-start.md">Quick Start</a>
-            <a href="#" data-file="docs/getting-started/configuration.md">Configuration</a>
+            <h2>Everyday use</h2>
+            <a href="#" data-file="docs/guides/updating-projects.md">Keep projects up to date</a>
+            <a href="#" data-file="docs/guides/setup-script.md">All ai-config options</a>
+            <a href="#" data-file="docs/guides/project-policy.md">The project settings file</a>
+            <a href="#" data-file="docs/guides/safety.md">How it keeps you safe</a>
+            <a href="#" data-file="docs/guides/memory-system.md">How Claude remembers</a>
 
-            <h2>Guides</h2>
-            <a href="#" data-file="docs/guides/setup-script.md">Setup Script</a>
-            <a href="#" data-file="docs/guides/memory-system.md">Memory System</a>
-            <a href="#" data-file="docs/guides/superpowers.md">Superpowers</a>
-            <a href="#" data-file="docs/guides/conditional-deployment.md">Conditional Deployment</a>
-            <a href="#" data-file="docs/guides/updating-projects.md">Updating Projects</a>
-            <a href="#" data-file="docs/guides/project-policy.md">Project Policy</a>
-            <a href="#" data-file="docs/guides/profiles.md">Profiles</a>
-            <a href="#" data-file="docs/guides/philter.md">Philter</a>
-            <a href="#" data-file="docs/guides/sandbox.md">Sandbox</a>
-            <a href="#" data-file="docs/guides/mcp-integration.md">MCP Integration</a>
+            <h2>Extras</h2>
+            <a href="#" data-file="docs/guides/superpowers.md">Workflow skills</a>
+            <a href="#" data-file="docs/guides/conditional-deployment.md">How it detects a project</a>
+            <a href="#" data-file="docs/guides/profiles.md">Profiles and skills</a>
+            <a href="#" data-file="docs/guides/mcp-integration.md">Connect outside services</a>
+            <a href="#" data-file="docs/guides/philter.md">Hide personal data (Philter)</a>
+            <a href="#" data-file="docs/guides/sandbox.md">Sandboxes</a>
 
-            <h2>Runbooks</h2>
-            <a href="#" data-file="docs/runbooks/devcontainer.md">Dev Container Sandbox</a>
-            <a href="#" data-file="docs/runbooks/enclave.md">Enclave Sandbox</a>
-            <a href="#" data-file="docs/runbooks/claude-sandbox.md">Claude Code Sandbox</a>
-            <a href="#" data-file="docs/runbooks/safety-checkup.md">Monthly Safety Check-up</a>
+            <h2>Step by step</h2>
+            <a href="#" data-file="docs/runbooks/devcontainer.md">Dev container</a>
+            <a href="#" data-file="docs/runbooks/enclave.md">Enclave</a>
+            <a href="#" data-file="docs/runbooks/claude-sandbox.md">Claude Code sandbox</a>
+            <a href="#" data-file="docs/runbooks/safety-checkup.md">Monthly safety check</a>
 
             <h2>Reference</h2>
-            <a href="#" data-file="docs/reference/stacks.md">Stacks</a>
-            <a href="#" data-file="docs/reference/file-structure.md">File Structure</a>
-            <a href="#" data-file="docs/reference/commands.md">Commands</a>
+            <a href="#" data-file="docs/reference/stacks.md">Supported stacks</a>
+            <a href="#" data-file="docs/reference/commands.md">Slash commands</a>
+            <a href="#" data-file="docs/reference/scripts.md">Other scripts</a>
+            <a href="#" data-file="docs/reference/environment.md">Environment variables</a>
+            <a href="#" data-file="docs/reference/file-structure.md">Repository layout</a>
 
-            <h2>Development</h2>
-            <a href="#" data-file="docs/development/project-status.md">Project Status</a>
+            <h2>Working on ai-config</h2>
             <a href="#" data-file="docs/development/contributing.md">Contributing</a>
+            <a href="#" data-file="docs/development/project-status.md">Project status</a>
         </nav>
 
         <main class="content">
@@ -274,7 +317,61 @@
                 .replace(/-+/g, '-');
         }
 
-        async function loadMarkdown(file) {
+        /**
+         * Give every code block a Copy button that copies exactly the block's text.
+         * @param {HTMLElement} content The rendered page.
+         */
+        function addCopyButtons(content) {
+            content.querySelectorAll('pre').forEach(pre => {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'code-block';
+                pre.replaceWith(wrapper);
+                wrapper.appendChild(pre);
+
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'copy-button';
+                button.textContent = 'Copy';
+                button.setAttribute('aria-label', 'Copy this code');
+                button.addEventListener('click', async () => {
+                    // marked leaves a trailing newline; dropping it stops a paste from running the command at once.
+                    const text = pre.innerText.replace(/\n+$/, '');
+                    try {
+                        await navigator.clipboard.writeText(text);
+                        button.textContent = 'Copied';
+                    } catch {
+                        button.textContent = 'Select and copy';
+                    }
+                    setTimeout(() => { button.textContent = 'Copy'; }, 2000);
+                });
+                wrapper.appendChild(button);
+            });
+        }
+
+        /**
+         * Resolve a link inside a page to a file path from the site root.
+         * @param {string} href The link as written in the markdown (no #section part).
+         * @returns {string} The file to load.
+         */
+        function resolveLink(href) {
+            const currentFile = window.location.hash.slice(1).split('#')[0] || 'README.md';
+            const currentDir = currentFile.includes('/') ? currentFile.substring(0, currentFile.lastIndexOf('/') + 1) : '';
+
+            if (href.startsWith('/') || href.startsWith('docs/')) {
+                return href.replace(/^\//, '');
+            }
+
+            const dirParts = currentDir.split('/').filter(p => p);
+            let remaining = href;
+            while (remaining.startsWith('../')) {
+                dirParts.pop();
+                remaining = remaining.slice(3);
+            }
+            remaining = remaining.replace(/^\.\//, '');
+            return dirParts.length > 0 ? `${dirParts.join('/')}/${remaining}` : remaining;
+        }
+
+        async function loadMarkdown(file, section = '') {
             try {
                 const response = await fetch(file);
                 if (!response.ok) {
@@ -315,11 +412,18 @@
                     }
                 });
 
+                addCopyButtons(content);
+
                 // Update URL hash
                 window.location.hash = file;
 
-                // Scroll to top
-                window.scrollTo(0, 0);
+                // Jump to the linked section, or the top of the page
+                const target = section ? content.querySelector(`#${CSS.escape(section)}`) : null;
+                if (target) {
+                    target.scrollIntoView();
+                } else {
+                    window.scrollTo(0, 0);
+                }
             } catch (error) {
                 document.getElementById('markdown-content').innerHTML = `
                     <h1>Page Not Found</h1>
@@ -358,36 +462,11 @@
                     return;
                 }
 
-                // Handle relative .md links
-                if (href.endsWith('.md')) {
+                // Links to another page, with or without a #section
+                const [path, section = ''] = href.split('#');
+                if (path.endsWith('.md')) {
                     e.preventDefault();
-
-                    // Get current file's directory
-                    const currentFile = window.location.hash.slice(1) || 'README.md';
-                    const currentDir = currentFile.includes('/') ? currentFile.substring(0, currentFile.lastIndexOf('/') + 1) : '';
-
-                    // Resolve relative path
-                    let targetFile = href;
-
-                    if (href.startsWith('../')) {
-                        // Handle parent directory references (e.g., ../guides/setup-script.md)
-                        const dirParts = currentDir.split('/').filter(p => p);
-                        let hrefRemaining = href;
-
-                        while (hrefRemaining.startsWith('../')) {
-                            dirParts.pop();
-                            hrefRemaining = hrefRemaining.slice(3);
-                        }
-
-                        targetFile = dirParts.length > 0
-                            ? dirParts.join('/') + '/' + hrefRemaining
-                            : hrefRemaining;
-                    } else if (!href.startsWith('/') && !href.startsWith('docs/')) {
-                        // Relative to current directory (e.g., stacks.md from reference/)
-                        targetFile = currentDir + href;
-                    }
-
-                    loadMarkdown(targetFile);
+                    loadMarkdown(resolveLink(path), section);
                 }
             }
         });

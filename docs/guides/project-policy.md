@@ -1,295 +1,190 @@
-# Project Policy (`ai-config.conf`)
+# The project settings file (`ai-config.conf`)
 
-`ai-config.conf` is a small file at a project's root that records what *that project* has
-decided about its own AI configuration. ai-config reads it on every run, before it writes
-anything. It is meant to be committed.
+`ai-config.conf` sits in the project's top folder. It holds the choices this one project has made, and
+ai-config reads it every time it runs. **Commit it to git.**
 
-## Why it exists
+## Why it matters
 
-Everything else ai-config produces — `.claude/`, `CLAUDE.md`, `MEMORY.md`, `.okf/` — is
-gitignored in most projects. That is usually the right call: the config is reproducible from
-this script, so there is no reason to review it in a PR. The problem is what happens to the
-parts that *aren't* reproducible.
+Almost everything ai-config writes stays out of git, which is usually right. But it means a fresh clone, a new
+computer or a rebuilt container starts from the default setup. Library notes you deleted come back, options you
+turned on are off again, and nothing warns you.
 
-Three kinds of local decision used to live only in those ignored files:
+`ai-config.conf` is the one file that travels with the repository, so those choices survive.
 
-| Decision | Where the evidence lived | What happened next |
-|---|---|---|
-| A curated library set (framework references pruned after analysis) | the files' absence, plus `.claude/ai-config/manifest.tsv` | a fresh deploy re-added all of them |
-| A decision log moved to a tracked file under `docs/` | a hand edit to `.claude/rules/memory-management.md` | the managed Memory Protocol block still said to write decisions to project memory, and re-asserted that on every run |
-| Sticky flags (`--okf-memory`, `--orchestrator`, `--shared-policy`) | the presence of `.okf/`, `.claude/settings.json`, model keys in `settings.local.json` | a fresh clone has none of them, so the next run deployed the default |
+## Create it
 
-The common thread is that the evidence for a decision sat inside the ignored tree. A fresh
-clone — a new machine, a teammate, a rebuilt container — has no manifest and no stickiness
-markers, so `ai-config --project=.` is a *first* deploy and rebuilds the stock config. Nothing
-warns you; the pruned libraries are simply back and the decision log has quietly moved.
-
-`ai-config.conf` is the one file that survives that, so it is where those decisions belong.
-
-## Creating it
+Run this from inside the project folder. It looks at the project as it is now and writes down what it finds:
 
 ```bash
 ai-config --save-policy --project=.
 ```
 
-This inspects the project as it stands now and writes the file: the detected stack, the flags
-currently in effect, and every file the manifest says ai-config installed that is no longer on
-disk. Then commit it.
+Then commit it:
 
 ```bash
-git add ai-config.conf && git commit -m "chore: record ai-config project policy"
+git add ai-config.conf
 ```
 
-Re-run `--save-policy` any time you prune more files. It keeps what is already in the file and
-adds to it — hand-written values are never discarded, and a run that finds nothing new leaves
-the file untouched rather than churning the timestamp.
+```bash
+git commit -m "chore: record ai-config project settings"
+```
 
-## Format
+Run `--save-policy` again whenever you delete more files. It keeps what's already in the file, including anything
+you typed yourself.
+
+## What it looks like
 
 ```ini
 [options]
-# Flags this project always wants. An explicit command-line flag still wins.
 stack = craftcms
 okf-memory = true
 
 [decisions]
-# Architectural decisions are recorded here, not in project memory.
 path = docs/decisions.md
 
 [exclude]
-# Shipped files this project removed on purpose, or has taken over.
 .claude/libraries/react.md
 .claude/libraries/vue.md
-.claude/rules/my-own-rule.md
 ```
 
-Blank lines are ignored, and so is anything after `#` at the start of a line or after ` #`
-mid-line. An unknown section, a malformed line or an unknown key is reported and skipped — a
-typo in a committed file can never block a deploy.
+- A line starting with `#` is a comment.
+- A typo never stops a run. ai-config reports the line and skips it.
+- Editing this file from Claude always asks you first, because it's part of the safety setup.
 
-### `[options]`
+## `[options]`: options this project always wants
 
-Supplies defaults for the flags ai-config would otherwise have to infer. An explicit
-command-line flag always wins, so `--stack=custom` still overrides `stack = craftcms` for that
-one run.
+Each line works like the matching command-line option. An option you type on the command line still wins for that
+run.
 
-| Key | Values | Equivalent flag |
-|---|---|---|
-| `stack` | any stack id | `--stack=` |
-| `name`, `slug` | text | `--name=`, `--slug=` |
-| `effort` | `low`…`max` | `--effort=` |
-| `okf-memory` | `true`/`false` | `--okf-memory` |
-| `orchestrator` | `true`/`false` | `--orchestrator` |
-| `shared-policy` | `true`/`false` | `--shared-policy` |
-| `with-openai` | `true`/`false` | `--with-openai` |
-| `superpowers` | `true`/`false` | `--no-superpowers` |
-| `eager-libraries` | `true`/`false` | `--eager-libraries` |
-| `engineering-practices` | `false` | `--no-engineering-practices` |
-| `ci-checks` | `false` | none: for a project with no CI (DDEV only), `--doctor` stops warning about CI steps |
-| `response-style` | `false` | `--no-response-style` |
-| `claudeignore` | `false` | `--no-claudeignore` |
-| `skip-vscode` | `true`/`false` | `--skip-vscode` |
-| `philter` | a set name | none (see below) |
+| Line | Same as |
+|---|---|
+| `stack = craftcms` | `--stack=craftcms` |
+| `name = My Site`, `slug = my-site` | `--name=`, `--slug=` |
+| `effort = high` | `--effort=high` |
+| `okf-memory = true` | `--okf-memory` |
+| `orchestrator = true` | `--orchestrator`. `false` removes it, even if it was on before |
+| `shared-policy = true` | `--shared-policy` |
+| `with-openai = true` | `--with-openai` |
+| `superpowers = false` | `--no-superpowers` |
+| `superpowers-bootstrap = true` | `--superpowers-bootstrap` |
+| `eager-libraries = true` | `--eager-libraries` |
+| `engineering-practices = false` | `--no-engineering-practices` |
+| `response-style = false` | `--no-response-style` |
+| `claudeignore = false` | `--no-claudeignore` |
+| `skip-vscode = true` | `--skip-vscode` |
+| `design-skills = true` | `--design-skills` (`false` turns them off) |
+| `sandbox = devcontainer` | `--devcontainer` |
+| `ci-checks = false` | For a project with no automated tests online: `--doctor` stops warning about missing checks |
+| `profile = cps` | Use this [profile](profiles.md) for this project |
+| `philter = acme` | Use this [Philter](philter.md) policy. ai-config writes the name into a `.philter` file; commit that too |
 
-`true`/`yes`/`on`/`1` and `false`/`no`/`off`/`0` are all accepted.
+`true`, `yes`, `on` and `1` all mean yes. `false`, `no`, `off` and `0` all mean no.
 
-#### `philter = <set>`
-
-Names the Philter policy set this project uses. Setup and `--refresh` write it to a `.philter`
-file at the project root: one comment line saying ai-config wrote it, then the bare set name.
-
-```ini
-[options]
-philter = acme
-```
-
-- The value is lowercase letters, digits and hyphens, starting with a letter or digit
-  (`comprehensive` means the base policy). Anything else gets a warning and no file.
-- **Commit `.philter`.** ai-config never adds it to `.gitignore`, and `--clean` and
-  `--uninstall` leave it in place (both say so).
-- Changing the value and running `--refresh` rewrites the file and reports the change. A
-  `.philter` you wrote yourself, without ai-config's comment line, is never overwritten, and
-  without the `philter` option the file is not touched at all.
-- philter-guard is optional. ai-config only writes the name: it never calls Philter and never
-  reads philter-guard's key. `--doctor` reports the set when the `philter` MCP server is
-  registered (use `/scrub` to apply it), and notes "Philter guard not installed" otherwise,
-  without affecting the exit code.
-- Setting up Philter on a computer, writing a set for a codebase, and troubleshooting:
-  [Philter](philter.md).
-
-### `[decisions]`
+## `[decisions]`: where decisions are written down
 
 ```ini
 [decisions]
 path = docs/decisions.md
 ```
 
-Where architectural decisions are recorded. Set it when decisions should live in a
-version-controlled file rather than in project memory — so they land through review, and a bad
-edit can be undone with `git checkout`.
+By default Claude writes architectural decisions in `MEMORY.md`, which isn't in git. Set a path to have it
+write them in a file you commit instead. Then they're reviewed like code, and a bad edit can be undone.
+ai-config puts the path into Claude's instructions on every run, so it can't drift back.
 
-The path is rendered into the managed **Project Memory Protocol** block in `CLAUDE.md` on every
-run, which is the point: that block is regenerated from a template each time, so a hand edit to
-it would not have survived. It is also rendered into `.claude/rules/memory-management.md` and
-`.claude/rules/okf-memory.md`, including their `paths:` frontmatter, so the decision-record
-format rule actually loads when Claude opens that file.
-
-With `--okf-memory` the two settings compose: conventions, integrations and known issues still
-go into the `.okf/` bundle, while decisions go to the path given here.
-
-Unset, decisions default to `MEMORY.md`, or to a `type: Decision` concept file with
-`--okf-memory`.
-
-### `[exclude]`
-
-Project-relative paths that ai-config must not create, update or stage. This is the one case
-where a missing file does **not** mean "add it" — the additive model otherwise treats absence
-as something to fix.
+## `[exclude]`: files ai-config must leave alone
 
 ```ini
 [exclude]
-.claude/libraries/react.md      # one file
-.claude/skills/brainstorming/   # everything under a directory
-.claude/libraries/*.md          # a glob
+.claude/libraries/react.md
+.claude/skills/brainstorming/
+.claude/libraries/*.md
 ```
 
-A path listed here is left entirely alone, whether it exists or not. Use it for two things:
+ai-config never creates, updates or stages a file listed here, whether it exists or not. You can list one file,
+a whole folder (end it with `/`) or a pattern with `*`.
 
-- **Files you deleted on purpose.** Framework library references pruned after analysis, skills
-  you don't want, rules that don't apply.
-- **Files you have taken over.** Listing a file stops ai-config touching it at all, including
-  staging a new version in `pending/`. Note that on a fresh clone an excluded file that isn't
-  tracked simply won't exist — if you have rewritten a shipped file and want to keep it, commit
-  it or use `[decisions]` instead of excluding it.
+Use it for:
 
-### `[remote]`
+- **files you deleted on purpose**, such as library notes the project doesn't need
+- **files you've taken over**, so ai-config stops offering new versions
+
+An excluded file that isn't in git won't exist on a fresh clone. If you rewrote a shipped file and want to keep
+it, commit it.
+
+## `[remote]`: which servers are live
+
+This tells the safety guard what your live (production) and staging servers look like. With it, Claude is
+**blocked** from changing anything in production.
 
 ```ini
 [remote]
-production = /var/www/vhosts/example.org/members.example.org
-production = members_prod, websvr-members-prod, @production
-staging    = /var/www/vhosts/example.org/stg.members.example.org, members_stage
+production = /var/www/vhosts/example.org/www.example.org
+production = example_prod, web-prod, @production
+staging    = /var/www/vhosts/example.org/stg.example.org, example_stage
 ```
 
-What production and staging look like inside a command: vhost paths, SSH host aliases,
-database names, WP-CLI `@aliases`. Values are case-insensitive substrings; repeat a key or
-separate values with commas; a trailing slash is ignored.
+Each value is something that appears in a command aimed at that server: a folder path, an SSH host name, a
+database name or a WP-CLI `@alias`. Matching ignores upper and lower case, and you can put several values on one
+line, separated by commas.
 
-`.claude/hooks/safety-guard.sh` reads this section directly on every Bash call. It parses
-each remote invocation (`ssh`, `scp`/`rsync`, `wp @alias`/`--ssh=`, a database client with a
-non-local host, any tool handed a remote database URI), following quotes, heredocs,
-`bash -c` and `VAR=…; $VAR` indirection. It then classifies what the command would run:
+What the guard does with a command sent to another server (`ssh`, `scp`, `rsync`, `wp @alias`, a remote database):
 
-| What the command does | Staging / undeclared | Production |
+| The command… | Staging, or not listed | Production |
 |---|---|---|
-| Read-only, output-safe: versions, status, listings, `COUNT(*)`, hashes | runs | runs |
-| Returns contents: `cat`/`tail`, `wp option get`, `config get`, `SELECT` rows, logs | asks | asks |
-| Writes, or isn't recognised | asks | **denied** |
-| Can't be inspected: interactive shell, script file, `< file`, tunnel | asks | **denied** |
+| Only reads harmless facts (versions, status, file lists, counts) | Runs | Runs |
+| Shows file contents, settings or database rows | Asks | Asks |
+| Changes something, or the guard doesn't recognize it | Asks | **Blocked** |
+| Can't be checked (an interactive shell, a script file) | Asks | **Blocked** |
 
-Three rules decide the target:
+Three rules decide which server a command targets:
 
-- **The alias isn't a boundary.** A command matches production if a production marker
-  appears anywhere in it: the host, the path, the database or a variable it assigns. The
-  staging alias with a production path is production.
-- **Longest marker first.** A staging path that contains the production one
-  (`stg.members.example.org` contains `members.example.org`) is matched as staging before
-  the production marker is tried, so it isn't mistaken for production.
-- **Production wins.** If any production marker remains, the command is production.
+- **Any production value anywhere counts.** A staging host name with a production path is production.
+- **The longest match is tried first.** So `stg.example.org` is matched as staging before `example.org` is tried.
+- **Production always wins** when both match.
 
-"Runs" means the hook stops forcing a prompt for that command. The shared safety policy
-allows `Bash(ssh:*)`, so read-only checks then run unprompted while the hook keeps gating
-everything else. If the hook can't read the call (no `jq` or `python3` on PATH), it asks
-before any `ssh` rather than letting the allow rule through unchecked.
-Without a `[remote]` section the classifier still applies, but nothing counts as production,
-so remote writes ask instead of being denied.
+Without a `[remote]` section, nothing counts as production: remote changes ask, but aren't blocked.
 
-`assert-database = true` adds one rule for projects whose staging and production share a
-database server: a write to staging is **denied** unless the same command runs
-`SELECT DATABASE()` before it, so the target is proven, not assumed.
+If staging and production share a database server, add `assert-database = true` to the `[remote]` section. A change to staging is then
+blocked unless the same command first checks which database it's connected to (`SELECT DATABASE()`).
 
-Server-side MySQL credential files (`~/.mysql-<site>-prod.cnf`, `.my*.cnf`) are secrets:
-reading one is denied, while passing one to `mysql --defaults-extra-file=` is allowed.
-`--doctor` probes every production marker, and `--save-policy` warns about a marker that
-contains a space or `|`, since it could never match.
+`ai-config --doctor` tests that a production change really is blocked.
 
-Edits to `ai-config.conf` itself ask for confirmation, because this section is part of the
-safety policy.
+## `[scan]`: test files with fake passwords
 
-### `[scan]`
+The safety guard blocks any file that looks like it holds a real password or key. Tests for logins or payments
+often need fake ones that look real. List those test files here so they can be read:
 
 ```ini
 [scan]
 allow = tests/fixtures/**, test-*.sh
 ```
 
-The safety hook reads every file before Claude sees it. A file whose content looks like a
-real credential is denied. A test suite for login, payments or credential handling needs
-fake credentials that look real, so list its fixture files here (project-relative globs,
-comma-separated). The content scan skips them when they're read, searched or committed.
-Path rules still apply, so `.env`, keys and dumps can't be allowed this way. Like the rest of
-the file, editing `[scan]` asks first. `--save-policy` keeps it.
+This only skips the content check. Files like `.env`, keys and database dumps stay blocked whatever you list.
 
-### `[gitignore]`
+## `[gitignore]`: lines ai-config must not add
+
+ai-config adds `.gitignore` lines suited to the stack. If this project is different (say it commits its
+`vendor/` folder), list the lines to leave out:
 
 ```ini
 [gitignore]
 skip = /vendor/, *.sql
 ```
 
-ai-config adds `.gitignore` rules for the stack, anchored to where that stack keeps each file.
-When a codebase differs (a WordPress site that commits a root `vendor/`, an add-on that ships
-loose `.sql` files), list the rules it must not get here. They are never added, and every run
-removes them from the part of `.gitignore` below ai-config's `(Added by ai-config …)` header.
-Deleting the line by hand doesn't last; a refresh adds it back.
+They're never added, and a refresh removes them from ai-config's part of `.gitignore`. To add lines of your own,
+put them in `.gitignore` above ai-config's `(Added by ai-config …)` heading. ai-config never touches that part.
 
-Rules the project needs on top go in `.gitignore` itself, above ai-config's header, where
-ai-config never writes. A stack rule that matches files the repo tracks is skipped
-automatically, and `--doctor` warns about any ai-config rule that matches tracked files.
-`/project-discover` works out both lists from the framework's official starter `.gitignore`.
-`--save-policy` keeps the section.
+## `[sandbox]` and `[vscode]`
 
-### `[sandbox]` and `[vscode]`
+These set what a sandbox can reach, and the dev container's VS Code extensions and settings. See
+[Sandboxes](sandbox.md).
 
-Read by the dev container kit, not by `setup-project.sh`: `[sandbox]` sets what a sandbox may
-reach, and `[vscode]` sets the container's extensions and settings. See
-[sandbox.md](sandbox.md#vs-code-extensions-and-settings). `--save-policy` keeps both sections exactly
-as written, comments included. Earlier versions dropped them, and every run reported them as
-unknown sections.
+## What `--doctor` checks
 
-### `design-skills` and `profile` (under `[options]`)
+- whether `ai-config.conf` exists and is committed. An uncommitted one does nothing for a fresh clone
+- files you deleted that aren't recorded yet, with the command to record them
+- a `[decisions]` path that doesn't exist yet
+- with `[remote]`: that a production change really is blocked
+- without `[remote]`: a warning if the project seems to use `ssh` or `rsync`
 
-- `design-skills = true` deploys the front-end design skills on a CMS stack. JS stacks get
-  them by default; set `false` to turn them off there.
-- `profile = <name>` makes this project use another ai-config profile, for example `cps` on a
-  personal computer. See [profiles.md](profiles.md).
-
-## Health checks
-
-`ai-config --doctor --project=.` reports:
-
-- whether `ai-config.conf` exists, and whether it is **committed** — an uncommitted policy file
-  does nothing for a fresh clone
-- shipped files removed on purpose but **not** recorded, with the `--save-policy` command to fix
-  it
-- a `[decisions] path` that doesn't exist yet
-- `[exclude]` entries that are still present on disk (informational — they are left alone)
-- with `[remote] production` declared: a live test that the deployed hook denies a
-  production write, and any marker under 4 characters (it would match unrelated commands)
-- without it: a warning when `CLAUDE.md`, `MEMORY.md`, `.claude/` or `.okf/` show the
-  project using `ssh`/`rsync`/`scp`
-
-## What it does not cover
-
-`ai-config.conf` records *policy*, not content. `MEMORY.md`, `.okf/` and any file you have
-edited are still only as safe as your backups and your `.gitignore`. If the content of a file
-matters — a decision log is the usual case — put it somewhere tracked and point `[decisions]`
-at it, rather than relying on an ignored file surviving.
-
-`--uninstall` leaves `ai-config.conf` in place. It is the project's file, not ai-config's.
-
-## See also
-
-- [Updating Projects](updating-projects.md) — how additive refresh decides what to write
-- [Memory System](memory-system.md) — `MEMORY.md`, the OKF bundle, and the memory protocol block
-- [Setup Script Guide](setup-script.md) — every flag
+`--uninstall` leaves `ai-config.conf` in place. It belongs to the project.

@@ -1,193 +1,96 @@
-# Quick Start
+# Set up a project
 
-Configure Claude Code for your project in under a minute.
+This page walks you through your first project. You need ai-config [installed](installation.md) first.
 
-## 1. Install (One Time)
+## 1. Go to the project folder
+
+Change the path to your own project:
 
 ```bash
-git clone https://github.com/roberthallatt/claude-optimizer.git ~/.ai-config && \
-~/.ai-config/install.sh && \
-source ~/.zshrc
+cd ~/sites/my-site
 ```
 
-## 2. Configure Your Project
+## 2. Preview it (optional)
+
+This shows what ai-config found and what it would write. Nothing changes.
 
 ```bash
-ai-config --project=/path/to/your/project
+ai-config --dry-run --project=.
 ```
 
-That's it! The script auto-detects your framework and technologies.
-
----
-
-## What Happens
-
-When you run `ai-config --project=.`:
-
-1. **Framework Detection** - Identifies ExpressionEngine, Craft CMS, WordPress, Next.js, etc.,
-   plus the full front-end stack (50+ CSS/JS frameworks and libraries) and bilingual content
-2. **Claude Configuration** - Deploys optimized Claude Code config with rules, agents, skills,
-   and managed `CLAUDE.md` blocks (Safety Guardrails, Memory Protocol, Response Style, Front-End
-   Stack)
-3. **Memory System** - Sets up persistent context (`MEMORY.md`, or `.okf/` with `--okf-memory`)
-4. **Safety Policy** - Merges shared deny/ask rules and the `safety-guard.sh` PreToolUse hook
-   into `settings.local.json`, on top of stack-appropriate permissions
-5. **Update State** - Records a manifest in `.claude/ai-config/` so future `--refresh` runs know
-   what's unedited vs. yours to keep
-6. **VSCode Setup** - Configures syntax highlighting, debugging, tasks
-7. **Health Check** - Verifies the deployment actually works, printing only problems
-
----
-
-## Common Commands
-
-### Current Directory
+## 3. Set it up
 
 ```bash
-cd /path/to/your/project
 ai-config --project=.
 ```
 
-### Preview First
+It works out what the project is built with, then writes Claude's setup. At the end it checks its own work and
+prints any problem it found. A line starting with ✗ is a real problem. A line starting with ⚠ is advice.
 
-```bash
-ai-config --project=. --dry-run
-```
+## 4. Start Claude Code
 
-### Update After Changes
+Open Claude Code in the same folder as usual. Claude now knows the project and follows its safety rules.
 
-```bash
-ai-config --refresh --project=.
-```
+## 5. Check it any time
 
-Additive: a file you edited is kept and its new version staged in
-`.claude/ai-config/pending/`; an unedited file is updated with a backup. Review and adopt
-staged updates with:
-
-```bash
-ai-config --apply-pending --project=.
-```
-
-See [Updating Projects](../guides/updating-projects.md) for the full decision logic.
-
-### OKF Memory (Alternative to MEMORY.md)
-
-```bash
-ai-config --project=. --okf-memory
-```
-
-Stores project memory as a `.okf/` bundle instead of `MEMORY.md`. See
-[Memory System](../guides/memory-system.md#okf-memory-bundle---okf-memory).
-
-### Remove ai-config From a Project
-
-```bash
-ai-config --uninstall --project=.
-```
-
-Keeps files you edited, `MEMORY.md`/`.okf/`, and backs up everything it removes. See
-[Setup Script → --uninstall](../guides/setup-script.md#--uninstall).
-
-### Discovery Mode (Unknown Framework)
-
-```bash
-ai-config --project=. --discover
-```
-
-Then run `/project-discover` in Claude Code.
-
-### Skip VSCode Settings
-
-```bash
-ai-config --project=. --skip-vscode
-```
-
-### Install VSCode Extensions
-
-```bash
-ai-config --project=. --install-extensions
-```
-
-### Check a Project
+This tests the setup without changing anything. It also confirms that Claude is really blocked from reading a
+secret file.
 
 ```bash
 ai-config --doctor --project=.
 ```
 
-Read-only: verifies settings, runs a live safety-hook test, and lists anything to fix.
+## If it can't tell what the project is
 
-### Install Missing Tools
-
-```bash
-ai-config --project=. --install-deps
-```
-
-### All Your Projects at Once
+For a framework ai-config doesn't know, use discovery mode:
 
 ```bash
-ai-config-fleet --root=~/sites            # health check every ai-config project
-ai-config-fleet --root=~/sites --refresh  # refresh them all
+ai-config --discover --project=.
 ```
 
----
+Then, inside Claude Code, type:
 
-## Deployed Files
+```text
+/project-discover
+```
 
-| Component | Files |
-|-----------|-------|
-| Claude Code | `CLAUDE.md`, `MEMORY.md`, `.claude/` |
-| Permissions | `.claude/settings.local.json` |
-| Safety | `.claude/hooks/safety-guard.sh` + deny/ask rules in `settings.local.json` |
-| Update state | `.claude/ai-config/` (manifest, backups, staged updates, version) |
-| VSCode | `.vscode/settings.json`, `launch.json`, `tasks.json` |
+Claude studies the code and writes rules that fit it.
 
----
+To name the stack yourself instead (the [list of stacks](../reference/stacks.md) has every name):
 
-## Auto-Detected Frameworks
+```bash
+ai-config --stack=craftcms --project=.
+```
 
-| Framework | Detection |
-|-----------|-----------|
-| ExpressionEngine | `system/ee/` directory |
-| Craft CMS | `craft` executable |
-| WordPress (Roots) | `web/app/themes/` |
-| WordPress | `wp-config.php` |
-| Next.js | `next.config.js` |
-| Docusaurus | `docusaurus.config.js` |
-| Coilpack | Laravel + EE structure |
+## What to commit to git
 
----
+Most of what ai-config writes is personal setup, so it's kept out of git for you: `CLAUDE.md`, `MEMORY.md` and
+the `.claude/` folder. You don't need to do anything.
 
-## Auto-Detected Technologies
+One file is worth committing: `ai-config.conf`. It records this project's choices, so a fresh clone gets the
+same setup. Create it with:
 
-| Technology | Result |
-|------------|--------|
-| Front-end stack (50+ CSS/JS frameworks, UI kits, libraries, build tools) | Scan summary + Front-End Stack block in `CLAUDE.md`; "custom JS/CSS, no framework" when none is found |
-| Tailwind CSS / Alpine.js | Adds rules + library references (+ VSCode Tailwind support) |
-| Bootstrap, Foundation, Bulma, jQuery, Material UI, SCSS | Adds library references |
-| Bilingual (EN/FR) | Adds bilingual content rules |
-| DDEV | Extracts project config |
+```bash
+ai-config --save-policy --project=.
+```
 
----
+Then commit it like any other file. See [The project settings file](../guides/project-policy.md).
 
-## Superpowers Skills
+## Common extras
 
-Workflow skills are deployed by default:
+| To do this | Add this to the command |
+|---|---|
+| Skip the VS Code settings | `--skip-vscode` |
+| Install the recommended VS Code extensions | `--install-extensions` |
+| Leave out the workflow skills | `--no-superpowers` |
+| Also write `AGENTS.md` for OpenAI Codex | `--with-openai` |
 
-| Skill | Purpose |
-|-------|---------|
-| `memory-management` | Persistent context |
-| `brainstorming` | Idea generation |
-| `writing-plans` | Implementation planning |
-| `executing-plans` | Step-by-step execution |
-| `systematic-debugging` | Root cause analysis |
-| `test-driven-development` | TDD workflow |
+For example:
 
-Disable with `--no-superpowers`.
+```bash
+ai-config --project=. --install-extensions
+```
 
----
+Every option is on [All ai-config options](../guides/setup-script.md).
 
-## Next Steps
-
-- **[Memory System](../guides/memory-system.md)** - Persistent context guide
-- **[Setup Script](../guides/setup-script.md)** - All options
-- **[Configuration](configuration.md)** - What gets deployed
+Next: [What it adds to a project](configuration.md), or [Keep projects up to date](../guides/updating-projects.md).

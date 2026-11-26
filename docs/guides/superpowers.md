@@ -1,299 +1,111 @@
-# Superpowers Workflow Skills
+# Workflow skills
 
-Superpowers is an agentic skills framework that provides structured workflows for Claude Code. It transforms ad-hoc coding into disciplined, systematic development.
+Every project gets 16 workflow skills from [Superpowers](https://github.com/obra/superpowers). A skill is a
+written procedure Claude follows for one kind of job. Debugging, for example, means finding the cause before
+changing any code.
 
-**Source:** [github.com/obra/superpowers](https://github.com/obra/superpowers)
+You don't need to call them. Describe the job and Claude picks the skill that fits. To ask for one by name, say
+so: "use the systematic-debugging skill".
 
-## Overview
+## The skills
 
-Superpowers combines composable "skills" with specialized instructions to guide Claude through structured development processes:
+| Skill | Use it for |
+|---|---|
+| `brainstorming` | Turning an idea into a design, one question at a time, before any code |
+| `writing-plans` | Writing a step-by-step plan once the design is agreed |
+| `executing-plans` | Working through a plan in batches, checking as it goes |
+| `verification-before-completion` | Proving the work is done before saying so |
+| `systematic-debugging` | Any bug or failing test: find the cause first, then fix |
+| `test-driven-development` | Writing the test first, watching it fail, then writing the code |
+| `requesting-code-review` | Getting finished work reviewed |
+| `receiving-code-review` | Working through review comments |
+| `dispatching-parallel-agents` | Splitting independent work across several helpers |
+| `subagent-driven-development` | Running a whole plan through helper agents |
+| `using-git-worktrees` | Working on a feature in a separate copy of the repo |
+| `finishing-a-development-branch` | Wrapping up a branch: tests, merge, clean up |
+| `using-superpowers` | How the skills system works |
+| `writing-skills` | Writing a new skill |
+| `component-scaffolder` | A new React, Vue or Svelte component with its test |
+| `design-system-builder` | Auditing design tokens and building a component library |
 
-1. **Discovery** - Understand requirements through conversation before coding
-2. **Design Review** - Present specifications in digestible sections for validation
-3. **Planning** - Create implementation strategies with TDD and YAGNI principles
-4. **Execution** - Tackle tasks systematically with quality checkpoints
-5. **Verification** - Ensure completeness before marking work done
+The old `/brainstorm`, `/write-plan` and `/execute-plan` commands still exist, but only to point Claude at the
+matching skill.
 
-## Installation
+## Choose which skills a project gets
 
-Superpowers is automatically deployed with every AI Config setup:
-
-```bash
-ai-config --project=/path/to/project 
-```
-
-**What gets deployed:**
-- `.claude/skills/<skill>/` - 16 workflow skills (Claude Code only discovers skills one folder deep)
-- `.claude/commands/` - Three deprecated stub commands (brainstorm, write-plan, execute-plan) —
-  see [Slash Commands](#slash-commands)
-- `.claude/hooks/session-start` - Loads the using-superpowers skill at session start (registered with
-  `CLAUDE_PLUGIN_ROOT` so it emits Claude Code's `hookSpecificOutput` format). **Opt-in:** only
-  registered with `--superpowers-bootstrap` (or `superpowers-bootstrap = true` in `ai-config.conf`).
-  The bootstrap costs ~1.3k tokens per session and tells Claude to invoke a skill whenever one
-  might apply, which pulls skills into most tasks. Without it, a refresh unregisters the hook and
-  the skills are still listed and usable by name.
-
-If the superpowers plugin is already enabled in `~/.claude/settings.json`, the project copy is
-skipped so the bootstrap isn't loaded twice; pass a `--superpowers-*` flag to deploy it anyway.
-Projects deployed before this layout had skills in `.claude/skills/superpowers/`, where Claude Code
-never found them (and the hook injected a read error instead of the skill). `--refresh` moves them up
-a level, edits included, and `--doctor` flags any left behind.
-
-### Disable Superpowers
-
-If you don't want Superpowers:
+All of them:
 
 ```bash
-ai-config --project=/path/to/project --no-superpowers
+ai-config --project=.
 ```
 
-## Available Skills
+Only the core ones (testing, debugging, brainstorming):
 
-### Core Workflow Skills
-
-| Skill | Purpose | When to Use |
-|-------|---------|-------------|
-| `brainstorming` | Turn ideas into designs | Before any creative work |
-| `writing-plans` | Create implementation plans | After design is validated |
-| `executing-plans` | Execute in batches with checkpoints | When implementing a plan |
-| `verification-before-completion` | Quality checks | Before marking work done |
-
-### Testing & Debugging
-
-| Skill | Purpose | When to Use |
-|-------|---------|-------------|
-| `systematic-debugging` | Root cause analysis | Any bug, test failure, or unexpected behavior |
-| `test-driven-development` | TDD workflow | Writing new functionality |
-
-### Collaboration
-
-| Skill | Purpose | When to Use |
-|-------|---------|-------------|
-| `requesting-code-review` | Request reviews | When code is ready for review |
-| `receiving-code-review` | Handle feedback | When receiving review comments |
-| `dispatching-parallel-agents` | Multi-agent coordination | Complex tasks needing parallelization |
-| `subagent-driven-development` | Agent orchestration | Large-scale development |
-
-### Git Workflows
-
-| Skill | Purpose | When to Use |
-|-------|---------|-------------|
-| `using-git-worktrees` | Isolated workspaces | Feature development |
-| `finishing-a-development-branch` | Branch completion | Merging finished work |
-
-### Meta Skills
-
-| Skill | Purpose | When to Use |
-|-------|---------|-------------|
-| `using-superpowers` | Skill system guide | Understanding how to use skills |
-| `writing-skills` | Create custom skills | Building new skills |
-
-> `memory-management` is **not** a Superpowers skill (`ls superpowers/skills` doesn't list it).
-> Persistent memory is handled separately by `.claude/rules/memory-management.md` and the
-> always-on Memory Protocol block in `CLAUDE.md` — see the [Memory System guide](memory-system.md).
-
-### Frontend & Design System
-
-| Skill | Purpose | When to Use |
-|-------|---------|-------------|
-| `component-scaffolder` | Typed React/Vue/Svelte component + test generation | Creating a new component |
-| `design-system-builder` | Token audit, component inventory, shadcn/ui + cva build | Establishing or extending a design system |
-
-## Slash Commands
-
-Three commands are deployed to `.claude/commands/`, but as of the current upstream, all three
-are **deprecated stubs**: each just tells Claude the command is deprecated and to use the
-equivalent skill instead. They do none of the work described in older versions of this guide.
-
-| Command | Deprecated in favor of |
-|---------|------------------------|
-| `/brainstorm` | `superpowers:brainstorming` skill |
-| `/write-plan` | `superpowers:writing-plans` skill |
-| `/execute-plan` | `superpowers:executing-plans` skill |
-
-In practice you don't need to invoke either form directly — per the Iron Rules below, Claude
-invokes the matching skill on its own whenever it applies. Just describe what you want:
-
-```
-Add user authentication to the app
+```bash
+ai-config --project=. --superpowers-core
 ```
 
-...and Claude invokes `brainstorming` (then `writing-plans`, then `executing-plans`) as the work
-progresses, the same workflow the deprecated commands used to kick off explicitly.
+Only the ones you name:
 
-## The Iron Rules
-
-Superpowers enforces disciplined development:
-
-### 1. Skills Are Mandatory
-
-If a skill applies (even 1% chance), it MUST be invoked:
-
-> "If you think there is even a 1% chance a skill might apply to what you are doing, you ABSOLUTELY MUST invoke the skill."
-
-### 2. No Fixes Without Investigation
-
-The systematic-debugging skill enforces:
-
-```
-NO FIXES WITHOUT ROOT CAUSE INVESTIGATION FIRST
+```bash
+ai-config --project=. --superpowers-skill=systematic-debugging,test-driven-development
 ```
 
-Random fixes waste time and create new bugs.
+None:
 
-### 3. One Question at a Time
+```bash
+ai-config --project=. --no-superpowers
+```
 
-During brainstorming, Claude asks ONE question per message to avoid overwhelming.
+If you've turned on the Superpowers plugin for your whole computer, ai-config skips the project copy so the
+skills don't load twice.
 
-### 4. Incremental Validation
+## The start-of-session reminder (off by default)
 
-Designs are presented in 200-300 word sections, validating each before continuing.
+Superpowers can remind Claude about the skills at the start of every session. That costs about 1,300 tokens a
+session, and it makes Claude reach for a skill on almost every task. It's off unless you ask for it:
 
-## Red Flags
+```bash
+ai-config --refresh --project=. --superpowers-bootstrap
+```
 
-These thoughts mean STOP - you're rationalizing skipping the process:
+Without it, the skills are still listed and work when a task calls for them.
 
-| Thought | Reality |
-|---------|---------|
-| "This is just a simple question" | Questions are tasks. Check for skills. |
-| "I need more context first" | Skill check comes BEFORE clarifying questions. |
-| "Let me explore the codebase first" | Skills tell you HOW to explore. Check first. |
-| "This doesn't need a formal skill" | If a skill exists, use it. |
-| "Quick fix for now, investigate later" | First fix sets the pattern. Do it right. |
-| "Just try changing X and see if it works" | Systematic debugging is faster than thrashing. |
+## Write your own skill
 
-## Workflow Examples
-
-### Building a New Feature
-
-1. **User:** "Add a dark mode toggle"
-2. **Claude:** Invokes `brainstorming` skill
-3. **Claude:** Asks questions one at a time about requirements
-4. **Claude:** Proposes approaches (CSS variables vs. Tailwind dark: vs. etc.)
-5. **Claude:** Presents design in sections for validation
-6. **User:** Approves design
-7. **Claude:** Invokes `writing-plans` to create implementation plan
-8. **Claude:** Invokes `executing-plans` to implement
-9. **Claude:** Invokes `verification-before-completion` to ensure quality
-
-### Debugging a Bug
-
-1. **User:** "Tests are failing in the auth module"
-2. **Claude:** Invokes `systematic-debugging` skill
-3. **Phase 1:** Reads error messages, reproduces issue, checks recent changes
-4. **Phase 2:** Finds working examples, compares differences
-5. **Phase 3:** Forms hypothesis, tests minimally
-6. **Phase 4:** Creates failing test, implements fix, verifies
-
-## Customizing Skills
-
-Skills are markdown files in `.claude/skills/<skill>/SKILL.md`. Each has:
+Make a folder in `.claude/skills/` with a `SKILL.md` file inside:
 
 ```markdown
 ---
-name: skill-name
-description: When to use this skill
+name: my-skill
+description: When Claude should use this skill
 ---
 
-# Skill Title
+# My skill
 
-## Overview
-...
-
-## The Process
-...
+The steps to follow.
 ```
 
-### Adding Custom Skills
+ai-config never touches a skill folder it didn't ship. The `writing-skills` skill has more guidance.
 
-1. Create directory in `.claude/skills/`
-2. Add `SKILL.md` with frontmatter
-3. Document the workflow
+## Keeping the skills current (for whoever maintains ai-config)
 
-See `writing-skills` skill for detailed guidance.
+The skills live in this repository's `superpowers/` folder, copied from
+[this fork](https://github.com/roberthallatt999/superpowers). Every setup and refresh first tries to download
+the latest version. If you're offline or the repository has uncommitted changes, it quietly uses the copy it
+has.
 
-## Integration with Memory System
+To update by hand, run this from the ai-config folder. It needs a clean working tree:
 
-Superpowers works with the [Memory System](memory-system.md):
-
-- Memory bank provides project context for skills
-- Skills reference memory for project-specific knowledge
-- Decisions from brainstorming sessions update memory
-
-## Disabling for Specific Sessions
-
-If you need to work without Superpowers for a session:
-
-```
-Please work without invoking skills for this session
+```bash
+./update-superpowers.sh
 ```
 
-## Maintaining Superpowers (Upstream Updates)
+It prints the `git diff` command to review what changed. If the number of skills changed, update the count in
+`CLAUDE.md` and on this page.
 
-Superpowers is a **third-party repository** vendored into `superpowers/` as a
-**squashed git subtree** — not a submodule. There is no `.gitmodules` file; the
-files live directly in this repo's history, which is why deployment can copy them
-without any extra clone or checkout step.
-
-- **Source fork:** [github.com/roberthallatt999/superpowers](https://github.com/roberthallatt999/superpowers) (branch `main`) — tracks [obra/superpowers](https://github.com/obra/superpowers) upstream
-- **Vendored prefix:** `superpowers/`
-- **Current version:** see `version` in `superpowers/.claude-plugin/plugin.json`
-
-### Automatic updates on deploy/refresh
-
-Every `ai-config` deploy or `--refresh` (when Superpowers is enabled) runs
-`update-superpowers.sh` **before** copying skills into the target project, so each
-deployment ships the current set. This is **best-effort**: if the optimizer repo
-has uncommitted changes, you're offline, or `git` is unavailable, it prints a
-warning and falls back to the already-vendored copy — it never blocks the deploy.
-
-> **Note:** the update targets the **claude-optimizer repo itself** (where the
-> subtree lives), not the project being configured. A successful pull creates a
-> squashed merge commit in this repo.
-
-Opt out for a single run:
+To skip the download for one run:
 
 ```bash
 ai-config --refresh --project=. --skip-superpowers-update
 ```
-
-### Manual update
-
-Run the helper directly from the repository root (clean working tree required):
-
-```bash
-./update-superpowers.sh           # verbose
-./update-superpowers.sh --quiet   # only warnings (how setup-project.sh calls it)
-```
-
-The script pulls from the fork with `git subtree pull --prefix=superpowers … --squash`,
-collapsing upstream history into a single merge commit (matching how the subtree
-was originally added). It preflight-checks for a clean tree and a reachable remote,
-and on a conflict it aborts the merge to leave the tree clean.
-
-### After updating
-
-1. **Review the diff** — the script prints the exact `git diff <before> <after> -- superpowers/` command to run.
-2. **Check the skill count** — the setup script and docs reference a specific number
-   of deployed skills. If upstream adds or removes skills, update those references
-   (`CLAUDE.md`, this guide, `docs/reference/commands.md`).
-3. **Verify deployment** — run a `--dry-run` against a test project to confirm the
-   skills still copy into `.claude/skills/<skill>/` as expected, then `--doctor` on a real deploy
-   to confirm the session-start hook loads the bootstrap skill:
-   ```bash
-   ai-config --dry-run --project=/path/to/test-project
-   ```
-
-### Resolving conflicts
-
-Because this repo only **reads** from `superpowers/` (deployment copies files out;
-we don't edit them in place), conflicts are rare. If you have local modifications
-inside `superpowers/`, prefer making them as deploy-time overrides in the stack
-templates instead — keeping `superpowers/` a pristine mirror of the fork makes
-future `subtree pull`s conflict-free.
-
-## Next Steps
-
-- **[Memory System](memory-system.md)** - Persistent context guide
-- **[Setup Script](setup-script.md)** - Deployment options
-- **[Commands Reference](../reference/commands.md)** - All available commands

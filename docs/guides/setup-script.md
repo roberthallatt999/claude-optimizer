@@ -1,879 +1,159 @@
-# Setup Script Guide
+# All ai-config options
 
-Comprehensive guide to using the `ai-config` command (the global alias for `setup-project.sh`).
-
-## Synopsis
-
-```bash
-ai-config [OPTIONS]
-```
-
-## Required Options
-
-### --project=\<path>
-
-Target project directory (absolute or relative path, use `.` for current directory).
-
-**Required for all operations.**
-
-## Stack Selection
-
-### Auto-Detect (Recommended)
-
-If you omit `--stack`, the script will automatically detect your project's stack:
+Every option goes after `ai-config`. Every command needs `--project=`, which is the project folder. From inside
+the folder, use `--project=.`.
 
 ```bash
-ai-config --project=/path/to/project
-```
-
-**Detects:**
-- SvelteKit 2
-- Remix / React Router v7
-- T3 Stack (Next.js + tRPC + Prisma)
-- Nuxt 3
-- Next.js 14+
-- Astro (standalone, + Sanity, + Strapi, + Tina CMS)
-- Docusaurus 3+
-- ExpressionEngine 7.x (standalone, + Coilpack, + Coilpack/Next.js)
-- Craft CMS (standalone, + Nuxt, + Next.js)
-- WordPress / Bedrock (standalone, + Sage/Roots)
-
-### --stack=\<name>
-
-Manually specify the technology stack template to use.
-
-**Available stacks:**
-- `sveltekit`
-- `remix`
-- `t3-stack`
-- `nuxt`
-- `nextjs`
-- `astro` / `astro-sanity` / `astro-strapi` / `astro-tina`
-- `docusaurus`
-- `expressionengine`
-- `coilpack`
-- `craftcms` / `craftcms-nuxt` / `craftcms-nextjs`
-- `ee-nextjs`
-- `wordpress-roots`
-- `wordpress`
-- `custom` (used with `--discover`)
-
-Run `./setup-project.sh --help` for the exact, current list (also printed at the bottom of its
-output).
-
-**Example:**
-```bash
-ai-config --stack=expressionengine --project=/path/to/project
-```
-
-### --discover
-
-AI-powered discovery mode for projects that don't match a known stack.
-
-```bash
-ai-config --discover --project=/path/to/project
-```
-
-This will:
-1. Detect 50+ technologies (React, Vue, Laravel, Django, Express, etc.)
-2. Deploy base Claude Code configuration
-3. Deploy memory bank and token optimization
-4. Generate a discovery prompt for AI analysis
-
-Then open in Claude Code and run `/project-discover` to generate custom rules.
-
-## Deployment
-
-### What Gets Deployed
-
-Every deployment creates:
-- `CLAUDE.md` - Generated from stack template
-- `MEMORY.md` - Persistent memory bank
-- `.claude/` directory with rules, agents, commands, skills, hooks
-- `.claude/libraries/` - Project-local library references
-- `.claude/settings.local.json` - Stack-appropriate permissions plus the shared
-  safety policy (deny/ask rules, safety-guard hook registration)
-- `.claude/hooks/safety-guard.sh` - PreToolUse hook enforcing the safety guardrails
-- `.vscode/` - Editor settings (unless `--skip-vscode`)
-
-## Memory & Token Optimization
-
-Every deployment includes the memory system and token-saving defaults:
-
-- `MEMORY.md` - Persistent memory bank (preserved on refresh)
-- **Engineering Practices block** in `CLAUDE.md` and `.claude/rules/engineering-practices.md` -
-  rules that keep AI-written code checkable by one person: how to work (assumptions first,
-  read before writing, simplest code, surgical changes, verifiable goals, no hacks, fail
-  loud), code quality (names, constants, small functions, why-comments, intent-encoding
-  tests), a server-side security checklist; use the framework's security
-  features instead of hand-written ones, back every security claim in a comment with a test
-  that attacks it over a real request, write that test first and see it fail, let CI run
-  `composer audit` / `npm audit` / tests / PHPStan (`--doctor` warns about the ones a
-  project's workflows don't run), suggest a fresh-eyes security review each quarter, and
-  split files over ~1,000 lines before adding to them.
-- **Response Style block** in `CLAUDE.md` - concise-output defaults: lead with the
-  answer, no narration or recaps, `path:line` references instead of pasted code.
-  Output tokens are the most expensive, so this is on by default.
-- **On-demand library references** - `@.claude/libraries/*.md` imports are rewritten
-  to plain path references. `@imports` expand into context in every session; a path
-  reference is read only when the task involves that library.
-- **Path-scoped rules** - stack rules carry `paths:` frontmatter and load only when
-  Claude works with matching files (`memory-management.md` loads with `MEMORY.md`,
-  `sensitive-files.md` / `deployment-safety.md` with config and deploy files).
-- `.claude/rules/token-optimization.md` - Compact context-efficiency habits (always loaded)
-- **Superpowers de-duplication** - when the superpowers plugin is enabled in
-  `~/.claude/settings.json`, the project copy is skipped because it would inject the
-  same bootstrap and skill list a second time. An explicit `--superpowers-*` flag
-  deploys it anyway.
-
-### Token & cost options
-
-| Flag | Effect |
-|------|--------|
-| `--no-engineering-practices` | Omit the Engineering Practices block and rule (removes the block on `--refresh`) |
-| `--no-response-style` | Omit the Response Style block (removes it on `--refresh`) |
-| `--eager-libraries` | Keep `@.claude/libraries/*.md` imports (loaded every session) |
-| `--effort=<level>` | Set `effortLevel` (`low`, `medium`, `high`, `xhigh`, `max`) in `settings.local.json` |
-| `--okf-memory` | Store project memory as an OKF bundle in `.okf/` instead of `MEMORY.md` (see [Memory System Guide](memory-system.md)) |
-
-For JavaScript-framework stacks, an installed [codegraph](https://github.com/colbymchenry/codegraph)
-with an existing `.codegraph/` index is registered automatically at local MCP scope; nothing is
-installed (see [MCP Integration](mcp-integration.md#code-index-codegraph)).
-
-For PHP stacks (ExpressionEngine, Coilpack, Craft, WordPress, Bedrock/Sage, and the headless
-Craft/EE backends), when [Intelephense](https://intelephense.com/) is on PATH the official
-`php-lsp` plugin is enabled for the project with
-`claude plugin install php-lsp@claude-plugins-official --scope local` (writes only the
-gitignored `settings.local.json`). Claude then gets go-to-definition, references, and
-diagnostics for themes, plugins, modules, and add-ons. An explicit `true`/`false` for the plugin
-in project or user settings is always respected. Install Intelephense with
-`npm install -g intelephense`, then `--refresh`. Templates (EE tags, Twig, Blade) are covered by
-the template map in `--okf-memory` projects (see [Memory System Guide](memory-system.md)).
-
-## Prerequisites and Health Check
-
-Every deploy and refresh first checks for the tools it relies on — `jq`, `perl`, `awk`, `sed`,
-`find`, `cmp`, `mktemp`, and `shasum`/`sha256sum`. If one is missing the run stops before
-changing anything, because the safety policy merge and the additive update rules depend on them.
-
-### --install-deps
-
-Install what the project needs before the run starts:
-
-```bash
-ai-config --project=/path/to/project --install-deps
-```
-
-| Installs | When | How |
-|---|---|---|
-| `jq`, `perl`, `awk`, `sed`, `find`, `cmp`, `mktemp`, `shasum`/`sha256sum` | missing | System package manager |
-| `git` | missing | System package manager |
-| Node.js + npm | PHP stack and npm missing | System package manager |
-| Intelephense (for `php-lsp`) | PHP stack | `npm install -g intelephense` |
-
-- **Package managers:** Homebrew on macOS; `apt-get` (runs `apt-get update` and retries if
-  the first install fails), `dnf`, `yum`, `pacman`, `zypper`, or `apk` on Linux. System
-  managers run through `sudo` when you aren't root. Override detection with
-  `AI_CONFIG_PKG_MANAGER=<manager>` (or `none`).
-- **Confirmation:** the exact commands are shown first; on a terminal you're asked before
-  anything installs, unless `--force`. `--dry-run` shows the plan and installs nothing.
-- **Never done:** installing a package manager, piping a remote install script (so codegraph
-  and Claude Code itself stay manual — the run names them), or running npm with `sudo` (for an
-  npm permissions error, use a user-owned prefix).
-
-If a required tool still can't be installed, the preflight stops the run as usual.
-
-After writing, a health check verifies the result works, printing only problems:
-
-- `settings.local.json` is valid JSON and contains every shared deny/ask rule
-- `safety-guard.sh` is registered, executable, and **actually blocks** a test `cat .env` call
-- the SessionStart hook script exists when it's registered
-- `CLAUDE.md` has the Safety Guardrails and memory protocol blocks; the safety rules exist
-- the OKF bundle is conformant (`--okf-memory` projects)
-- codegraph (JS stacks) and php-lsp/Intelephense (PHP stacks) are consistent with what's configured
-- `.claude/ai-config/` is gitignored
-
-A failing check (✗) makes the run exit 1. Run the same checks any time, read-only and with
-passing checks listed too:
-
-```bash
-ai-config --doctor --project=/path/to/project
-```
-
-See [Memory System Guide](memory-system.md) for details.
-
-## Superpowers Skills
-
-Superpowers workflow skills are enabled by default:
-
-### Skill Options
-
-| Flag | Description |
-|------|-------------|
-| `--no-superpowers` | Disable all Superpowers skills |
-| `--with-superpowers` | Turn them on for this run even when `ai-config.conf` sets `superpowers = false` |
-| `--superpowers-all` | Deploy all skills (default) |
-| `--superpowers-core` | Deploy core skills only |
-| `--superpowers-minimal` | Deploy bootstrap skill only |
-| `--superpowers-skill=X` | Deploy specific skills (comma-separated) |
-| `--skip-superpowers-update` | Don't pull the latest subtree before deploying |
-
-By default, every deploy/refresh first runs `update-superpowers.sh` (best-effort)
-to pull the latest vendored skills. See
-[Superpowers → Maintaining Superpowers](superpowers.md#maintaining-superpowers-upstream-updates).
-Pass `--skip-superpowers-update` to use the already-vendored copy without touching
-the network or the optimizer repo. `AI_CONFIG_SKIP_SUPERPOWERS_UPDATE=1` does the same
-from the environment; `run-tests.sh` sets it for every test suite.
-
-### Available Skills
-
-16 skills total, deployed to `.claude/skills/<skill>/`. See
-[Superpowers → Available Skills](superpowers.md#available-skills) for the full, categorized
-list — `brainstorming`, `writing-plans`, `executing-plans`, `verification-before-completion`,
-`systematic-debugging`, `test-driven-development`, `requesting-code-review`,
-`receiving-code-review`, `dispatching-parallel-agents`, `subagent-driven-development`,
-`using-git-worktrees`, `finishing-a-development-branch`, `using-superpowers`, `writing-skills`,
-`component-scaffolder`, `design-system-builder`.
-
-## Update Options
-
-### --refresh
-
-Update configuration files while preserving customizations.
-
-**Behavior:**
-- Re-scans project for technology changes
-- **Additive only.** A file you edited is kept and its new version staged in
-  `.claude/ai-config/pending/`; an unedited file is updated; anything modified is backed
-  up to `.claude/ai-config/backups/<run>/` first (see
-  [Updating Projects](updating-projects.md#how-refresh-decides-additive-updates))
-- Regenerates `CLAUDE.md` if unedited; otherwise refreshes only its managed blocks
-  (safety guardrails, memory protocol, response style, front-end stack, code index, and the
-  orchestrator policy when `--orchestrator` is active)
-- Adds the shared safety policy to `settings.local.json` (nothing removed) and the
-  `.claude/hooks/safety-guard.sh` hook
-- **Preserves `MEMORY.md`** (never modified)
-- Agents, commands, and skills are not re-copied on refresh. Rules are additive: the four common
-  rules (`token-optimization.md`, `memory-management.md`, `sensitive-files.md`,
-  `deployment-safety.md`) update if present and unedited, the two safety rules are restored if
-  missing, and any stack rule a fresh deploy would add — including `typescript-patterns.md` /
-  `design-system.md` / `api-design.md` where they apply — is added once if it's missing and was
-  never deployed before, then kept in sync while present. The original six stack-pattern rules
-  (`expressionengine-templates.md`, `craft-templates.md`, `blade-templates.md`,
-  `nextjs-patterns.md`, `laravel-patterns.md`, `markdown-content.md`), `accessibility.md` /
-  `performance.md`, and the detection-gated rules (`tailwind-css.md`, `alpinejs.md`,
-  `bilingual-content.md`) are still only written on the initial deploy
-- Updates the vendored Superpowers subtree (best-effort) before deploying skills
-
-**Library references respect your curation.** On refresh, `.claude/libraries/` is
-updated, not reset:
-
-- A library that is **already present** is updated to the latest version.
-- A library you **deleted** is **not** re-added — unless this refresh newly
-  **detects** its technology (e.g. you just added Tailwind, so `tailwind.md`
-  comes back).
-- Detection-backed libraries (22 total): `typescript.md`, `zod.md`, `zustand.md`,
-  `tanstack-query.md`, `trpc.md`, `prisma.md`, `supabase.md`, `vitest.md`,
-  `playwright.md`, `framer-motion.md`, `shadcn-ui.md`, `pinia.md`, `tailwind.md`,
-  `alpinejs.md`, `scss.md`, `tinacms.md`, `foundation.md`, `bootstrap.md`, `bulma.md`,
-  `jquery.md`, `material-ui.md`, `vanilla-js.md`.
-- Framework libraries (`react.md`, `vue.md`, `nextjs.md`, …) are stack-implied
-  with no runtime signal, so once removed they stay removed.
-
-This means a refresh never silently re-introduces a library you intentionally
-curated away — the kind of change that previously required re-running analysis to
-undo.
-
-A **fresh deploy** is a different matter: it has nothing to curate against, so it installs the
-full set. Record the pruning in `ai-config.conf` (`ai-config --save-policy --project=.`) and it
-holds on a fresh deploy and a fresh clone as well — see [Project Policy](project-policy.md).
-
-**Example:**
-```bash
-ai-config --refresh --project=/path/to/project
-```
-
-**Note:** Specify `--stack` for refresh if auto-detection fails.
-
-### --save-policy
-
-Write `ai-config.conf` — the project's own, committed record of its AI configuration policy —
-from the project's current state, then exit without deploying.
-
-```bash
-ai-config --save-policy --project=.
-git add ai-config.conf && git commit -m "chore: record ai-config project policy"
-```
-
-It captures exactly what a fresh clone would otherwise lose, because the evidence for it lives
-in gitignored files:
-
-- `[options]` — the stack and the flags now in effect (`okf-memory`, `orchestrator`,
-  `shared-policy`, `with-openai`, `effort`, …), which are otherwise inferred from `.okf/`,
-  `.claude/settings.json` and `settings.local.json`
-- `[decisions] path` — kept from an existing file; a location can be recorded, not detected
-- `[exclude]` — every file the manifest says ai-config installed that is no longer on disk,
-  i.e. removed on purpose
-
-Re-running is safe: hand-written values are kept, new exclusions are added, and a run that
-finds nothing new leaves the file untouched. `--dry-run` prints the file instead of writing it.
-
-Full reference: [Project Policy](project-policy.md).
-
-### --force
-
-Skip the confirmation prompts. Updates stay additive: files you edited are kept (new
-versions staged in `.claude/ai-config/pending/`), unedited files are updated with a backup,
-and `MEMORY.md` is never modified.
-
-### --apply-pending
-
-Adopt the staged new versions in `.claude/ai-config/pending/`, backing up each file it
-replaces. Review first with `diff <file> .claude/ai-config/pending/<file>`.
-
-### --clean
-
-Start from a fresh configuration without deleting anything: `CLAUDE.md` and `.claude/` are
-moved to `.claude/ai-config/backups/<run>/` before deploying. `MEMORY.md` stays in place.
-
-### --uninstall
-
-Remove ai-config from a project without losing work:
-
-```bash
-ai-config --uninstall --project=/path/to/project     # add --dry-run to preview
-```
-
-- **Removed:** shipped files still identical to what ai-config wrote (per the manifest), an unedited
-  generated `CLAUDE.md` / `AGENTS.md`, the shared deny/ask rules, and the safety-guard and
-  session-start hook registrations (in `settings.local.json` and a shared `settings.json`).
-- **Stripped:** the managed blocks from an edited `CLAUDE.md` / `AGENTS.md`; your own text stays.
-- **Kept:** files you edited, `MEMORY.md`, the `.okf/` bundle, `.gitignore` entries, other settings
-  (model, env, enabledPlugins, effortLevel), and plugin/MCP registrations — the commands to remove
-  codegraph or php-lsp are printed.
-
-Everything removed or changed is backed up to `.claude/ai-config/backups/<run>/` first. A deny rule
-of your own that exactly matches a shared policy rule is removed with it; the backup has it.
-
-### --shared-policy
-
-By default everything ai-config writes is gitignored, so teammates on the same repo get no
-guardrails. `--shared-policy` also merges the deny/ask rules and the safety-guard hook into the
-committed `.claude/settings.json`, and adjusts `.gitignore` so `.claude/settings.json` and
-`.claude/hooks/safety-guard.sh` can be committed while the rest of `.claude/` stays ignored (an exact
-`.claude/` line becomes `.claude/*`, backed up first). Commit those two files yourself. The mode is
-sticky once `.claude/settings.json` carries the hook, and `--doctor` checks both files are
-committable.
-
-## Managing Multiple Projects
-
-`ai-config-fleet` (aliased from `ai-config-fleet.sh`) runs `setup-project.sh` across every
-ai-config project under a folder — `--doctor` by default, or `--refresh` / `--list` — and prints
-one pass/warn/fail summary instead of running each project by hand:
-
-```bash
-ai-config-fleet --root=~/sites --list
-ai-config-fleet --root=~/sites --refresh --dry-run
-```
-
-See [Updating Projects → Updating Multiple Projects](updating-projects.md#updating-multiple-projects)
-for the full flag set and output format.
-
-## VSCode Options
-
-The stack's `.vscode/settings.json` holds codebase conventions only (formatters, indentation,
-file associations, excludes). Personal preferences such as rulers, word wrap and whitespace
-rendering belong in your own VS Code user settings, which also apply inside dev containers.
-For a dev container, change extensions and settings per project with `[vscode]` in
-`ai-config.conf` ([Sandbox → VS Code extensions and settings](sandbox.md#vs-code-extensions-and-settings)).
-`--doctor` reports settings in `.vscode/settings.json` that override the container's or yours.
-
-### --skip-vscode
-
-Skip VSCode configuration deployment.
-
-Use this if you manage `.vscode/` settings separately or don't use VSCode.
-
-### --install-extensions
-
-Auto-install recommended VSCode extensions for your stack.
-
-Installs stack-appropriate extensions:
-- **All stacks:** Prettier, EditorConfig
-- **PHP stacks:** Intelephense, Xdebug
-- **JS stacks:** ESLint
-- **Tailwind projects:** Tailwind CSS IntelliSense
-
-Requires the `code` CLI command to be available.
-
-## Other Options
-
-### --dry-run
-
-Preview changes without modifying any files.
-
-**Output shows:**
-- What would be created
-- What would be overwritten
-- Detected technologies
-- Template variables
-
-**Example:**
-```bash
-ai-config --dry-run --stack=expressionengine --project=.
-```
-
-### --name=\<name>
-
-Set project name manually instead of deriving from directory name.
-
-### --slug=\<slug>
-
-Set the `{{PROJECT_SLUG}}` template variable manually instead of deriving it from the project
-name.
-
-### --analyze
-
-Generate analysis prompt for Claude to customize configuration.
-
-Outputs a prompt you can paste into Claude to get customization suggestions.
-
-## OpenAI / API Tools
-
-### --with-openai
-
-Deploy an `AGENTS.md` file for OpenAI Codex and other API-based AI coding tools
-(GitHub Copilot Workspace, and similar assistants that read `AGENTS.md`). Opt-in,
-disabled by default.
-
-`AGENTS.md` is the OpenAI-ecosystem counterpart to `CLAUDE.md`: it gives those
-tools the same project context (identity, local dev commands, git workflow, coding
-conventions) that `CLAUDE.md` gives Claude Code. Deploy it when a project is worked
-on by both Claude Code **and** OpenAI/Codex-based tools.
-
-**Template resolution:** the script uses the stack-specific
-`projects/<stack>/AGENTS.md.template` when one exists, falling back to
-`projects/common/AGENTS.md.template`. Template variables (`{{PROJECT_NAME}}`,
-`{{GIT_MAIN_BRANCH}}`, etc.) are substituted the same way as in `CLAUDE.md`.
-
-**Refresh:** unlike `--orchestrator`, this flag is **not** sticky — pass
-`--with-openai` again on `--refresh` to regenerate `AGENTS.md`. (It is regenerated
-from the template, so local edits to a deployed `AGENTS.md` are overwritten.)
-
-**Example:**
-```bash
-ai-config --project=. --with-openai
-```
-
-## Model Orchestration
-
-### --orchestrator
-
-Deploy the **Opus orchestrator + Sonnet implementer** pattern (opt-in, disabled by default).
-
-When enabled, the script:
-
-- Pins the main session to Opus (`model: "opus"` in `settings.local.json`)
-- Forces every subagent to Sonnet (`CLAUDE_CODE_SUBAGENT_MODEL=sonnet`), which wins over
-  any subagent's own `model:` frontmatter, so delegated work never consumes the Opus quota
-- Deploys an `implementer` subagent (Sonnet) to `.claude/agents/implementer.md`
-- Appends a **Model & Delegation Policy** block to `CLAUDE.md`
-
-The intent: Opus reasons, plans, architects, and reviews in the main thread; routine
-implementation, scaffolding, and refactors are delegated to the Sonnet `implementer`.
-
-**Refresh is sticky:** once deployed, `--refresh` re-applies the pattern automatically
-(detected via `.claude/agents/implementer.md` or the `CLAUDE_CODE_SUBAGENT_MODEL` env key),
-so you don't need to re-pass `--orchestrator`. Requires `jq` for the settings injection.
-
-**Example:**
-```bash
-ai-config --project=. --orchestrator
-```
-
-## Safety Guardrails (Always Deployed)
-
-Every deploy and refresh — for **all** stacks, with no flag required — writes a
-non-negotiable **Operational Safety Guardrails** block into the project's
-`CLAUDE.md` (and `AGENTS.md` when `--with-openai` is used). It is wrapped in
-managed markers, so refreshes update it in place rather than duplicating it.
-
-The block instructs the AI assistant to:
-
-1. **Never read secrets or confidential data** — `.env`/`.env.*`, credentials,
-   keys, certs, tokens, usernames, passwords (full patterns in
-   `.claude/rules/sensitive-files.md`).
-2. **Never push to GitHub without explicit, per-action approval** — local commits
-   are fine; `git push`, PRs, and tag pushes are not.
-3. **Never change a production environment without explicit permission** — no
-   migrations, writes, deploys, or destructive commands against production.
-
-These are reinforced at three layers:
-
-- **Awareness:** the always-loaded `CLAUDE.md` block (source:
-  `projects/common/safety-guardrails.md`), which also tells Claude not to route
-  around a blocked call. Detail lives in the path-scoped
-  `.claude/rules/deployment-safety.md` and `.claude/rules/sensitive-files.md`.
-- **Permission rules:** `projects/common/security.settings.local.json` is merged into
-  every project's `settings.local.json` on deploy and `--refresh`:
-  - `deny` — reads of `.env`, keys, certs, credentials, DB configs and snapshots
-    (Claude Code also applies these to Grep/Glob and common Bash file commands).
-  - `ask` — `git push`, PR create/merge, package publishing, `vercel --prod`,
-    `ddev push`, `terraform apply`, `git reset --hard`, `rm`, and similar. `ask`
-    beats `allow` and still prompts in bypass-permissions mode.
-  - Nothing is removed: an existing `allow` entry that overlaps (e.g. a legacy
-    `Bash(git push:*)`) stays, `ask`/`deny` take precedence, and refresh reports it.
-  - `enableAllProjectMcpServers` defaults to `false` (only servers listed in
-    `enabledMcpjsonServers` start automatically); an existing value is kept, with a
-    warning when it is `true`.
-- **Hook:** `.claude/hooks/safety-guard.sh` (PreToolUse on Bash and file tools) catches
-  what prefix-based rules can't — `bash -c "git push"`, `source .env`,
-  `base64 < key.pem`, `rsync` to a remote host, cloud/infra CLIs, destructive SQL and
-  git, and edits to `.claude/settings*.json` or `.claude/hooks/`. Secret access and
-  catastrophic deletes are denied; publishing, production, and irreversible operations
-  prompt. Hooks run in every permission mode and inside subagents. Tests: `test-safety-guard.sh`.
-- **MCP tools:** the same hook covers `mcp__*` tools. A tool whose name signals an outward or
-  destructive action (push, merge, deploy, send, buy, delete, create, write, …) prompts, as does a
-  SQL tool running a write query; read tools (`get_pull_request`, `list_deployments`, SELECT queries)
-  and local browser automation pass. On refresh, the managed hook entry's matcher is updated to
-  include MCP tools.
-- **Secrets in written code:** Write/Edit/MultiEdit/NotebookEdit content containing a real-looking
-  credential (private keys, AWS/GitHub/Stripe/Slack/Google/Anthropic/OpenAI tokens) prompts, with a
-  reminder to reference an environment variable instead.
-
-Requires `jq`; the script reports an error when it is missing.
-
-## Protected Paths (Stack-Aware)
-
-On top of the stack-agnostic policy above, every deploy and `--refresh` resolves a
-**protected-path list for the detected stack** and applies it. The source is two files:
-
-```
-projects/common/protected-paths.conf     # universal baseline
-projects/<stack>/protected-paths.conf    # what this stack needs on top
-```
-
-### Two tiers
-
-Protecting a path means two different things, and conflating them is a mistake —
-denying `node_modules/` or `dist/` breaks ordinary debugging.
-
-| Tier | What belongs in it | What happens |
-| --- | --- | --- |
-| `[deny]` | Secrets, credentials, database dumps, `.git/` internals | A `Read()` rule in `settings.local.json` **and** a pattern in `.claude/hooks/protected-paths.conf`, which `safety-guard.sh` blocks for file tools *and* for Bash commands that name the path. A hard stop. |
-| `[ignore]` | Dependencies, build output, lockfiles, binary assets | Written to `.claudeignore` only. Never denied — these are token sinks, not secrets. |
-
-A stack may promote a baseline `[ignore]` pattern to `[deny]`. The CMS stacks do this
-with `*.sql`: on a WordPress, ExpressionEngine, Craft or Coilpack site a loose `.sql`
-file is a database dump, while on a JS stack it is far more likely a Prisma, Drizzle or
-Knex migration — which stays readable.
-
-### What each stack adds
-
-| Stack | Blocked (beyond the baseline) | Advisory |
-| --- | --- | --- |
-| `wordpress` | `wp-config.php`, `wp-salt.php`, `wp-content/backup*/`, `ai1wm-backups/`, `updraft/`, `*.sql` | `wp-admin/`, `wp-includes/`, `wp-content/uploads/`, `cache/` |
-| `wordpress-roots` | `config/environments/`, `web/app/backup*/`, `*.sql` | `web/wp/`, `web/app/uploads/`, Sage `public/`, `dist/` |
-| `expressionengine` | `system/user/config/`, `*.sql` | `system/ee/`, `themes/ee/`, `system/user/cache/`, `images/uploads/` |
-| `coilpack` | `system/user/config/`, `storage/framework/sessions/`, `*.sql` | `storage/logs/`, `system/ee/`, `bootstrap/cache/`, `public/build/` |
-| `craftcms` (+ headless) | `storage/backups/`, `storage/runtime/validation.key`, `*.sql` | `storage/logs/`, `storage/runtime/`, `web/cpresources/` |
-| `nextjs`, `t3-stack` | `.vercel/project.json`, `prisma/*.db` | `.next/`, `.vercel/`, `out/` |
-| `nuxt`, `sveltekit`, `remix`, `astro`, `docusaurus` | — | `.nuxt/`, `.output/`, `.svelte-kit/`, `.astro/`, `.docusaurus/`, `build/`, `dist/` |
-| `astro-strapi` | `backend/.env`, `backend/.tmp/` | `backend/build/`, `backend/public/uploads/` |
-| `astro-sanity` | `.sanity/`, `sanity.cli.env*` | `dist-studio/` |
-| `astro-tina` | Tina Cloud prebuild config | `.tina/`, `tina/__generated__/` |
-
-Logs are advisory on every stack. They are not blocked by path: the content scan below
-denies any log holding a credential-shaped string, so a clean log stays readable for
-debugging. `--refresh` withdraws the `Read(**/*.log)` and `logs/` deny rules older
-policies added.
-
-The baseline itself covers `.env*`, `credentials*`, `secrets*`, `.git/`, `*.sqlite`,
-`*.db`, `*.dump`, `*dump*.sql`, `dumps/`, `db_snapshots/` in `[deny]`, and
-dependencies, build output, lockfiles, media and editor noise in `[ignore]`.
-
-### About `.claudeignore`
-
-`.claudeignore` is **advisory**. Claude Code does not read it — the feature request
-([anthropics/claude-code#29455](https://github.com/anthropics/claude-code/issues/29455))
-is still open, and a `.claudeignore` on disk is silently ignored. Enforcement comes
-entirely from the deny rules and the hook.
-
-It is still generated, because it documents what the project treats as off-limits in
-one readable place and works with other tools that read gitignore-syntax exclude files.
-The generated header says so, so nobody mistakes it for a control.
-
-| Flag | Effect |
-| --- | --- |
-| `--no-claudeignore` | Don't write `.claudeignore`. The deny rules and `.claude/hooks/protected-paths.conf` are applied either way. |
-
-### Customising
-
-Both generated files go through the same additive install as every other shipped file:
-edit them and `--refresh` keeps your version, staging its own in
-`.claude/ai-config/pending/`. To change what every project gets, edit the `.conf`
-files in this repository — no script changes needed.
-
-`--doctor` reports a missing or out-of-date `.claude/hooks/protected-paths.conf` and
-runs the hook against a test database dump. `--uninstall` withdraws the deny rules it
-added, using the conf the project was actually deployed with (so the right stack's
-rules go, even without `--stack`).
-
-Tests: `test-protected-paths.sh`.
-
-## Content Scanning (Always On)
-
-Path rules can only block what you can *name*. The commonest leak is a file whose name
-is entirely innocent: a Laravel `storage/logs/laravel.log` whose stack trace prints the
-DSN, a `docker-compose.yml` with `MYSQL_ROOT_PASSWORD` inline, a seeder, an exported
-Postman collection, a runbook with a connection string.
-
-So `safety-guard.sh` opens the file before Claude can read it.
-
-### What it covers
-
-| Path | Behaviour |
-| --- | --- |
-| `Read` / `Grep` of a file | Scanned before the content reaches the transcript |
-| `Bash` with a reading verb (`cat`, `tail`, `head`, `grep`, `strings`, `base64`, …) | Every real file the command names is scanned |
-| `Write` / `Edit` / `MultiEdit` / `NotebookEdit` | Content being written is scanned (unchanged behaviour, wider patterns) |
-
-A hit is a **deny**, reporting the pattern class and line numbers and never echoing the
-value. There is no "approve anyway": reading it *is* the leak. Redact the file, or quote
-a clean excerpt yourself.
-
-Writes to `MEMORY.md`, `MEMORY-ARCHIVE.md` and `.okf/**` are denied rather than prompted —
-those reload into context every session, so a credential recorded there leaks silently
-and repeatedly. `okf-check.sh` uses the same patterns to catch one already in the bundle.
-
-### Why logs are not simply blocked
-
-Logs are scanned like everything else and stay readable when clean. A blanket deny would
-end "read the error log", and a guard too annoying to live with gets switched off — which
-protects nothing. Scanning is strictly *more* aware than a deny-list: it knows whether
-*this* log is dirty.
-
-### What counts as a credential
-
-Vendor token shapes (AWS, Anthropic, OpenAI, Stripe, GitHub, GitLab, Slack, Google,
-SendGrid, npm, DigitalOcean, JWTs, PEM private-key headers) plus **database and service
-credentials**: connection URIs carrying an inline password (`mysql://`, `postgres://`,
-`mongodb+srv://`, `redis://`, `amqp://`, basic-auth HTTPS) and secret-ish assignments
-with a concrete value (`DB_PASSWORD=`, `MYSQL_ROOT_PASSWORD:`, `aws_secret_access_key=`,
-`client_secret=`, `api_key=`).
-
-Deliberately forgiven, or the guard becomes unusable: template files by extension
-(`*.example`, `*.sample`, `*.template`, `*.dist`), and lines that read as documentation or
-indirection — `your_password`, `<your-api-key>`, `${DB_PASSWORD}`, `process.env.X`,
-`getenv(...)`, `user:pass@`, and anything saying `example`/`sample` (AWS publishes
-`AKIAIOSFODNN7EXAMPLE` in its own docs; blocking every page that quotes it would train
-people to ignore the guard).
-
-### Limits, and how it fails
-
-- **Fail closed.** A file too large to scan (`> 20 MB`, override with
-  `AI_CONFIG_SCAN_MAX_BYTES`) is denied rather than waved through. Binary files are
-  skipped, not blocked.
-- **Cost.** Roughly 50 ms on a source file and ~160 ms on a 4 MB log. The scan is two
-  stages: a single compiled alternation in `awk` rejects most files, and the precise
-  regexes only ever run over candidate lines. On BSD `awk`/`grep` — every macOS machine,
-  and the macOS CI runner — the obvious one-stage implementations cost **3.3 seconds per
-  read**, so the staging is load-bearing, not premature optimisation.
-- **Residual risk.** A line that both carries a live credential *and* reads like
-  documentation is forgiven, and only the first 2,000 candidate lines of a file are
-  examined precisely.
-
-`--doctor` runs the scanner against a probe file holding a DSN and reports if it does not
-block. Tests: `test-secret-scanning.sh` (57 cases, including one per credential class so a
-pattern cannot silently become unreachable).
-
-## Project Detection
-
-The script automatically detects:
-
-### DDEV Configuration
-- Project name, document root, PHP version, database type and version, primary URL
-
-### Modern Web Tooling (triggers auto-injection of library docs)
-- **TypeScript** — `tsconfig.json` at project root
-- **Zod** — `zod` in `package.json`
-- **Zustand** — `zustand` in `package.json`
-- **TanStack Query** — `@tanstack/react-query` in `package.json`
-- **tRPC** — `@trpc/server` in `package.json`
-- **Prisma** — `prisma/schema.prisma` file or `@prisma/client` in `package.json`
-- **Supabase** — `@supabase/supabase-js` or `@supabase/ssr` in `package.json`
-- **Vitest** — `vitest` in `package.json`
-- **Playwright** — `playwright.config.ts/js` or `@playwright/test` in `package.json`
-- **Framer Motion** — `framer-motion` or `motion` in `package.json`
-- **shadcn/ui** — `components/ui/` directory (root, `src/`, or `app/`)
-- **Pinia** — `pinia` in `package.json`
-- **Tina CMS** — `tina/config.ts/js` or `tinacms` in `package.json`
-
-### Front-End Stack
-
-`projects/common/detect-frontend.sh` looks for every front-end technology it knows, in four places:
-
-1. **Every `package.json`**, including theme folders (`wp-content/themes/*`, `web/app/themes/*`) and
-   `frontend/` — not just the project root
-2. **Vendored asset files**, e.g. `assets/js/jquery-3.7.1.min.js` or `bootstrap.bundle.min.js`
-3. **Template references**: CDN `<script>` / `<link>` tags and `wp_enqueue_script` /
-   `wp_enqueue_style` calls, including dependencies such as `array('jquery')`
-4. **Markup attributes**: `x-data` (Alpine.js), `hx-get` / `hx-post` (htmx)
-
-| Category | Detected |
-|---|---|
-| CSS frameworks | Tailwind CSS, Bootstrap, Foundation, Bulma, UIkit, daisyUI, Pure.css, Materialize, Fomantic/Semantic UI, UnoCSS |
-| CSS tooling | Sass/SCSS, Less, PostCSS, Stylus, styled-components, Emotion |
-| UI components | Material UI, Chakra UI, Mantine, Ant Design, Radix UI, Headless UI, Vuetify, PrimeVue/PrimeReact |
-| JS frameworks | React, Vue, Svelte, Angular, Preact, SolidJS, Lit, Alpine.js, htmx, Stimulus, Turbo |
-| JS libraries | jQuery, GSAP, Swiper, Slick, Splide, Chart.js, Three.js, AOS |
-| Build tools | Vite, webpack, Laravel Mix, Bud, Parcel, esbuild, Rollup, Gulp, Grunt |
-| Language | TypeScript |
-
-Versions come from `package.json` or the file/CDN name. Libraries bundled by CMS core or third-party
-code are ignored: `node_modules`, `vendor`, EE `system/ee` / `themes/ee` / `themes/user` / add-ons,
-Craft `cpresources`, WordPress core and plugins, build output, uploads, and caches.
-
-When no framework is found, the script says so instead of guessing — for example *"custom
-JavaScript, no framework detected (12 file(s), mainly in public/assets/js/)"*. First-party counts
-skip minified, vendored, and build-config files.
-
-The result appears in the scan summary and in a short **Front-End Stack** managed block in
-`CLAUDE.md` (and `AGENTS.md`), so Claude works within the project's real stack. The block only
-changes when the detected stack changes. Detected Tailwind CSS, Alpine.js, Foundation, SCSS,
-Bootstrap, Bulma, jQuery, Material UI, and custom-JS projects also get the matching
-`.claude/libraries/` references and conditional rules.
-
-### CMS / Template Engines
-- **ExpressionEngine** — `system/ee/` directory
-- **Craft CMS** — `craft` executable
-- **Blade** — `.blade.php` files
-- **Twig** — `.twig` files
-
-### Content Patterns
-- **Bilingual** — French language strings or `lang:` tags
-- **Stash add-on** — `exp:stash` tags (ExpressionEngine)
-- **Structure add-on** — `exp:structure` tags (ExpressionEngine)
-
-## Examples
-
-### Auto-Detect Any Project (Recommended)
-
-```bash
-ai-config --project=/Users/dev/myproject
-```
-
-### First-Time Setup (Manual Stack)
-
-```bash
-ai-config \
-  --stack=expressionengine \
-  --project=/Users/dev/myproject
-```
-
-### Discovery Mode for Unknown Stack
-
-```bash
-ai-config --discover --project=/Users/dev/my-vue-app
-```
-
-### Current Directory Shortcut
-
-```bash
-cd /path/to/project
 ai-config --project=.
 ```
 
-### Update After Technology Changes
+Options always use `=` with no spaces: `--stack=craftcms`, not `--stack craftcms`.
+
+To see this list in Terminal:
 
 ```bash
-ai-config --refresh --project=/Users/dev/myproject
+ai-config --help
 ```
 
-### Force Clean Reinstall
+## The main jobs
+
+| Option | What it does |
+|---|---|
+| *(no option)* | Set the project up |
+| `--refresh` | Update the setup. Keeps your edits. See [Keep projects up to date](updating-projects.md) |
+| `--doctor` | Check that everything works. Changes nothing |
+| `--dry-run` | Show what would happen. Changes nothing. Works with any other option |
+| `--uninstall` | Remove ai-config. Keeps your edits and `MEMORY.md`, and backs up everything it removes |
+| `--save-policy` | Write `ai-config.conf`, the project's settings file, then stop. See [The project settings file](project-policy.md) |
+
+## Updating
+
+| Option | What it does |
+|---|---|
+| `--apply-pending` | Swap in the new versions waiting in `.claude/ai-config/pending/`. Backs up your copies first |
+| `--force` | Don't ask questions. Your edits are still kept |
+| `--clean` | Move the current setup into a backup, then set up fresh. Usually used with `--force` |
+| `--install-deps` | Install missing tools first (`jq`, `git`; Intelephense for PHP sites). Asks first unless you add `--force` |
+
+## Choosing the stack
+
+ai-config normally works out the stack itself. Use these when it can't.
+
+| Option | What it does |
+|---|---|
+| `--stack=<name>` | Use this stack. Names are on [Supported stacks](../reference/stacks.md) |
+| `--discover` | For a framework ai-config doesn't know. Then type `/project-discover` in Claude Code |
+| `--name=<name>` | The project name Claude sees. Default: the folder name |
+| `--slug=<slug>` | A short name used in templates. Default: made from the name |
+| `--analyze` | Print a prompt you can paste into Claude to get suggestions for the setup |
+
+## Safety
+
+The safety rules are always on. These options add to them.
+
+| Option | What it does |
+|---|---|
+| `--shared-policy` | Also put the safety rules in `.claude/settings.json`, which you commit, so everyone who clones the repo gets them |
+| `--no-claudeignore` | Don't write `.claudeignore`. The real blocks still apply |
+
+## Memory
+
+| Option | What it does |
+|---|---|
+| `--okf-memory` | Keep Claude's notes in a `.okf/` folder, one file per topic, instead of one `MEMORY.md`. See [How Claude remembers](memory-system.md) |
+
+## Cost and speed
+
+| Option | What it does |
+|---|---|
+| `--effort=<level>` | How hard Claude thinks: `low`, `medium`, `high`, `xhigh` or `max` |
+| `--orchestrator` | Use Opus for the main session and Sonnet for helpers. Adds an `implementer` helper agent |
+| `--no-response-style` | Leave out the "keep answers short" section of `CLAUDE.md` |
+| `--no-engineering-practices` | Leave out the coding-practices section and rule |
+| `--eager-libraries` | Load every library note into every session. Costs more; normally they're read only when needed |
+
+## Workflow skills
+
+Skills are on by default. See [Workflow skills](superpowers.md).
+
+| Option | What it does |
+|---|---|
+| `--no-superpowers` | Leave the skills out |
+| `--with-superpowers` | Put them back for this run, even if `ai-config.conf` turns them off |
+| `--superpowers-core` | Only the core skills: testing, debugging, brainstorming |
+| `--superpowers-minimal` | Only the starter skill |
+| `--superpowers-skill=<a,b>` | Only the skills you name, separated by commas |
+| `--superpowers-bootstrap` | Remind Claude about the skills at the start of every session (costs about 1,300 tokens a session) |
+| `--skip-superpowers-update` | Don't download the latest skills first |
+
+## Design skills
+
+| Option | What it does |
+|---|---|
+| `--design-skills` | Add the front-end design skills to a CMS project. JavaScript projects get them already |
+| `--no-design-skills` | Leave them out |
+
+## Sandbox
+
+Nothing changes unless you use one of these. See [Sandboxes](sandbox.md).
+
+| Option | What it does |
+|---|---|
+| `--devcontainer` | Also write a locked-down VS Code dev container |
+| `--sandbox=devcontainer` | The same |
+| `--sandbox=enclave` | Use Eclipse Enclave instead |
+| `--sandbox=claude` | Use Claude Code's own sandbox. No Docker needed |
+| `--sandbox=none` | Stop updating the sandbox. Nothing is deleted |
+
+## Editor and other tools
+
+| Option | What it does |
+|---|---|
+| `--skip-vscode` | Don't write `.vscode/` settings |
+| `--install-extensions` | Install the recommended VS Code extensions. Needs the `code` command |
+| `--with-openai` | Also write `AGENTS.md`, for OpenAI Codex and similar tools. Not remembered: add it again on each refresh |
+
+## Options that are remembered
+
+Some options stay on for later refreshes, so you don't need to repeat them: `--okf-memory`, `--orchestrator`,
+`--shared-policy` and the sandbox options. To make any option stick for good, even on a fresh clone, put it in
+`ai-config.conf`. See [The project settings file](project-policy.md).
+
+## Examples
+
+Set up a Craft site, naming the stack:
 
 ```bash
-ai-config \
-  --clean \
-  --force \
-  --stack=craftcms \
-  --project=.
+ai-config --stack=craftcms --project=.
 ```
 
-### Preview Without Changes
+Start fresh without being asked questions:
 
 ```bash
-ai-config --dry-run --project=../my-nextjs-app
+ai-config --clean --force --project=.
 ```
 
-### Skip VSCode, Install Extensions
+Install the editor extensions too:
 
 ```bash
-ai-config --project=. --skip-vscode
 ai-config --project=. --install-extensions
 ```
 
-### Core Skills Only
+Preview a refresh:
 
 ```bash
-ai-config --project=. --superpowers-core
+ai-config --refresh --dry-run --project=.
 ```
 
-### Deploy AGENTS.md for OpenAI / Codex
+## When it finishes
 
-```bash
-ai-config --project=. --with-openai
-```
+ai-config exits with `0` when all went well and `1` on any error, including a failed health check. That's useful
+in scripts.
 
-### Opus Orchestrator + Sonnet Implementer
+## Problems
 
-```bash
-ai-config --project=. --orchestrator
-```
-
-## Exit Codes
-
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | Any error — invalid options, missing project directory, unknown stack, or a failing `--doctor`/post-run health check |
-
-The script only ever exits `0` or `1`; there's no separate code per error type.
-
-## Troubleshooting
-
-### "Unknown option" Error
-
-Make sure to use `=` syntax for values:
-```bash
-# Correct
---stack=expressionengine
-
-# Incorrect
---stack expressionengine
-```
-
-### "Could not detect stack" Error
-
-The script couldn't automatically identify your project's stack. Options:
-
-1. **Specify manually:** Use `--stack=<name>` if it's a known stack
-2. **Use discovery mode:** Run with `--discover` for unknown stacks
-3. **Check project:** Ensure project has recognizable files (e.g., `system/ee/`, `craft`, `wp-config.php`, `next.config.js`)
-
-### Technology Not Detected
-
-Detection scans template files only (excluding `node_modules`, `vendor`). If technology isn't detected:
-1. Ensure config files are in project root
-2. Check template files contain the expected patterns
-3. Use `--dry-run` to see detection results
-
-## Next Steps
-
-- **[Memory System](memory-system.md)** - Persistent context guide
-- **[Installation](../getting-started/installation.md)** - Shell aliases and VSCode CLI setup
-- **[Conditional Deployment](conditional-deployment.md)** - Detection logic
-- **[Updating Projects](updating-projects.md)** - Update workflows, including
-  [multiple projects at once](updating-projects.md#updating-multiple-projects)
-- **[Contributing](../development/contributing.md)** - Run `./run-tests.sh` (or a single suite,
-  e.g. `./run-tests.sh fleet`) before submitting a change to `setup-project.sh`
+| What you see | What to do |
+|---|---|
+| "Unknown option" | Use `=` with no spaces: `--stack=craftcms` |
+| "Could not detect stack" | Add `--stack=<name>`, or use `--discover` |
+| A library you use wasn't detected | Run `--dry-run` to see what was found. Detection reads `package.json`, asset files and templates, and skips `node_modules` and `vendor` |

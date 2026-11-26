@@ -1,193 +1,152 @@
-# Skills and Profiles
+# Profiles and skills
 
-ai-config serves more than one kind of work (an employer, volunteer projects, side work), so
-nothing in this repo assumes who you are. Skills come in three tiers, and who you are comes
-from a **profile** kept in a private repo.
+ai-config is used for different kinds of work: a job, volunteer projects, side work. A **profile** says who you
+are in one of them, so a report for a client doesn't go out under your employer's name.
 
-## Skill tiers
+## What a profile holds
 
-| Tier | Lives in | Reaches Claude | Cost when unused |
-|------|----------|----------------|------------------|
-| Global | `global-skills/` (this repo) | Linked into `~/.claude/skills/` by `install.sh` and every `ai-config` run | Its description, in every session |
-| Private | `~/.config/ai-config/skills/` (private repo) | Linked the same way | Its description, in every session |
-| Design | `design-skills/` (this repo) | Copied into a project's `.claude/skills/` by `ai-config` | Nothing outside that project |
+A profile is a small text file. The main lines:
 
-**Global:** `noslop` (pages for a reader) and `humanizer` (prose edits). Both are useful in
-any session, whatever the project.
+| Line | Meaning |
+|---|---|
+| `name`, `organization` | Who pages and reports are from |
+| `voice` | `I` or `we` |
+| `spelling` | For example `canadian` |
+| `share_domain` | Where the `noslop` skill publishes pages, such as `share.example.org`. Leave it empty to publish nothing |
+| `sensitive` | Whose personal information must never sit behind a shared password |
+| `brand_primary`, `font_heading`, `logo_on_light`… | Optional: your organization's colours, fonts and logo on published pages |
 
-**Design:** pinned third-party front-end skills, deployed only where a front end is being
-designed.
+`profiles/example.conf` in this repository lists every line.
 
-| Skill | Deployed to |
-|-------|-------------|
-| `impeccable` (+ 4 agents) | JS front-end stacks; CMS stacks with `--design-skills` |
-| `web-design-guidelines` | Same |
-| `gsap-*` (8 skills) | Same, and only where GSAP is detected; `gsap-react` needs React, `gsap-frameworks` Vue or Svelte |
+## Where profiles live
 
-- Turn them on for a CMS project with `--design-skills` or `design-skills = true` in
-  `ai-config.conf`. Turn them off anywhere with `--no-design-skills` or `design-skills = false`.
-- Impeccable's design-detector hook stays off unless you run `/impeccable hooks on` in the
-  project, and `IMPECCABLE_NO_TELEMETRY=1` is set in the project's `settings.local.json`.
-- A design skill deleted from a project stays deleted on `--refresh`. List it under
-  `[exclude]` in `ai-config.conf` to make that survive a fresh clone.
+Profiles are personal, so they live in your own **private** git repository, not in this one:
 
-### Pinning and updating
-
-Every third-party skill is listed in `vendor/skills.conf` with its repo and commit. Any change
-to the upstream text is a patch in `vendor/patches/`.
-
-```bash
-scripts/vendor-skills.sh --list
-scripts/vendor-skills.sh --bump impeccable        # newest commit, rebuild, then: git diff
-scripts/vendor-skills.sh --fetch                  # rebuild every skill at its pinned commit
-```
-
-Nothing runs at deploy time: projects get the committed copy. A patch that no longer applies
-stops the bump and keeps the old copy.
-
-### Rejected candidates (vetted 2026-11-11)
-
-| Skill | Why it was rejected |
-|-------|---------------------|
-| Taste | A 39 MB site generator with a Stop hook |
-| Hallmark | Its own description refuses existing designs |
-| UI/UX Pro Max | 7 skills (~15k tokens) and stock palettes that fight a client's brand |
-| Better Icons | A wrapper for an unpinned npm tool that edits MCP config |
-| React Bits | No free skill exists |
-| skillui | A hard-coded API key, and it sends URLs to a third party |
-| Playwright CLI | Already covered by the Playwright plugin |
-
-## Profiles
-
-A profile says who you are in one context:
-
-- `name`, `organization`, `voice` (I or we), `spelling`
-- `share_domain`: where noslop publishes pages
-- `sensitive`: personal information that never sits behind a shared passcode
-- `not_for`: what noslop isn't for
-- `favicon`, `touch_icon`, `share_image` (optional): the tab icon, iPhone icon and
-  link-preview image on published pages. Public https URLs off the share domain, since
-  everything under a page's address is behind its passcode
-- `brand_primary`, `brand_secondary`, `brand_tint`, `brand_text`, `font_heading`, `font_body`,
-  `font_url`, `logo_on_dark`, `logo_on_light`, `theme` (optional): the organization's look on
-  noslop pages (rule 8) instead of the upstream Claude style kit. Logos are public https URLs
-- `report_readers` (optional): who gets a formal report (rule 9) instead of a one-page brief
-
-See `profiles/example.conf`.
-
-```
-~/.config/ai-config/            ← a private git repo, not this one
-├── profile                     ← this machine's default, e.g. "cps" or "personal"
-├── folders                     ← which profile applies under which folder
+```text
+~/.config/ai-config/
+├── profile            this computer's default profile, one word
+├── folders            which profile to use under which folder
 ├── profiles/
-│   ├── cps.conf                ← CPS (work Mac)
-│   ├── personal.conf           ← own account and home lab
-│   ├── lat45designs.conf       ← the Lat45 Designs studio
-│   └── digitaldesigns.conf     ← the Digital Designs side gig
-└── skills/                     ← your own skills (linked into ~/.claude/skills/)
+│   ├── work.conf
+│   ├── personal.conf
+│   └── client.conf
+└── skills/            your own skills
 ```
 
-Every project uses exactly one profile, the first of these:
+## Set up your profiles
 
-1. `AI_CONFIG_PROFILE`
-2. `profile = <name>` under `[options]` in an `ai-config.conf`: the nearest one that names a
-   profile, from the project folder upward. One that holds only `[remote]` is passed over.
-3. The `folders` map, where the longest matching folder wins:
-   ```
-   ~/data/lat45designs                  = lat45designs
-   ~/data/lat45designs/robshomelab.net  = personal
-   ~/data/digital-designs               = digitaldesigns
-   ```
-4. The machine default in `~/.config/ai-config/profile`
-
-`global-skills/noslop/scripts/profile.sh` prints it, and `ai-config --doctor` shows each
-project's profile. On a machine with profiles, `--doctor` warns about a project with none.
-Dev containers mount `profiles/` and `profile` read-only, and nothing else from the private repo.
-
-### Cloudflare per profile
-
-Each profile has its own Cloudflare account, token and page records, so a page for one client
-never publishes under another's account. `~/.config/ai-config-cloudflare/<profile>/` holds the
-config, and the Keychain entry is `cloudflare-api-<profile>`. The `cps` profile keeps the
-original `~/.config/cps-cloudflare/` and `cloudflare-api`, which the CPS dev containers use.
-
-When two profiles publish to a domain in the same Cloudflare account, one borrows the other's
-setup with `cloudflare = <profile>` in its `.conf` (digitaldesigns uses lat45designs'). To set
-up a profile, run setup once from a project that uses it:
-
-```bash
-cd ~/data/lat45designs/ottawa-icetimes.com && ~/.claude/skills/noslop/scripts/cloudflare.sh setup
-```
-
-### Setting up and editing your profiles
-
-Every file is in `~/.config/ai-config/`, outside this repo:
-
-| File | What it sets |
-|------|--------------|
-| `profile` | This computer's default profile: one word, e.g. `personal` or `cps` |
-| `profiles/<name>.conf` | One context's details: name, organization, share domain, spelling, what's sensitive |
-
-**1. Choose this computer's default.** On a personal computer:
+**1. Pick this computer's default.** For example, on a personal computer:
 
 ```bash
 echo personal > ~/.config/ai-config/profile
 ```
 
-On a work computer, use `echo cps` instead.
-
-**2. Fill in the profile.**
+**2. Fill in the profile.** Open it in VS Code:
 
 ```bash
 code ~/.config/ai-config/profiles/personal.conf
 ```
 
-The keys most likely to change:
-
-- `organization`: empty for your own work, or the group you're volunteering for.
-- `share_domain`: where noslop publishes pages, e.g. `share.yourdomain.ca`. Empty means
-  noslop builds pages locally and publishes nothing.
-- `sensitive`: whose personal information must never sit behind a shared passcode.
-
-**3. Projects that need a different profile.** On a computer that defaults to `personal`,
-a CPS project names its profile in `ai-config.conf`:
-
-```ini
-[options]
-profile = cps
-```
-
-**4. A side-gig client with its own details.** Copy the profile, edit the copy, and name
-it in that client's projects:
+**3. Add a profile for a client** by copying one and editing the copy:
 
 ```bash
-cp ~/.config/ai-config/profiles/personal.conf ~/.config/ai-config/profiles/<client>.conf
+cp ~/.config/ai-config/profiles/personal.conf ~/.config/ai-config/profiles/client.conf
 ```
 
-Then set `profile = <client>` in each of that client's projects.
+**4. Save your changes** to your private repository:
 
-**5. Check which profile is active.** Run this from inside a project folder:
+```bash
+git -C ~/.config/ai-config commit -am "Update profiles"
+```
+
+```bash
+git -C ~/.config/ai-config push
+```
+
+## Which profile a project uses
+
+Each project uses exactly one profile. ai-config takes the first of these that applies:
+
+1. the `AI_CONFIG_PROFILE` environment variable
+2. `profile = <name>` under `[options]` in the project's `ai-config.conf`
+3. the `folders` file: the longest folder that contains the project wins
+4. this computer's default, in `~/.config/ai-config/profile`
+
+A `folders` file looks like this:
+
+```ini
+~/sites/client-work = client
+~/sites/client-work/my-own-site = personal
+```
+
+To see which profile is active, run this from inside a project folder:
 
 ```bash
 ~/.claude/skills/noslop/scripts/profile.sh
 ```
 
-It prints the profile's name, where the choice came from (`from=`), and each value.
-`profile=none` means no profile matched, so noslop will ask who the page is from.
+It prints the profile's name, where the choice came from, and each value. `profile=none` means nothing matched.
+`ai-config --doctor` also shows each project's profile.
 
-**6. Save your changes.** `~/.config/ai-config` is a git repo, so commit and push there:
+## Publishing pages per profile
+
+The `noslop` skill can publish a page behind a password on your profile's share domain, through Cloudflare. Each
+profile keeps its own Cloudflare account and token, so one client's page never goes out under another's account.
+
+Set it up once per profile, from inside a project that uses it:
 
 ```bash
-cd ~/.config/ai-config && git commit -am "Update personal profile" && git push
+~/.claude/skills/noslop/scripts/cloudflare.sh setup
 ```
 
-### A new machine
+If two profiles publish to domains in the same Cloudflare account, one can borrow the other's setup: add
+`cloudflare = <other profile>` to its `.conf` file.
+
+## A new computer
+
+Get your profiles:
 
 ```bash
-git clone git@github.com:<you>/ai-config-profiles.git ~/.config/ai-config
-echo personal > ~/.config/ai-config/profile      # this machine's default
-git clone https://github.com/roberthallatt999/claude-optimizer.git && ./claude-optimizer/install.sh
+git clone git@github.com:<you>/<your-profiles-repo>.git ~/.config/ai-config
 ```
 
-The Cloudflare token for noslop's pages isn't in either repo. Run
-`~/.claude/skills/noslop/scripts/cloudflare.sh setup` on each machine.
+Pick this computer's default:
+
+```bash
+echo personal > ~/.config/ai-config/profile
+```
+
+Then [install ai-config](../getting-started/installation.md). The Cloudflare token isn't stored in either
+repository, so run the `cloudflare.sh setup` step above on each computer.
+
+## Skills: three kinds
+
+| Kind | Where it comes from | Where it's available |
+|---|---|---|
+| **Shared** (`noslop`, `humanizer`) | `global-skills/` in this repository | Every Claude Code session on your computer |
+| **Your own** | `~/.config/ai-config/skills/` | Every session on your computer |
+| **Design** (Impeccable, web-design-guidelines, GSAP) | `design-skills/` in this repository | Only in projects that build a front end |
+
+- `noslop` makes pages and reports that someone else will read. `humanizer` edits writing so it sounds less
+  machine-made.
+- Design skills go to JavaScript projects automatically. Add them to a CMS project with `--design-skills`, or
+  leave them out with `--no-design-skills`. The GSAP skills only go where the project uses GSAP.
+
+### Updating the design skills (for whoever maintains ai-config)
+
+Each outside skill is pinned to an exact version in `vendor/skills.conf`, so nobody else's change reaches Claude
+without review. Local changes are patches in `vendor/patches/`.
+
+List them:
+
+```bash
+scripts/vendor-skills.sh --list
+```
+
+Update one to its newest version, then review with `git diff`:
+
+```bash
+scripts/vendor-skills.sh --bump impeccable
+```
+
+If a patch no longer applies, the update stops and the old copy is kept.
