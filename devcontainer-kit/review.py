@@ -92,10 +92,11 @@ def template_files(path: Path) -> dict[str, dict[str, int]]:
                 counts[suffix] = counts.get(suffix, 0) + 1
         if counts:
             out[rel] = dict(sorted(counts.items()))
-    # A renamed EE system folder: <name>/user/templates next to admin.php's $system_path.
-    for candidate in path.glob("*/user/templates"):
+    # EE templates under a renamed system folder (<name>/user/templates) or inside Coilpack's
+    # ee/ folder (ee/system/user/templates).
+    for candidate in ee_template_dirs(path):
         rel = str(candidate.relative_to(path))
-        if rel not in out and candidate.is_dir():
+        if rel not in out:
             counts = {}
             for f in walk(candidate):
                 if f.suffix == ".html":
@@ -103,6 +104,22 @@ def template_files(path: Path) -> dict[str, dict[str, int]]:
             if counts:
                 out[rel] = counts
     return out
+
+
+def ee_template_dirs(path: Path) -> list[Path]:
+    """EE templates folders: <system>/user/templates, one or two levels down (Coilpack keeps
+    system/ inside ee/). Dependency folders are skipped."""
+    found = []
+    for pattern in ("*/user/templates", "*/*/user/templates"):
+        for d in sorted(path.glob(pattern)):
+            if d.is_dir() and not set(d.relative_to(path).parts) & SKIP_DIRS:
+                found.append(d)
+    return found
+
+
+def has_ee_templates(path: Path) -> bool:
+    """True when an EE templates folder holds at least one .html template."""
+    return any(next((f for f in walk(d) if f.suffix == ".html"), None) for d in ee_template_dirs(path))
 
 
 def walk(root: Path):

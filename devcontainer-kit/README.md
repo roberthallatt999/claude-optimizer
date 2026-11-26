@@ -26,6 +26,13 @@ they switch on (`integrations/*.conf`, or private ones in
 `~/.config/ai-config/devcontainer/integrations/`). Nothing in the kit names an organization. Setup,
 settings and the integration format: [docs/guides/sandbox.md](../docs/guides/sandbox.md).
 
+## 2.3.0
+
+- Coilpack projects with EE templates (`ee/system/user/templates`) get the ExpressionEngine extension,
+  the template association and format on save off for templates, like a plain EE site. Before,
+  their templates opened as HTML and Prettier could format them on save.
+- The review fact sheet finds EE templates two levels down (Coilpack's `ee/system/`), not just one.
+
 ## 2.2.0
 
 - `--json` prints a review fact sheet per project (read-only; a list with `--root`): stack,

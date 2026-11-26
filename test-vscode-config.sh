@@ -185,6 +185,21 @@ check "an extension missing from devcontainer.json is drift" 'jq -e ".extensions
 check "an extension added by hand is reported" 'jq -e ".extensions.extra_on_disk == [\"someone.extra\"]" <<< "$json" >/dev/null'
 check "--root --json prints a list" '[[ $(gen --root "$work" --only review,site --json | jq -r "type, length" | tr "\n" " ") == "array 2 " ]]'
 
+# --- Coilpack: EE templates inside ee/ get EE editor support ---------------------------------
+C=$(new_project coilpack)
+echo '{"require":{"php":"^8.2","expressionengine/coilpack":"^2.0"}}' > "$C/composer.json"
+touch "$C/artisan"
+mkdir -p "$C/ee/system/user/templates/site.group"
+echo '{exp:channel:entries}{/exp:channel:entries}' > "$C/ee/system/user/templates/site.group/index.html"
+json=$(gen --project "$C" --json)
+check "Coilpack with EE templates gets the EE extension" 'jq -e ".extensions.generated | index(\"jrrdnx.expressionengine\")" <<< "$json" >/dev/null'
+check "Coilpack EE templates are associated and not formatted on save" \
+  'jq -e ".settings.generated[\"files.associations\"][\"**/user/templates/**/*.html\"] == \"expressionengine\" and .settings.generated[\"[expressionengine]\"][\"editor.formatOnSave\"] == false" <<< "$json" >/dev/null'
+check "the fact sheet counts templates two levels down (ee/system/user/templates)" \
+  '[[ $(jq -r ".templates[\"ee/system/user/templates\"][\".html\"]" <<< "$json") == 1 ]]'
+rm -rf "$C/ee"
+check "Coilpack without EE templates doesn't" '! gen --project "$C" --json | jq -e ".extensions.generated | index(\"jrrdnx.expressionengine\")" >/dev/null'
+
 echo ""
 echo "vscode-config: $pass passed, $fail failed"
 [[ $fail -eq 0 ]]

@@ -58,7 +58,7 @@ import sandbox_policy  # noqa: E402
 import vscode_policy  # noqa: E402
 import review  # noqa: E402
 
-VERSION = "2.2.0"
+VERSION = "2.3.0"
 TOOL = "ai-devcontainer"
 # Mac-side state shared by every container on this Mac: the DDEV relay, the egress CA, each
 # project's token file. Kit 1.x used ~/.cache/cps-devcontainer; ensure-relay.sh links one to
@@ -155,6 +155,7 @@ class Project:
     php: str | None = None
     node: str | None = None
     python: bool = False
+    ee_templates: bool = False                           # an EE templates folder (also inside Coilpack's ee/)
     git_name: str = ""
     db_name: str = "db"                                  # the DDEV database the site uses (`ddev mysql`)
     git_email: str = ""
@@ -337,6 +338,7 @@ def detect(path: Path) -> Project:
         p.stack.append("expressionengine")
     if "expressionengine/coilpack" in req:
         p.stack.append("coilpack")
+    p.ee_templates = review.has_ee_templates(path)
     if (path / "craft").exists() or "craftcms/cms" in req:
         p.stack.append("craftcms")
     if (path / "artisan").exists():
@@ -840,11 +842,15 @@ def vscode_tooling(p: Project) -> tuple[list[str], dict]:
     if "laravel" in p.stack:
         ext += ["laravel.vscode-laravel", "onecentlin.laravel-blade", "shufo.vscode-blade-formatter"]
         settings["[blade]"] = {"editor.defaultFormatter": "shufo.vscode-blade-formatter"}
-    if "expressionengine" in p.stack:
-        ext += ["jrrdnx.expressionengine", "mrmlnc.vscode-apache"]
+    # Coilpack runs EE inside Laravel: its templates (ee/system/user/templates) need the same
+    # editor support as a plain EE site's, or they open as HTML and Prettier formats them on save.
+    if "expressionengine" in p.stack or ("coilpack" in p.stack and p.ee_templates):
+        ext.append("jrrdnx.expressionengine")
         # Any system folder name: some sites rename system/ ($system_path in admin.php).
         settings["files.associations"] = {"**/user/templates/**/*.html": "expressionengine"}
         settings["[expressionengine]"] = {"editor.formatOnSave": False}
+    if "expressionengine" in p.stack:
+        ext.append("mrmlnc.vscode-apache")
     if "craftcms" in p.stack:
         ext.append("mblode.twig-language-2")
         settings["[twig]"] = {"editor.formatOnSave": False}

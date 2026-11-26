@@ -249,7 +249,10 @@ readable text such as `(brand green: not set)` rather than a fake value.
   **Review an existing container** step compares it against a signal → extension table and the
   sandbox's hosts, and reports suggested `ai-config.conf` lines per project with a reason each,
   applying only what's approved; suggestions shared by several projects are flagged as kit-rule
-  candidates. EE templates now map by `**/user/templates/**`. Tests: `test-vscode-config.sh` (40).
+  candidates. EE templates now map by `**/user/templates/**`. From the first review (kit 2.3.0):
+  Coilpack projects with EE templates in `ee/system/user/templates` get the EE extension,
+  association and format-on-save off (diabetes, intranet-backend had none), and the fact sheet
+  finds templates two levels down. Tests: `test-vscode-config.sh` (44).
 - **VS Code in dev containers: per-project `[vscode]`, overrides reported** — personal editor
   preferences live in the Mac's own VS Code user settings, which VS Code already applies in every
   container window. The kit writes codebase facts into `devcontainer.json` (extensions, formatters
