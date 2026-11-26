@@ -150,6 +150,41 @@ out=$("$SETUP" --project="$W" --doctor </dev/null 2>&1)
 check "--doctor warns about a container override" '[[ "$out" == *".vscode/settings.json overrides the dev container: editor.formatOnSave = false (container: true)"* ]]'
 check "--doctor lists overridden personal settings once" '[[ $(grep -c "overrides your own VS Code settings here" <<< "$out") -eq 1 && "$out" == *"editor.wordWrap"* ]]'
 
+# --- --json: the review fact sheet ---------------------------------------------------------
+R=$(new_project review)
+mkdir -p "$R/theme" "$R/resources/views/partials" "$R/node_modules/x"
+# A made-up value, assembled at run time: the fact sheet must never carry it.
+canary="canary-$RANDOM-not-real"
+echo "{\"dependencies\":{\"astro\":\"4.0.0\"},\"scripts\":{\"deploy\":\"echo $canary\"}}" > "$R/package.json"
+echo "{\"require\":{\"php\":\"^8.2\"},\"config\":{\"http-basic\":{\"repo.example\":{\"password\":\"$canary\"}}}}" > "$R/composer.json"
+printf 'APP_KEY=%s\n' "$canary" > "$R/.env"
+touch "$R/phpstan.neon" "$R/.editorconfig" "$R/resources/views/partials/nav.blade.php" "$R/resources/views/home.blade.php"
+touch "$R/node_modules/x/ignored.blade.php"
+json=$(gen --project "$R" --json)
+check "--json prints one JSON object for --project" 'jq -e "type == \"object\" and .project == \"review\"" <<< "$json" >/dev/null'
+check "signals name the config files in use" '[[ $(jq -r ".signals.phpstan[0]" <<< "$json") == phpstan.neon && $(jq -r ".signals.editorconfig[0]" <<< "$json") == .editorconfig ]]'
+check "template files are counted by type, dependency folders skipped" '[[ $(jq -r ".templates[\"resources/views\"][\".blade.php\"]" <<< "$json") == 2 ]]'
+check "dependency names are listed" 'jq -e ".dependencies.npm == [\"astro\"] and (.dependencies.composer | index(\"php\"))" <<< "$json" >/dev/null'
+check "no value from scripts, composer config or .env reaches the sheet" '[[ "$json" != *"$canary"* ]]'
+check "no container yet: no drift reported" 'jq -e ".container.present == false and .extensions.missing_on_disk == []" <<< "$json" >/dev/null'
+
+gen --project "$R" --write </dev/null >/dev/null
+python3 - "$R/.devcontainer/devcontainer.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+lines = open(path).read().splitlines(keepends=True)
+header = "".join(l for l in lines if l.startswith("//"))
+data = json.loads("".join(l for l in lines if not l.startswith("//")))
+data["customizations"]["vscode"]["extensions"].remove("usernamehw.errorlens")
+data["customizations"]["vscode"]["extensions"].append("someone.extra")
+open(path, "w").write(header + json.dumps(data, indent=2) + "\n")
+PY
+json=$(gen --project "$R" --json)
+check "a container the kit wrote is recognized" 'jq -e ".container.written_by_kit and .container.kit_version_on_disk == .kit_version" <<< "$json" >/dev/null'
+check "an extension missing from devcontainer.json is drift" 'jq -e ".extensions.missing_on_disk == [\"usernamehw.errorlens\"]" <<< "$json" >/dev/null'
+check "an extension added by hand is reported" 'jq -e ".extensions.extra_on_disk == [\"someone.extra\"]" <<< "$json" >/dev/null'
+check "--root --json prints a list" '[[ $(gen --root "$work" --only review,site --json | jq -r "type, length" | tr "\n" " ") == "array 2 " ]]'
+
 echo ""
 echo "vscode-config: $pass passed, $fail failed"
 [[ $fail -eq 0 ]]

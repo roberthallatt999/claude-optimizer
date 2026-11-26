@@ -1,6 +1,6 @@
 ---
 name: "ai-devcontainer"
-description: "Give a project (or several) a sandboxed VS Code dev container for Claude Code with ai-config --devcontainer: assess, generate, resolve follow-ups, rebuild, verify, commit. Optional; for projects that want egress limits and tokens kept on the Mac."
+description: "Give a project (or several) a sandboxed VS Code dev container for Claude Code with ai-config --devcontainer: assess, generate, resolve follow-ups, rebuild, verify, commit. Also reviews existing dev containers against the codebase they run and suggests per-project [vscode] / [sandbox] changes (\"review the dev containers\", \"what should this container have\"). Optional; for projects that want egress limits and tokens kept on the Mac."
 ---
 
 # Dev container sandbox rollout
@@ -106,6 +106,102 @@ Every row must pass before committing.
 ## 6. Commit
 
 On the Mac: `git add .devcontainer` (plus `ai-config.conf` if it changed), commit as `chore: add Claude Code dev container`. **Never push or open a PR without the user's explicit yes for that action.**
+
+## Review an existing container
+
+For projects that already have a container: find what the codebase needs that the kit's rules
+missed, and suggest per-project changes. Read-only until the user approves a suggestion.
+
+### 1. Gather facts
+
+```bash
+K="$AI_CONFIG_REPO/devcontainer-kit/ai-devcontainer.py"
+python3 "$K" --project <folder> --json                      # one project
+python3 "$K" --root <folder-of-projects> --json --only a,b  # several, as a list
+```
+
+The fact sheet holds names only: the detected stack and runtimes, integrations, the extensions
+and settings the kit would generate next to what `devcontainer.json` has now, allowed hosts,
+`[vscode]` / `[sandbox]` from `ai-config.conf`, `.vscode/settings.json` overrides, config files in
+use (`signals`), template folders with file counts per type, dependency names, and follow-ups.
+Add the project's `CLAUDE.md` and README. Never open secret files for a review.
+
+### 2. Compare
+
+The container first:
+
+- `container.written_by_kit` false, or `kit_version_on_disk` older than `kit_version`: it predates
+  the current kit. Suggest a refresh (`ai-config --refresh --devcontainer`) before anything else;
+  many other findings go away with it.
+- `edited_files_with_pending_updates`: kit updates waiting on a file someone edited. Say which.
+- `extensions.missing_on_disk` / `settings.differs_on_disk`: drift between the kit's choice and
+  the file. Usually a refresh; if the file was edited on purpose, the change belongs in `[vscode]`.
+- `workspace_overrides` with `source: kit`: `.vscode/settings.json` undoes the container's
+  choice. Suggest removing the key there (gitignored in most projects, so no commit), or moving a
+  deliberate one into `[vscode]`.
+
+Then the codebase against the extensions. Suggest only what a fact supports, and check each
+extension ID on the Marketplace before suggesting it:
+
+| Fact | Suggest (when not already in `extensions.generated`) |
+| --- | --- |
+| `signals.phpstan` | `sanderronde.phpstan-vscode` |
+| `signals.psalm` | `getpsalm.psalm-vscode-plugin` |
+| `signals.pint` without `laravel/pint` in dependencies | `open-southeners.laravel-pint`, and `php: editor.defaultFormatter` |
+| `signals.phpcs` without `squizlabs/php_codesniffer` | `obliviousharmony.vscode-php-codesniffer` (it needs phpcs installed) |
+| `signals.php-cs-fixer` | `junstyle.php-cs-fixer` |
+| `signals.phpunit`, or `pestphp/pest` | `recca0120.vscode-phpunit` |
+| `signals.stylelint` | `stylelint.vscode-stylelint` |
+| `signals.markdownlint` | `davidanson.vscode-markdownlint` |
+| `signals.vitest` / `jest` / `playwright` | `vitest.explorer` / `orta.vscode-jest` / `ms-playwright.playwright` |
+| `.blade.php` templates outside a Laravel stack (Sage, Acorn) | `onecentlin.laravel-blade`, `shufo.vscode-blade-formatter` |
+| `.twig` templates outside Craft | `mblode.twig-language-2`, `twig: editor.formatOnSave = false` |
+| `.vue` / `.svelte` / `.astro` files the stack didn't catch | `vue.volar` / `svelte.svelte-vscode` / `astro-build.astro-vscode` |
+| `signals.github-actions` | `github.vscode-github-actions` |
+
+Settings worth suggesting come from the codebase too: the formatter a repo standardizes on,
+format on save off for template types its formatter mangles, `files.associations` for template
+folders under unusual paths. Never suggest personal preferences (rulers, wrapping, themes): they
+belong in the user's own settings, which VS Code applies in every container already.
+
+Then what the container reaches:
+
+- An integration whose hosts nothing in the codebase or its config mentions (search for the host
+  name, never in secret files): suggest `integrations = -name` under `[sandbox]`.
+- A dependency that downloads at install or run time (Playwright browsers, Puppeteer, `sharp`,
+  Cypress, a private Composer or npm registry) with no matching host in `allowed_hosts` or
+  `domains_conf`: suggest the integration or the `hosts` line, with the reason.
+- A host in `domains_conf.allow` that a `[sandbox]` line or an integration would cover better.
+
+Suggest narrowing as readily as widening.
+
+### 3. Report
+
+One section per project: a one-line verdict ("current, two additions", or "predates kit 2.x:
+refresh first"), a table of findings (what, why, which fact), then the exact lines for
+`ai-config.conf`:
+
+```ini
+[vscode]
+extensions = +sanderronde.phpstan-vscode, +stylelint.vscode-stylelint
+php: editor.defaultFormatter = "open-southeners.laravel-pint"
+
+[sandbox]
+integrations = -mailtrap
+```
+
+For several projects, end with the suggestions that came up in more than one. Those are
+candidates for a kit rule in `vscode_tooling()` or `allowed_groups()` in the ai-config repo, so
+every project gets them without a `[vscode]` line. Offer that as a separate change.
+
+### 4. Apply what the user approves
+
+Per project, only the approved lines: edit `ai-config.conf` (editing it asks first), then
+`ai-config --refresh --project=<folder>`. The refresh lists any new host, including a new extension
+publisher's download hosts, and asks; say why before the user answers. Then **Dev Containers:
+Rebuild and Reopen in Container**. Commit `ai-config.conf` (and `.devcontainer/` if the refresh
+changed it) on the Mac as `chore(devcontainer): <what changed>`. Never edit generated files to apply
+a suggestion, and never push without the user's explicit yes for that push.
 
 ## Rules
 

@@ -192,6 +192,12 @@ warns about each setting that overrides the container, and lists the ones that o
 settings or set a personal preference. It never changes the file. Remove those keys yourself, or move
 codebase settings into `[vscode]`. The stack templates no longer ship personal preferences.
 
+To have Claude suggest `[vscode]` and `[sandbox]` lines for a codebase, ask it to "review the dev
+containers" (the `ai-devcontainer` skill). It reads `ai-devcontainer.py --project <folder> --json`,
+a read-only fact sheet of names only (stack, extensions on disk vs generated, allowed hosts, config
+files in use such as `phpstan.neon` or `.stylelintrc`, template file counts, dependency names), and
+proposes lines with a reason for each. It changes nothing until you approve.
+
 ## Updating
 
 `ai-config --refresh` regenerates every file you haven't edited. An edited file is kept and its new

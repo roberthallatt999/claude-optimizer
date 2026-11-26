@@ -26,6 +26,15 @@ they switch on (`integrations/*.conf`, or private ones in
 `~/.config/ai-config/devcontainer/integrations/`). Nothing in the kit names an organization. Setup,
 settings and the integration format: [docs/guides/sandbox.md](../docs/guides/sandbox.md).
 
+## 2.2.0
+
+- `--json` prints a review fact sheet per project (read-only; a list with `--root`): stack,
+  integrations, generated vs on-disk extensions and settings, allowed hosts, `[vscode]` /
+  `[sandbox]`, `.vscode` overrides, config files in use, template file counts and dependency
+  names (`review.py`). Names only: no values from scripts, Composer config or secret files. The
+  skill's **Review an existing container** step turns it into suggested `ai-config.conf` lines.
+- EE templates map by `**/user/templates/**/*.html`, so a renamed system folder is covered.
+
 ## 2.1.0
 
 - `[vscode]` in `ai-config.conf` adds or removes extensions (`+id`, `-id`) and sets VS Code settings

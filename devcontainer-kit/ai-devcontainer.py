@@ -35,6 +35,8 @@ Usage:
   ai-devcontainer.py --project DIR --vscode-overrides
                                            settings .vscode/settings.json changes from the kit's
                                            or the user's (tab-separated; ai-config --doctor)
+  ai-devcontainer.py ... --json            facts for a review, as JSON (read-only): the skill's
+                                           Review step suggests [vscode] / [sandbox] lines from it
 
 Standard library only. Run it on the Mac, outside any container.
 """
@@ -54,8 +56,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import sandbox_policy  # noqa: E402
 import vscode_policy  # noqa: E402
+import review  # noqa: E402
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 TOOL = "ai-devcontainer"
 # Mac-side state shared by every container on this Mac: the DDEV relay, the egress CA, each
 # project's token file. Kit 1.x used ~/.cache/cps-devcontainer; ensure-relay.sh links one to
@@ -839,7 +842,8 @@ def vscode_tooling(p: Project) -> tuple[list[str], dict]:
         settings["[blade]"] = {"editor.defaultFormatter": "shufo.vscode-blade-formatter"}
     if "expressionengine" in p.stack:
         ext += ["jrrdnx.expressionengine", "mrmlnc.vscode-apache"]
-        settings["files.associations"] = {"**/system/user/templates/**/*.html": "expressionengine"}
+        # Any system folder name: some sites rename system/ ($system_path in admin.php).
+        settings["files.associations"] = {"**/user/templates/**/*.html": "expressionengine"}
         settings["[expressionengine]"] = {"editor.formatOnSave": False}
     if "craftcms" in p.stack:
         ext.append("mblode.twig-language-2")
@@ -1595,21 +1599,18 @@ def vscode_user_settings() -> Path:
     return Path.home() / ".config" / "Code" / "User" / "settings.json"
 
 
-def print_vscode_overrides(path: Path) -> int:
-    """One tab-separated line per setting the project's .vscode/settings.json changes: 'kit'
-    (overrides .devcontainer/devcontainer.json), 'user' (overrides the developer's own settings) or
-    'personal' (a preference that belongs in user settings), then the key, the workspace value and
-    the overridden value as JSON (null for 'personal'). No output when there's nothing to compare.
-    Read-only."""
+def vscode_override_rows(path: Path) -> list[tuple[str, str, object, object]]:
+    """What the project's .vscode/settings.json changes: (source, key, workspace value, overridden
+    value). source is 'kit' (overrides .devcontainer/devcontainer.json), 'user' (overrides the
+    developer's own settings) or 'personal' (a preference that belongs in user settings; the
+    overridden value is None). [] when there's no workspace file. Read-only."""
     workspace = vscode_policy.read_jsonc(path / ".vscode" / "settings.json")
     if workspace is None:
-        return 0
+        return []
     rows = []
     # What the container really applies, whichever kit version (or person) wrote it.
-    container = vscode_policy.read_jsonc(path / ".devcontainer" / "devcontainer.json") or {}
-    kit = container.get("customizations", {}).get("vscode", {}).get("settings", {})
-    if isinstance(kit, dict):
-        rows += [("kit", *r) for r in vscode_policy.workspace_overrides(workspace, kit)]
+    kit = disk_container_vscode(path)[1]
+    rows += [("kit", *r) for r in vscode_policy.workspace_overrides(workspace, kit)]
     user = vscode_policy.read_jsonc(vscode_user_settings()) or {}
     seen = {r[1] for r in rows}
     rows += [("user", *r) for r in vscode_policy.workspace_overrides(workspace, user) if r[0] not in seen]
@@ -1617,9 +1618,81 @@ def print_vscode_overrides(path: Path) -> int:
     same_as_user = vscode_policy.flatten(user)
     rows += [("personal", k, v, None) for k, v in vscode_policy.personal_settings(workspace)
              if k not in seen and same_as_user.get(k, object()) != v]
-    for source, key, mine, theirs in rows:
+    return rows
+
+
+def disk_container_vscode(path: Path) -> tuple[list, dict]:
+    """(extensions, settings) in the project's .devcontainer/devcontainer.json as it is on disk."""
+    container = vscode_policy.read_jsonc(path / ".devcontainer" / "devcontainer.json") or {}
+    vs = container.get("customizations", {}).get("vscode", {}) if isinstance(container, dict) else {}
+    ext = [e for e in vs.get("extensions", []) if isinstance(e, str)] if isinstance(vs, dict) else []
+    settings = vs.get("settings", {}) if isinstance(vs, dict) else {}
+    return ext, settings if isinstance(settings, dict) else {}
+
+
+def print_vscode_overrides(path: Path) -> int:
+    """--vscode-overrides: one tab-separated line per vscode_override_rows() row, values as JSON."""
+    for source, key, mine, theirs in vscode_override_rows(path):
         print("\t".join((source, key, json.dumps(mine), json.dumps(theirs))))
     return 0
+
+
+def fact_sheet(p: Project) -> dict:
+    """Everything a review needs about one project, as plain data. Names only: no setting values
+    from the profile, no environment values, nothing from secret files."""
+    ext = vscode_tooling(p)[0]
+    disk_ext, disk_settings = disk_container_vscode(p.path)
+    generated_settings = container_settings(p)
+    has_container = (p.path / ".devcontainer" / "devcontainer.json").is_file()
+    allowed = []
+    block = p.policy.block if p.policy else []
+    for _title, hosts in allowed_groups(p):
+        allowed += [h for h in hosts if h not in allowed and not sandbox_policy.blocked(h, block)]
+    allow_extra, block_extra = sandbox_policy.read_domains_conf(p.path / ".devcontainer" / "domains.conf") \
+        if (p.path / ".devcontainer" / "domains.conf").is_file() else ([], [])
+    flat_gen, flat_disk = vscode_policy.flatten(generated_settings), vscode_policy.flatten(disk_settings)
+    return {
+        "kit_version": VERSION,
+        "project": p.folder,
+        "stack": p.stack,
+        "runtimes": {"php": p.php, "node": p.node, "python": p.python},
+        "ddev": {"used": p.uses_ddev, "name": p.ddev_name, "addons": p.ddev_addons},
+        "profile": p.policy.profile if p.policy else "",
+        "integrations": [i.name for i in p.policy.integrations] if p.policy else [],
+        "container": {
+            "present": has_container,
+            "written_by_kit": (p.path / ".devcontainer" / MANIFEST).is_file(),
+            "kit_version_on_disk": review.kit_version_on_disk(p.path),
+            "edited_files_with_pending_updates": review.pending_files(p.path),
+        },
+        "extensions": {
+            "generated": ext,
+            "on_disk": disk_ext,
+            "missing_on_disk": [e for e in ext if has_container and e not in disk_ext],
+            "extra_on_disk": [e for e in disk_ext if e not in ext],
+        },
+        "settings": {
+            "generated": generated_settings,
+            "differs_on_disk": sorted(k for k in flat_gen.keys() | flat_disk.keys()
+                                      if has_container and flat_gen.get(k) != flat_disk.get(k)),
+        },
+        "ai_config_conf": {
+            "vscode": {"add": p.vscode.add, "remove": p.vscode.remove, "settings": p.vscode.settings,
+                       "problems": p.vscode.problems},
+            "sandbox_hosts": p.policy.hosts if p.policy else [],
+            "sandbox_domains": p.policy.domains if p.policy else [],
+            "sandbox_block": block,
+        },
+        "allowed_hosts": allowed,
+        "domains_conf": {"allow": allow_extra, "block": block_extra},
+        "workspace_overrides": [{"source": s_, "key": k, "workspace": w, "overridden": o}
+                                for s_, k, w, o in vscode_override_rows(p.path)],
+        "signals": review.signals(p.path, p.package_dir),
+        "templates": review.template_files(p.path),
+        "dependencies": review.dependencies(p.composer, p.package),
+        "handled": p.info,
+        "follow_ups": p.notes,
+    }
 
 
 def main() -> int:
@@ -1639,6 +1712,8 @@ def main() -> int:
     ap.add_argument("--db-name", help="the site's database (with --project); default: detected from DDEV's volume")
     ap.add_argument("--vscode-overrides", action="store_true",
                     help="(with --project) list settings .vscode/settings.json changes from the kit's or yours")
+    ap.add_argument("--json", action="store_true",
+                    help="print a review fact sheet per project as JSON (read-only; with --root, a list)")
     ap.add_argument("--version", action="version", version=VERSION)
     a = ap.parse_args()
     if a.db_name and not a.project:
@@ -1669,6 +1744,10 @@ def main() -> int:
     if a.list:
         for p in projects:
             print(summary_line(p))
+        return 0
+    if a.json:
+        sheets = [fact_sheet(p) for p in projects]
+        print(json.dumps(sheets[0] if a.project else sheets, indent=2, default=str))
         return 0
 
     rc = 0

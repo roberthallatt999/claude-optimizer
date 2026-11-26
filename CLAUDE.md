@@ -240,6 +240,16 @@ readable text such as `(brand green: not set)` rather than a fake value.
 
 ## Recent Changes
 
+- **Dev container review** — `ai-devcontainer.py --json` (kit 2.2.0, `devcontainer-kit/review.py`)
+  prints a read-only fact sheet per project (a list with `--root`): stack, integrations, the
+  extensions and settings the kit would generate next to `devcontainer.json` on disk, allowed
+  hosts, `[vscode]`/`[sandbox]`, `.vscode` overrides, config files in use (`phpstan.neon`,
+  `.stylelintrc`, `pint.json`, test runners…), template file counts by type and dependency names.
+  Names only: nothing from scripts, Composer config or secret files. The `ai-devcontainer` skill's
+  **Review an existing container** step compares it against a signal → extension table and the
+  sandbox's hosts, and reports suggested `ai-config.conf` lines per project with a reason each,
+  applying only what's approved; suggestions shared by several projects are flagged as kit-rule
+  candidates. EE templates now map by `**/user/templates/**`. Tests: `test-vscode-config.sh` (40).
 - **VS Code in dev containers: per-project `[vscode]`, overrides reported** — personal editor
   preferences live in the Mac's own VS Code user settings, which VS Code already applies in every
   container window. The kit writes codebase facts into `devcontainer.json` (extensions, formatters
