@@ -205,6 +205,33 @@ version staged in `.claude/ai-config/pending/.devcontainer/` (`--apply-pending` 
 `domains.conf` is never touched. After a change to the Dockerfile, mounts or integrations, use
 **Dev Containers: Rebuild and Reopen in Container**; plain Reopen keeps the old container.
 
+A container written by kit 1.x has no `.ai-devcontainer.manifest`, so a refresh leaves it alone.
+`ai-config --refresh --devcontainer --force` replaces it after backing the old folder up to
+`.claude/ai-config/backups/`.
+
+**Shipping a container change without deploying.** `.devcontainer/` lives in the repository, so on
+a site whose deploy workflow runs on every push to `main` or `staging`, a container-only commit would
+deploy the site. Give each deploy workflow's push trigger a path filter:
+
+```yaml
+on:
+  push:
+    branches:
+      - main
+    # A push that only changes these paths does not deploy (mixed pushes still do).
+    paths-ignore:
+      - '.devcontainer/**'
+```
+
+Until then, end the commit message with `[skip ci]`; GitHub skips every push-triggered workflow when
+the pushed head commit carries it. Branch container work from `main`, not `staging`, so unreleased
+`staging` work can't ride along to production.
+
+To check one project against its codebase (extensions its config files call for, hosts it doesn't
+use, drift from the kit), ask Claude to "review the dev containers": the `ai-devcontainer` skill
+reads `ai-devcontainer.py --json` and suggests `[vscode]` / `[sandbox]` lines. `--vscode-overrides`
+lists what a project's `.vscode/settings.json` changes from the container's settings or yours.
+
 ## Enclave
 
 If you use Eclipse Enclave (the `enclave` CLI) instead of a dev container, the

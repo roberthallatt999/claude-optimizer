@@ -11,10 +11,15 @@ claude-optimizer/
 ├── serve-docs.sh                 # Documentation server
 ├── install.sh                    # Installer script
 ├── update-superpowers.sh         # Pulls the latest superpowers subtree (called on deploy/refresh)
-├── run-tests.sh                  # Runs every test-*.sh suite
-├── test-*.sh                     # 10 suites: cms-intelligence, fleet, frontend-detection,
-│                                  #   install-deps, lifecycle, okf-memory, refresh-additive,
-│                                  #   safety-guard, security-policy, stack-detection
+├── run-tests.sh                  # Runs every test-*.sh suite, in parallel (-j N)
+├── test-*.sh                     # 29 suites, one per feature (./run-tests.sh --list)
+├── scripts/                      # Global guard, managed settings, skill links, vendored
+│                                  #   skills, noslop build, transcript scan (docs/reference/scripts.md)
+├── devcontainer-kit/             # Optional sandboxes: ai-devcontainer.py, sandbox_policy.py,
+│                                  #   vscode_policy.py, review.py, integrations/, files/
+├── global-skills/                # noslop, humanizer: linked into ~/.claude/skills/
+├── design-skills/                # Impeccable, web-design-guidelines, GSAP (copied per project)
+├── vendor/                       # skills.conf pins + patches for third-party skills
 ├── README.md                     # Overview and quick links
 ├── CLAUDE.md                     # Repository context for Claude
 │

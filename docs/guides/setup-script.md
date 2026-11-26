@@ -211,6 +211,7 @@ Superpowers workflow skills are enabled by default:
 | Flag | Description |
 |------|-------------|
 | `--no-superpowers` | Disable all Superpowers skills |
+| `--with-superpowers` | Turn them on for this run even when `ai-config.conf` sets `superpowers = false` |
 | `--superpowers-all` | Deploy all skills (default) |
 | `--superpowers-core` | Deploy core skills only |
 | `--superpowers-minimal` | Deploy bootstrap skill only |
@@ -221,7 +222,8 @@ By default, every deploy/refresh first runs `update-superpowers.sh` (best-effort
 to pull the latest vendored skills. See
 [Superpowers → Maintaining Superpowers](superpowers.md#maintaining-superpowers-upstream-updates).
 Pass `--skip-superpowers-update` to use the already-vendored copy without touching
-the network or the optimizer repo.
+the network or the optimizer repo. `AI_CONFIG_SKIP_SUPERPOWERS_UPDATE=1` does the same
+from the environment; `run-tests.sh` sets it for every test suite.
 
 ### Available Skills
 
@@ -378,6 +380,13 @@ See [Updating Projects → Updating Multiple Projects](updating-projects.md#upda
 for the full flag set and output format.
 
 ## VSCode Options
+
+The stack's `.vscode/settings.json` holds codebase conventions only (formatters, indentation,
+file associations, excludes). Personal preferences such as rulers, word wrap and whitespace
+rendering belong in your own VS Code user settings, which also apply inside dev containers.
+For a dev container, change extensions and settings per project with `[vscode]` in
+`ai-config.conf` ([Sandbox → VS Code extensions and settings](sandbox.md#vs-code-extensions-and-settings)).
+`--doctor` reports settings in `.vscode/settings.json` that override the container's or yours.
 
 ### --skip-vscode
 

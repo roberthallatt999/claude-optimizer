@@ -659,6 +659,7 @@ while [[ $# -gt 0 ]]; do
       echo ""
       echo "Superpowers Skills (enabled by default):"
       echo "  --no-superpowers        Disable Superpowers skills system"
+      echo "  --with-superpowers      Enable them even when ai-config.conf sets superpowers = false"
       echo "  --superpowers-all       Deploy all skills (default when enabled)"
       echo "  --superpowers-core      Deploy core skills only (TDD, debugging, brainstorming)"
       echo "  --superpowers-minimal   Deploy only the bootstrap skill"

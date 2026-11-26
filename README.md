@@ -39,7 +39,8 @@ Claude Optimizer fixes each of these once, and you can reuse the fix on every pr
   template markup. It configures the project for what it finds, and reports honestly when it finds only custom JS/CSS.
 - 🛡️ **Enforced safety, not just advice:** A `PreToolUse` hook and a deny/ask permission policy block reads of secrets
   and credentials. Every `git push`, deploy or destructive command needs your approval, including through MCP tools.
-  `--doctor` runs a live test to confirm the hook works.
+  `--doctor` runs a live test to confirm the hook works. Declare each site's production and staging servers, folders
+  and databases under `[remote]` in `ai-config.conf`, and remote writes to production are blocked outright.
 - 🧠 **Persistent project memory:** A managed `MEMORY.md` (or an [OKF](https://github.com/GoogleCloudPlatform/knowledge-catalog)
   knowledge bundle) records decisions and changes, so the next session starts with that context.
 - 📚 **Stack-aware knowledge:** Includes 29 library references (Tailwind, Alpine, React, Vue, Prisma, Zod, and others) plus
@@ -57,6 +58,10 @@ Claude Optimizer fixes each of these once, and you can reuse the fix on every pr
   Sonnet-implementer split (`--orchestrator`).
 - 🧩 **Editor setup:** Configures VS Code formatters, Xdebug, DDEV tasks and extensions for each stack. It can also generate
   `AGENTS.md` for OpenAI Codex.
+- 📦 **Optional sandbox:** `--devcontainer` runs Claude in a VS Code dev container with a default-deny firewall, tokens kept
+  in the Mac's Keychain and guardrails mounted read-only (or `--sandbox=enclave` / `--sandbox=claude`). A project adds
+  extensions and settings with `[vscode]` in `ai-config.conf`, and Claude can review each container against its
+  codebase and suggest changes. See the [Sandbox guide](docs/guides/sandbox.md).
 
 ---
 
@@ -409,7 +414,8 @@ ai-config-docs  # Opens http://localhost:8000
 ## Testing
 
 ```bash
-./run-tests.sh                        # every test-*.sh suite (10 suites)
+./run-tests.sh                        # every test-*.sh suite (29), in parallel
+./run-tests.sh -j 1                   # one at a time
 ./run-tests.sh lifecycle safety-guard  # selected suites ("test-" and ".sh" optional)
 ./run-tests.sh --list
 ```

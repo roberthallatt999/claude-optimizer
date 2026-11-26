@@ -13,7 +13,7 @@
 - 29 library references covering modern web tooling (auto-injected on detection)
 - Technology-specific coding rules, layered on shared common rules deployed to every stack
 - Additive `--refresh`, health checks (`--doctor`), dependency installation (`--install-deps`), and a fleet runner (`ai-config-fleet.sh`) for many projects
-- 590 automated tests across 10 suites, run in CI on macOS and Ubuntu (`run-tests.sh`, `.github/workflows/tests.yml`)
+- 1,554 automated tests across 29 suites, run in parallel by `run-tests.sh` (about 6 minutes) and in CI on macOS and Ubuntu (`.github/workflows/tests.yml`)
 
 ---
 
@@ -229,7 +229,7 @@ Capabilities added since the stack/skill counts above were first written (see `d
 | **Front-end detection** | `projects/common/detect-frontend.sh` scans every `package.json` (including theme folders), vendored assets, CDN/enqueue references, and `x-data`/`hx-*` markup against a 50+ entry catalog of CSS/JS frameworks, UI kits, and build tools, reporting "custom JavaScript/CSS, no framework detected" when nothing matches. |
 | **Health checks & `--install-deps`** | Every run preflights required tools (`jq`, `perl`, `shasum`, …) and stops before writing if one is missing; a post-run check (including a live safety-hook test) exits 1 on a critical failure. `--doctor` runs the same checks read-only; `--install-deps` installs missing tools via the system package manager. |
 | **Fleet management** | `ai-config-fleet.sh` (aliased `ai-config-fleet`) runs `--doctor` (default), `--refresh`, or `--list` across every ai-config project under a `--root` folder. |
-| **Tests & CI** | 590 tests across 10 `test-*.sh` suites (all 10 passing on macOS after the rule-copy fix; `test-refresh-additive.sh` grew from 41 to 54 tests to cover it), run via `run-tests.sh`. `.github/workflows/tests.yml` runs the same suites on macOS and Ubuntu, plus `shellcheck -S warning`. |
+| **Tests & CI** | 1,554 tests across 29 `test-*.sh` suites, run in parallel via `run-tests.sh` (`-j N`; slowest first from saved timings). `.github/workflows/tests.yml` runs the same suites on macOS and Ubuntu, plus `shellcheck -S warning`. |
 
 ---
 

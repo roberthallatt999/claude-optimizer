@@ -41,12 +41,23 @@ This repository provides automated Claude Code configuration deployment across *
 - **[Project Policy](guides/project-policy.md)** - `ai-config.conf`: a project's committed say over its own config
 - **[MCP Integration](guides/mcp-integration.md)** - Connecting Supabase, GitHub, Cloudflare, and other MCP servers
 - **[Philter](guides/philter.md)** - Redact personal data before it reaches Claude; choose a policy set per codebase (opt-in)
+- **[Sandbox](guides/sandbox.md)** - Optional dev container, Enclave or Claude Code sandbox: what it reaches, integrations, per-project VS Code extensions and settings, container reviews
+- **[Profiles](guides/profiles.md)** - Who you are per context (work, volunteer, side work), from a private repo
 
 ## Reference
 
 - **[Supported Stacks](reference/stacks.md)** - Complete stack details and features
 - **[File Structure](reference/file-structure.md)** - Configuration file organization
 - **[Commands](reference/commands.md)** - Available commands and skills
+- **[Scripts](reference/scripts.md)** - Every command-line tool: fleet, guard installers, skill tools, the dev container kit, tests
+- **[Environment Variables](reference/environment.md)** - Settings read from the environment
+
+## Runbooks
+
+- **[Dev container sandbox](runbooks/devcontainer.md)** - Set up, rebuild and verify a project's dev container
+- **[Enclave sandbox](runbooks/enclave.md)** - Run a project in Eclipse Enclave with the same allow lists
+- **[Claude Code sandbox](runbooks/claude-sandbox.md)** - Claude Code's own OS sandbox for Bash, and how the three compare
+- **[Monthly safety check-up](runbooks/safety-checkup.md)** - Ten minutes to confirm the safeguards are still on
 
 ## Development
 

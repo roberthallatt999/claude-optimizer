@@ -83,10 +83,18 @@ Run the automated suites (the same command CI runs on macOS and Ubuntu via
 `.github/workflows/tests.yml`):
 
 ```bash
-./run-tests.sh                      # every test-*.sh
+./run-tests.sh                      # every test-*.sh, in parallel (one per CPU, at most 8)
+./run-tests.sh -j 1                 # one at a time
 ./run-tests.sh lifecycle safety-guard   # selected suites ("test-" and ".sh" optional)
 ./run-tests.sh --list
 ```
+
+A full run takes about as long as the slowest suite (around 6 minutes). Suites start slowest
+first, from the timings each run saves in `~/.cache/ai-config/test-times.tsv`. Every suite gets
+`AI_CONFIG_SKIP_SUPERPOWERS_UPDATE=1` and a run-scoped `AI_CONFIG_CLAUDE_DIR`, so a suite must not
+depend on the real `~/.claude`, and must keep its own state in `mktemp -d` folders: suites run side
+by side. A suite's last line should be `name: N passed, M failed` (or `All N tests passed`) so the
+runner can count it.
 
 Then try a change against a scratch project:
 
