@@ -167,6 +167,9 @@ GIT_INTEGRATION_BRANCH=""
 #                (they'd hide files it needs). Never added, and removed from ai-config's part
 #                of .gitignore. Rules the project needs on top go in .gitignore itself, above
 #                ai-config's header, where ai-config never writes.
+#   [sandbox]    what a sandbox may reach; [vscode] the dev container's extensions and settings.
+#                Read by devcontainer-kit/ (sandbox_policy.py, vscode_policy.py), not here:
+#                this parser keeps their lines verbatim so --save-policy writes them back.
 #
 # --save-policy writes the file from a project's current state, so a tuned project can be
 # captured and committed in one run.
@@ -182,6 +185,7 @@ POLICY_REMOTE_STAGE=()       # [remote] staging markers
 POLICY_REMOTE_ASSERT_DB=""   # [remote] assert-database: a staging write must prove its database
 POLICY_SCAN_ALLOW=""         # [scan] allow: test-fixture globs the guard's content scan skips
 POLICY_GITIGNORE_SKIP=()     # [gitignore] skip: ai-config .gitignore rules this project must not get
+POLICY_KIT_SECTIONS=""       # [sandbox] and [vscode], verbatim: devcontainer-kit/ reads them
 PHILTER_SET=""               # [options] philter: the policy set name for the committed .philter file
 PHILTER_MARKER="# Philter policy set, written by ai-config from ai-config.conf (philter = …). See philter-guard."
 POLICY_SKIPPED=0             # files not written this run because [exclude] covers them
@@ -253,12 +257,18 @@ load_project_policy() {
   POLICY_REMOTE_STAGE=()
   POLICY_REMOTE_ASSERT_DB=""
   POLICY_GITIGNORE_SKIP=()
+  POLICY_KIT_SECTIONS=""
   [[ -f "$POLICY_PATH" ]] || return 0
   POLICY_PRESENT=true
 
   local section="" line key val
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%$'\r'}"
+    # The kit's sections are kept as written, comments included, up to the next section.
+    if [[ "$section" == kit && "${line#"${line%%[![:space:]]*}"}" != '['* ]]; then
+      POLICY_KIT_SECTIONS+="$line"$'\n'
+      continue
+    fi
     case "$line" in '#'*|';'*) continue ;; esac
     line="${line%% #*}"
     line="${line%%$'\t'#*}"
@@ -272,6 +282,11 @@ load_project_policy() {
       '[remote]')    section=remote;    continue ;;
       '[scan]')      section=scan;      continue ;;
       '[gitignore]') section=gitignore; continue ;;
+      '[sandbox]'|'[vscode]')
+        section=kit
+        POLICY_KIT_SECTIONS+="$line"$'\n'
+        continue
+        ;;
       '['*)
         echo -e "  ${YELLOW}⚠${NC}  Unknown section '$line' in $POLICY_FILE_NAME — ignored"
         section=""
@@ -1029,6 +1044,11 @@ save_project_policy() {
       echo "# Add the project's own rules to .gitignore above ai-config's header instead."
       local gs
       for gs in "${POLICY_GITIGNORE_SKIP[@]}"; do echo "skip = $gs"; done
+    fi
+    if [[ -n "$POLICY_KIT_SECTIONS" ]]; then
+      # [sandbox] / [vscode] as written (cat -s: one blank line at most, so reruns don't grow it).
+      echo ""
+      printf '%s' "$POLICY_KIT_SECTIONS" | cat -s
     fi
   } > "$out"
 

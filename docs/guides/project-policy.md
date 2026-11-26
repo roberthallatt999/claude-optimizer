@@ -249,6 +249,14 @@ automatically, and `--doctor` warns about any ai-config rule that matches tracke
 `/project-discover` works out both lists from the framework's official starter `.gitignore`.
 `--save-policy` keeps the section.
 
+### `[sandbox]` and `[vscode]`
+
+Read by the dev container kit, not by `setup-project.sh`: `[sandbox]` sets what a sandbox may
+reach, and `[vscode]` sets the container's extensions and settings. See
+[sandbox.md](sandbox.md#vs-code-extensions-and-settings). `--save-policy` keeps both sections exactly
+as written, comments included. Earlier versions dropped them, and every run reported them as
+unknown sections.
+
 ### `design-skills` and `profile` (under `[options]`)
 
 - `design-skills = true` deploys the front-end design skills on a CMS stack. JS stacks get
