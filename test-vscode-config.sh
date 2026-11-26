@@ -7,6 +7,7 @@
 #     the user's settings, plus personal preferences; the file itself is never changed
 #   * --save-policy keeps [sandbox] and [vscode] verbatim (it used to drop them)
 # No Docker, no real profile: HOME and AI_CONFIG_HOME are throwaway folders.
+# shellcheck disable=SC2034  # variables are read inside the check strings, which check() evals
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GEN="$HERE/devcontainer-kit/ai-devcontainer.py"
