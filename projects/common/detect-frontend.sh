@@ -15,7 +15,9 @@
 # templates, and markup attributes (x-data, hx-get). CMS core and third-party folders are skipped
 # so the libraries they bundle aren't mistaken for the site's own: node_modules, vendor, EE
 # system/ee, themes/ee|user and add-ons, Craft cpresources, WordPress core and plugins, build
-# output (a build/ folder without a package.json), uploads, caches, and .claude/ agent config.
+# output (a build/ folder without a package.json), uploads, caches, .claude/ agent config, and
+# Python virtual environments (.venv, venv, any site-packages, __pycache__): Playwright's Python
+# package ships bootstrap.js and a package.json there.
 # Only file names, package.json, and markup are read.
 #
 # Source of truth: claude-optimizer/projects/common/detect-frontend.sh
@@ -38,6 +40,7 @@ project_find() {
   find "$project" -maxdepth 9 \( -type d \( -name node_modules -o -name vendor -o -name .git -o -name .ddev \
       -o -name .next -o -name .nuxt -o -name .output -o -name .svelte-kit -o -name .astro -o -name .cache \
       -o -name .claude -o -name .okf \
+      -o -name .venv -o -name venv -o -name site-packages -o -name __pycache__ \
       -o \( -name build ! -exec sh -c 'test -f "$1/package.json"' sh {} \; \) \
       -o \( -name ee -exec sh -c 'test -d "$1/ExpressionEngine"' sh {} \; \) \
       -o -name cache -o -name dist -o -name coverage -o -name storage -o -name uploads \

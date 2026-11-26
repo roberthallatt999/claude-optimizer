@@ -240,6 +240,12 @@ readable text such as `(brand green: not set)` rather than a fake value.
 
 ## Recent Changes
 
+- **Front-end detection skips Python virtual environments** — `detect-frontend.sh` read
+  `.venv/…/site-packages/playwright/driver/package/lib/bootstrap.js` as the site's own Bootstrap,
+  so a refresh wrote "Bootstrap" and a Bootstrap library reference into statements-studio's
+  `CLAUDE.md` (and a venv's bundled `package.json` could add React). `.venv`, `venv`, any
+  `site-packages` and `__pycache__` are now pruned like `node_modules`. Tests:
+  `test-frontend-detection.sh` (71).
 - **Parallel test runner** — `run-tests.sh` runs suites in parallel (one per CPU, at most 8;
   `-j N`, `-j 1` for one at a time), slowest first from timings it records in
   `~/.cache/ai-config/test-times.tsv`. A full run went from ~34 minutes to under 8, bounded by

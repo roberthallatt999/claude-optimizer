@@ -147,6 +147,23 @@ assert_eq "Material UI" "ui|5.15.0|package.json" "$(lib "$out" mui)"
 assert_eq "styled-components" "css-tool|6.1.0|package.json" "$(lib "$out" styled-components)"
 assert_eq "TypeScript" "lang|5.3.3|package.json" "$(lib "$out" typescript)"
 
+# Python virtual environments bundle front-end files (Playwright's driver ships bootstrap.js and a
+# package.json): statements-studio's .venv made CLAUDE.md claim the site uses Bootstrap.
+d=$(tmp_dir)
+echo '{"devDependencies":{"tailwindcss":"4.1.0"}}' > "$d/package.json"
+pw="lib/python3.13/site-packages/playwright/driver/package"
+mkdir -p "$d/.venv/$pw/lib" "$d/venv/$pw/lib" "$d/env/lib/python3.12/site-packages/x/static" "$d/__pycache__"
+for v in .venv venv; do
+  echo 'window.bootstrap = {};' > "$d/$v/$pw/lib/bootstrap.js"
+  echo '{"dependencies":{"react":"18.2.0"}}' > "$d/$v/$pw/package.json"
+done
+echo '/*! jQuery v3.7.1 */' > "$d/env/lib/python3.12/site-packages/x/static/jquery-3.7.1.min.js"
+echo '<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.min.js"></script>' > "$d/__pycache__/page.html"
+out=$(bash "$DETECT" "$d")
+assert_eq "venv: the site's own Tailwind is still found" "css|4.1.0|package.json" "$(lib "$out" tailwind)"
+assert_eq "venv: nothing from .venv, venv, site-packages or __pycache__" "|||" \
+  "$(lib "$out" bootstrap)|$(lib "$out" react)|$(lib "$out" jquery)|$(printf '%s\n' "$out" | grep -c 'site-packages\|__pycache__\|\.venv/\|/venv/' | sed 's/^0$//')"
+
 d=$(tmp_dir)
 mkdir -p "$d/assets/js/vendor" "$d/assets/css"
 echo 'console.log(1);' > "$d/assets/js/app.js"
