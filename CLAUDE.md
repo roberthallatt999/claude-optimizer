@@ -64,7 +64,7 @@ This repository provides automated Claude Code configuration deployment across *
 - `setup-project.sh` - Main deployment script (aliased as `ai-config`)
 - `serve-docs.sh` - Local documentation server (aliased as `ai-config-docs`)
 - `ai-config-fleet.sh` - Run `--doctor` / `--refresh` across every project under a folder (aliased as `ai-config-fleet`)
-- `run-tests.sh` - Run every `test-*.sh` suite (CI: `.github/workflows/tests.yml`)
+- `run-tests.sh` - Run every `test-*.sh` suite, in parallel (`-j N`; CI: `.github/workflows/tests.yml`)
 - `scripts/sync-noslop.sh` - Build (or `--update`) the global `noslop` skill from its CPS overlay and pinned upstream copy
 - `scripts/vendor-skills.sh` - `--list` / `--fetch` / `--bump` the third-party skills pinned in `vendor/skills.conf` (patches in `vendor/patches/`)
 - `scripts/link-global-skills.sh` - Link `global-skills/*` and the private `~/.config/ai-config/skills/*` into `~/.claude/skills/` (used by `install.sh` and every `ai-config` run)
@@ -116,7 +116,7 @@ superpowers/
 ├── commands/                 # Slash commands
 └── hooks/                    # Session hooks
 
-test-*.sh                     # 28 test suites, each independently runnable
+test-*.sh                     # 29 test suites, each independently runnable
 run-tests.sh                  # Runs every test-*.sh suite, or a selected subset
 ai-config-fleet.sh            # --doctor / --refresh / --list across many projects
 .github/workflows/tests.yml   # CI: runs the suites on macOS + Ubuntu, plus shellcheck
@@ -240,6 +240,15 @@ readable text such as `(brand green: not set)` rather than a fake value.
 
 ## Recent Changes
 
+- **Parallel test runner** — `run-tests.sh` runs suites in parallel (one per CPU, at most 8;
+  `-j N`, `-j 1` for one at a time), slowest first from timings it records in
+  `~/.cache/ai-config/test-times.tsv`. A full run went from ~34 minutes to under 8, bounded by
+  `test-refresh-additive.sh` and `test-gitignore-safety.sh`. Every suite gets
+  `AI_CONFIG_SKIP_SUPERPOWERS_UPDATE=1` (new: a test deploy never pulls the superpowers subtree
+  into this repo) and a run-scoped `AI_CONFIG_CLAUDE_DIR`, linked once before any suite starts,
+  so parallel deploys never race on skill links and tests never write to `~/.claude`. Works on
+  bash 3.2 (polls instead of `wait -n`). It also counts the `name: N passed, M failed` summary
+  format. Tests: `test-run-tests.sh` (19).
 - **Dev container review** — `ai-devcontainer.py --json` (kit 2.2.0, `devcontainer-kit/review.py`)
   prints a read-only fact sheet per project (a list with `--root`): stack, integrations, the
   extensions and settings the kit would generate next to `devcontainer.json` on disk, allowed

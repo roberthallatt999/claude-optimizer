@@ -68,6 +68,7 @@ jobs:
           test-ddev-relay.sh
           test-devcontainer.sh
           test-vscode-config.sh
+          test-run-tests.sh
           test-egress-proxy.sh
           test-engineering-practices.sh
           test-gitignore-safety.sh

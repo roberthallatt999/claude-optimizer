@@ -73,6 +73,9 @@ ORCHESTRATOR_OFF=false         # orchestrator = false in ai-config.conf: remove 
 SUPERPOWERS_BOOTSTRAP=false    # --superpowers-bootstrap injects using-superpowers at every session start
 DESIGN_SKILLS=""               # --design-skills / --no-design-skills; empty = on for JS front-end stacks only
 SKIP_SUPERPOWERS_UPDATE=false  # Auto-update the superpowers subtree before deploy; --skip-superpowers-update opts out
+# Also off with AI_CONFIG_SKIP_SUPERPOWERS_UPDATE=1: run-tests.sh sets it, because a test deploy must
+# never pull from the network or rewrite this repo (and parallel suites would race on the subtree).
+[[ "${AI_CONFIG_SKIP_SUPERPOWERS_UPDATE:-}" == 1 ]] && SKIP_SUPERPOWERS_UPDATE=true
 NO_RESPONSE_STYLE=false        # Concise Response Style block is appended by default; --no-response-style opts out
 NO_ENGINEERING_PRACTICES=false # Engineering Practices block + rule deploy by default; --no-engineering-practices opts out
 NO_CI_CHECKS=false            # ci-checks = false: a local-only project with no CI skips the CI warning
