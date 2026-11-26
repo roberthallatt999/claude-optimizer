@@ -116,7 +116,7 @@ superpowers/
 ├── commands/                 # Slash commands
 └── hooks/                    # Session hooks
 
-test-*.sh                     # 25 test suites, each independently runnable
+test-*.sh                     # 28 test suites, each independently runnable
 run-tests.sh                  # Runs every test-*.sh suite, or a selected subset
 ai-config-fleet.sh            # --doctor / --refresh / --list across many projects
 .github/workflows/tests.yml   # CI: runs the suites on macOS + Ubuntu, plus shellcheck
@@ -240,6 +240,25 @@ readable text such as `(brand green: not set)` rather than a fake value.
 
 ## Recent Changes
 
+- **VS Code in dev containers: per-project `[vscode]`, overrides reported** — personal editor
+  preferences live in the Mac's own VS Code user settings, which VS Code already applies in every
+  container window. The kit writes codebase facts into `devcontainer.json` (extensions, formatters
+  picked from what the repo requires, template associations), and a project changes them with
+  `[vscode]` in `ai-config.conf`: `extensions = +id, -id` and `key = <JSON>` /
+  `lang: key = <JSON>` lines, merged over the kit's (`devcontainer-kit/vscode_policy.py`, kit
+  2.1.0). A new extension publisher's download hosts go through the widening confirmation;
+  isolation settings (git/GitHub auth, terminal env and profiles, `http.*`, `remote.*`,
+  `dev.containers.*`, `security.*`) are locked; Claude Code can't be removed. A project's
+  `.vscode/settings.json` wins over both layers and is gitignored in most CPS repos, so `--doctor`
+  (via `ai-devcontainer.py --vscode-overrides`, reading JSONC) warns about each key that overrides
+  the container (membercentre's PHP formatter undid the kit's PHP CodeSniffer choice) and lists keys
+  that override the user's settings or set personal preferences. It never edits the file. The 13
+  stack `.vscode/settings.json` templates dropped `rulers`, `wordWrap`, `renderWhitespace` and the
+  bracket-pair keys; EE's mapped every `*.html` to plain HTML, turning off the EE extension in
+  templates, and now maps `**/user/templates/**/*.html` to `expressionengine`. Fixed on the way:
+  the bash policy parser reported `[sandbox]` as an unknown section and `--save-policy` deleted it
+  (host allowances included); `[sandbox]` and `[vscode]` are now kept verbatim. Guide:
+  `docs/guides/sandbox.md`. Tests: `test-vscode-config.sh` (30).
 - **Engineering Practices for AI-assisted code** — a security review of an AI-built Laravel
   app found most problems in hand-written login, sanitiser and access-check code, two comments
   that promised protection the code didn't give, a 2,300-line editor component nobody could

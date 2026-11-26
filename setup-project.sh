@@ -3738,6 +3738,7 @@ verify_deployment() {
   else
     hc_info "No sandbox (optional: --devcontainer, --sandbox=enclave or --sandbox=claude)"
   fi
+  check_vscode_overrides
   count=$(find "$PENDING_DIR" -type f 2>/dev/null | wc -l | tr -d ' ')
   if [[ "$count" != "0" ]]; then
     hc_info "$count staged update(s) in .claude/ai-config/pending/ (adopt with --apply-pending)"
@@ -4187,6 +4188,26 @@ do_uninstall() {
     echo -e "${GREEN}ai-config removed: ${removed} file(s) removed, ${kept} edited file(s) kept.${NC}"
     if [[ $COUNT_BACKED_UP -gt 0 ]]; then echo "  Backups: .claude/ai-config/backups/$RUN_STAMP/"; fi
   fi
+}
+
+# check_vscode_overrides — .vscode/settings.json wins over both the dev container's settings and
+# the developer's own, and is gitignored in most projects, so a stale copy silently undoes both.
+# Report only: the file is never changed (devcontainer-kit/vscode_policy.py explains the layers).
+check_vscode_overrides() {
+  [[ -f "$PROJECT_DIR/.vscode/settings.json" ]] || return 0
+  command -v python3 >/dev/null 2>&1 || return 0
+  local rows source key mine theirs personal=""
+  rows=$(python3 "$SCRIPT_DIR/devcontainer-kit/ai-devcontainer.py" --project "$PROJECT_DIR" --vscode-overrides 2>/dev/null) || return 0
+  [[ -n "$rows" ]] || return 0
+  while IFS=$'\t' read -r source key mine theirs; do
+    if [[ "$source" == kit ]]; then
+      hc_warn ".vscode/settings.json overrides the dev container: $key = $mine (container: $theirs) — remove it there, or set it under [vscode] in $POLICY_FILE_NAME"
+    else
+      personal="${personal:+$personal, }$key"
+    fi
+  done <<< "$rows"
+  [[ -n "$personal" ]] && hc_info ".vscode/settings.json overrides your own VS Code settings here: $personal (personal preferences belong in your user settings)"
+  return 0
 }
 
 # End of a deploy/refresh: verify the result; a critical failure makes the run exit 1.

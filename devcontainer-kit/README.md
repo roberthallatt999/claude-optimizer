@@ -26,6 +26,19 @@ they switch on (`integrations/*.conf`, or private ones in
 `~/.config/ai-config/devcontainer/integrations/`). Nothing in the kit names an organization. Setup,
 settings and the integration format: [docs/guides/sandbox.md](../docs/guides/sandbox.md).
 
+## 2.1.0
+
+- `[vscode]` in `ai-config.conf` adds or removes extensions (`+id`, `-id`) and sets VS Code settings
+  per project (`key = <JSON>`, `lang: key = <JSON>`), merged over the kit's in `devcontainer.json`
+  (`vscode_policy.py`). A new publisher's download hosts go through the widening confirmation.
+  Isolation settings (`git.terminalAuthentication`, `github.gitAuthentication`, terminal env and
+  profiles, `http.*`, `remote.*`, `dev.containers.*`, `security.*`) are locked, and Claude Code can't
+  be removed.
+- `--vscode-overrides` lists what the project's `.vscode/settings.json` changes from the container,
+  from the developer's own settings, and personal preferences it sets. `ai-config --doctor` reports
+  it and never edits the file.
+- The isolation settings now come last in `customizations.vscode.settings`.
+
 ## 2.0.0
 
 - Renamed `ai-devcontainer`; `cps-devcontainer.py` is a one-release wrapper.

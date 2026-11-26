@@ -1,14 +1,10 @@
 {
-  // Editor Settings
+  // Editor Settings (codebase conventions only: rulers, wrapping and other personal
+  // preferences belong in your own user settings, which apply here and in dev containers)
   "editor.formatOnSave": true,
   "editor.tabSize": 2,
   "editor.insertSpaces": true,
   "editor.detectIndentation": true,
-  "editor.wordWrap": "on",
-  "editor.rulers": [80, 120],
-  "editor.renderWhitespace": "boundary",
-  "editor.bracketPairColorization.enabled": true,
-  "editor.guides.bracketPairs": true,
   "editor.codeActionsOnSave": {
     "source.fixAll.eslint": "explicit"
   },

@@ -1,14 +1,10 @@
 {
-  // Editor Settings
+  // Editor Settings (codebase conventions only: rulers, wrapping and other personal
+  // preferences belong in your own user settings, which apply here and in dev containers)
   "editor.formatOnSave": true,
   "editor.tabSize": 4,
   "editor.insertSpaces": true,
   "editor.detectIndentation": true,
-  "editor.wordWrap": "on",
-  "editor.rulers": [80, 120],
-  "editor.renderWhitespace": "boundary",
-  "editor.bracketPairColorization.enabled": true,
-  "editor.guides.bracketPairs": true,
 
   // PHP Settings
   "[php]": {
@@ -52,7 +48,7 @@
     "**/.DS_Store": true
   },
   "files.associations": {
-    "*.html": "html"
+    "**/user/templates/**/*.html": "expressionengine"
   },
 
   // Search Settings
@@ -66,12 +62,12 @@
 
   // Emmet Settings for EE Templates
   "emmet.includeLanguages": {
-    "html": "html"
+    "expressionengine": "html"
   },
 
   // Tailwind CSS Settings (if using Tailwind)
   "tailwindCSS.includeLanguages": {
-    "html": "html"
+    "expressionengine": "html"
   },
   "tailwindCSS.emmetCompletions": true,
 

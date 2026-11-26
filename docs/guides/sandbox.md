@@ -157,6 +157,41 @@ The relay on the Mac checks the name (no IPs, wildcards, schemes or paths), show
 `~/.cache/ai-devcontainer/relay/relay.log`. The proxy picks it up within 15 seconds and the command
 reloads the firewall. Claude can ask for a domain but never grant one: both lists are read-only inside.
 
+## VS Code extensions and settings
+
+VS Code applies settings in three layers inside a container, later ones winning:
+
+| Layer | Where | What belongs there |
+| --- | --- | --- |
+| User | Your Mac's own `settings.json` | Personal preferences: rulers, wrapping, whitespace, theme, git safety. VS Code applies them in every container window too, so set them once there |
+| Remote | `.devcontainer/devcontainer.json` (`customizations.vscode`) | The kit's choices for the codebase (extensions, formatters picked from what the repo requires, template file associations), then the project's `[vscode]` section |
+| Workspace | The project's `.vscode/settings.json` | Wins over both. Usually gitignored and never refreshed, so a stale copy silently undoes the other two |
+
+To change the container for one project, add `[vscode]` to `ai-config.conf`. It's committed, so it
+survives a fresh clone, and a refresh never overwrites it. Editing `devcontainer.json` would stop it
+getting kit updates.
+
+```ini
+[vscode]
+extensions = +streetsidesoftware.code-spell-checker, -usernamehw.errorlens
+editor.wordWrap = "on"                 # the value is JSON; a bare word (lf) is a string
+twig: editor.formatOnSave = true       # language-specific: "[twig]": { ... }
+```
+
+- `+` (or no sign) adds an extension and `-` leaves one out. Claude Code can't be removed. Each new
+  publisher's download hosts (`<publisher>.gallerycdn.vsassets.io`) are allowed, and a refresh that
+  adds one asks first like any other widening.
+- Settings merge with the kit's, a `[lang]` object member by member. Keys keep their case.
+- Locked, so a project can't set them: `git.terminalAuthentication`, `github.gitAuthentication`,
+  `terminal.integrated.env.*`, terminal profiles and shells, `http.*`, `remote.*`, `dev.containers.*`
+  and `security.*`. They keep the container away from the Mac's logins and network.
+- A malformed line is reported and skipped; the rest still applies.
+
+`ai-config --doctor` compares the project's `.vscode/settings.json` with both other layers. It
+warns about each setting that overrides the container, and lists the ones that override your own
+settings or set a personal preference. It never changes the file. Remove those keys yourself, or move
+codebase settings into `[vscode]`. The stack templates no longer ship personal preferences.
+
 ## Updating
 
 `ai-config --refresh` regenerates every file you haven't edited. An edited file is kept and its new
